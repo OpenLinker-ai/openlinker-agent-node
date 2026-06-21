@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	openlinker "github.com/kinzhi/openlinker-go"
@@ -19,6 +20,7 @@ type RuntimePullConnector struct {
 	StopOnEmpty  bool
 	HTTPClient   *http.Client
 
+	mu        sync.RWMutex
 	connector *openlinker.RuntimePullConnector
 }
 
@@ -38,26 +40,26 @@ func (c *RuntimePullConnector) Start(ctx context.Context, handlers ConnectorHand
 		return err
 	}
 	connector := openlinker.NewRuntimePullConnector(client)
+	c.applyDefaults()
 	connector.Wait = c.Wait
 	connector.Heartbeat = c.Heartbeat
 	connector.EmptyRetry = c.EmptyRetry
 	connector.MaxRuns = c.MaxRuns
 	connector.StopOnEmpty = c.StopOnEmpty
+	c.setConnector(connector)
 	if err := connector.Start(ctx, sdkRuntimeHandlers(handlers)); err != nil {
+		c.setConnector(nil)
 		return err
 	}
-	c.Wait = connector.Wait
-	c.Heartbeat = connector.Heartbeat
-	c.EmptyRetry = connector.EmptyRetry
-	c.connector = connector
 	return nil
 }
 
 func (c *RuntimePullConnector) Stop(ctx context.Context) error {
-	if c.connector == nil {
+	connector := c.currentConnector()
+	if connector == nil {
 		return nil
 	}
-	return c.connector.Stop(ctx)
+	return connector.Stop(ctx)
 }
 
 func (c *RuntimePullConnector) SendRunEvent(ctx context.Context, runID string, event RunEvent) error {
@@ -65,10 +67,11 @@ func (c *RuntimePullConnector) SendRunEvent(ctx context.Context, runID string, e
 }
 
 func (c *RuntimePullConnector) CompleteRun(ctx context.Context, runID string, result RunResult) error {
-	if c.connector == nil {
+	connector := c.currentConnector()
+	if connector == nil {
 		return fmt.Errorf("runtime pull connector is not started")
 	}
-	return c.connector.CompleteRun(ctx, runID, sdkRunResult(result))
+	return connector.CompleteRun(ctx, runID, sdkRunResult(result))
 }
 
 func (c *RuntimePullConnector) sdkClient() (*openlinker.Client, error) {
@@ -77,4 +80,28 @@ func (c *RuntimePullConnector) sdkClient() (*openlinker.Client, error) {
 		openlinker.WithRuntimeToken(c.RuntimeToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
 	)
+}
+
+func (c *RuntimePullConnector) applyDefaults() {
+	if c.Wait <= 0 {
+		c.Wait = 25 * time.Second
+	}
+	if c.Heartbeat <= 0 {
+		c.Heartbeat = 60 * time.Second
+	}
+	if c.EmptyRetry <= 0 {
+		c.EmptyRetry = 5 * time.Second
+	}
+}
+
+func (c *RuntimePullConnector) setConnector(connector *openlinker.RuntimePullConnector) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connector = connector
+}
+
+func (c *RuntimePullConnector) currentConnector() *openlinker.RuntimePullConnector {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connector
 }
