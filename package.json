@@ -1,0 +1,25 @@
+{
+  "name": "@openlinker/agent-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "openlinker-agent-node": "./bin/openlinker-agent-node.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./adapters": "./src/adapters/index.mjs"
+  },
+  "scripts": {
+    "start": "node ./bin/openlinker-agent-node.mjs",
+    "lint": "node ./scripts/check-syntax.mjs",
+    "test": "node --test ./test/*.test.mjs",
+    "check": "npm run lint && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
