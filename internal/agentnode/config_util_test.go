@@ -84,6 +84,32 @@ func TestNewFromEnvMapRuntimePullCommand(t *testing.T) {
 	}
 }
 
+func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
+	t.Setenv("OPENLINKER_API_BASE", "https://env.example.test")
+	t.Setenv("OPENLINKER_RUNTIME_TOKEN", "ol_live_env_process")
+	t.Setenv("OPENLINKER_AGENT_NODE_CONNECTOR", "runtime_pull")
+	t.Setenv("OPENLINKER_AGENT_NODE_ADAPTER", "command")
+	t.Setenv("OPENLINKER_AGENT_NODE_COMMAND", "/bin/echo")
+	t.Setenv("OPENLINKER_AGENT_NODE_ARGS", `["hello"]`)
+	t.Setenv("OPENLINKER_AGENT_NODE_CWD", "/tmp")
+	t.Setenv("OPENLINKER_AGENT_NODE_HELPER", "false")
+
+	node, err := NewFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.APIBase != "https://env.example.test" || node.RuntimeToken != "ol_live_env_process" {
+		t.Fatalf("node from env = %#v", node)
+	}
+	if _, ok := node.Connector.(*RuntimePullConnector); !ok {
+		t.Fatalf("connector = %T", node.Connector)
+	}
+	adapter, ok := node.Adapter.(CommandAdapter)
+	if !ok || adapter.Command != "/bin/echo" || strings.Join(adapter.Args, " ") != "hello" {
+		t.Fatalf("adapter = %#v (%T)", node.Adapter, node.Adapter)
+	}
+}
+
 func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                       "https://api.example.test",

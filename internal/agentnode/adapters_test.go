@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -109,6 +110,106 @@ func TestCodexAdapterMockAndPromptHelper(t *testing.T) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
+}
+
+func TestCodexAdapterExecutesCLIAndReadsSummary(t *testing.T) {
+	workspace := t.TempDir()
+	fakeCodex := writeFakeCodex(t, `#!/usr/bin/env bash
+set -euo pipefail
+out=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    out="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+stdin="$(cat)"
+printf "%s" "summary from file" > "$out"
+printf "%s" "$stdin" > "${out}.stdin"
+printf "%s" "stdout ignored"
+`)
+
+	output, err := (CodexAdapter{
+		CodexBin:  fakeCodex,
+		Workspace: workspace,
+		Sandbox:   "workspace-write",
+		Approval:  "never",
+		Model:     "gpt-5",
+		Timeout:   testTimeout,
+		Env:       []string{"PATH=/usr/bin:/bin"},
+	}).Run(context.Background(), JSONMap{"task": "use fake codex"}, RunContext{
+		RunID: "run-cli-codex",
+		Emit:  func(string, any) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := output.(JSONMap)
+	if out["summary"] != "summary from file" || out["codex_sandbox"] != "workspace-write" || out["codex_model"] != "gpt-5" {
+		t.Fatalf("codex output = %#v", out)
+	}
+	stdinPath := filepath.Join(os.TempDir(), "openlinker-codex-run-cli-codex.txt.stdin")
+	t.Cleanup(func() { _ = os.Remove(stdinPath) })
+	stdin, err := os.ReadFile(stdinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stdin), "OpenLinker run context") {
+		t.Fatalf("codex stdin missing prompt context:\n%s", stdin)
+	}
+}
+
+func TestCodexAdapterStdoutFallbackAndFailure(t *testing.T) {
+	workspace := t.TempDir()
+	stdoutCodex := writeFakeCodex(t, `#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+printf "%s" "summary from stdout"
+`)
+	output, err := (CodexAdapter{
+		CodexBin:  stdoutCodex,
+		Workspace: workspace,
+		Timeout:   testTimeout,
+		Env:       []string{"PATH=/usr/bin:/bin"},
+	}).Run(context.Background(), "stdout fallback", RunContext{
+		RunID: "run-cli-stdout",
+		Emit:  func(string, any) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.(JSONMap)["summary"] != "summary from stdout" {
+		t.Fatalf("stdout fallback output = %#v", output)
+	}
+
+	failingCodex := writeFakeCodex(t, `#!/usr/bin/env bash
+set -euo pipefail
+echo "fake failure" >&2
+exit 7
+`)
+	_, err = (CodexAdapter{
+		CodexBin:  failingCodex,
+		Workspace: workspace,
+		Timeout:   testTimeout,
+		Env:       []string{"PATH=/usr/bin:/bin"},
+	}).Run(context.Background(), "fail", RunContext{
+		RunID: "run-cli-fail",
+		Emit:  func(string, any) {},
+	})
+	if err == nil || !strings.Contains(err.Error(), "fake failure") {
+		t.Fatalf("failure error = %v", err)
+	}
+}
+
+func writeFakeCodex(t *testing.T, script string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-codex")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func testHelperInfo() *HelperInfo {
