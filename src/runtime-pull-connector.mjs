@@ -30,18 +30,23 @@ export class RuntimePullConnector {
     this.handlers = {};
     this.processed = 0;
     this.abort = new AbortController();
+    this.loopPromise = null;
   }
 
   async start(handlers = {}) {
     this.handlers = handlers;
     this.shouldRun = true;
     this.abort = new AbortController();
-    void this.loop();
+    this.loopPromise = this.loop().catch((error) => {
+      if (isAbortError(error) && !this.shouldRun) return;
+      this.handlers.onError?.(error);
+    });
   }
 
   async stop() {
     this.shouldRun = false;
     this.abort.abort();
+    await this.loopPromise;
   }
 
   async loop() {
@@ -115,6 +120,10 @@ export class RuntimePullConnector {
     }
     return { res, json, status: res.status };
   }
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
 }
 
 function normalizeClaim(claim) {
