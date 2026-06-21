@@ -1,14 +1,14 @@
 package agentnode
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
+
+	openlinker "github.com/kinzhi/openlinker-go"
 )
 
 type RuntimePullConnector struct {
@@ -78,41 +78,53 @@ func (c *RuntimePullConnector) Stop(ctx context.Context) error {
 }
 
 func (c *RuntimePullConnector) loop() error {
+	client, err := c.sdkClient()
+	if err != nil {
+		return err
+	}
 	lastHeartbeat := time.Time{}
 	for c.ctx.Err() == nil && (c.MaxRuns == 0 || c.processed < c.MaxRuns) {
 		if time.Since(lastHeartbeat) >= c.Heartbeat {
-			_, _, _ = c.request(c.ctx, http.MethodPost, "/api/v1/agent-runtime/heartbeat", nil)
+			_, _ = client.HeartbeatAgent(c.ctx)
 			lastHeartbeat = time.Now()
 		}
-		status, body, res := c.request(c.ctx, http.MethodGet, fmt.Sprintf("/api/v1/agent-runtime/runs/claim?wait=%d", int(c.Wait.Seconds())), nil)
-		switch status {
-		case http.StatusOK:
-			assignment, err := assignmentFromClaim(body)
-			if err != nil {
-				return err
-			}
+
+		claimResult, err := client.ClaimRuntimeRunDetailed(c.ctx, openlinker.ClaimRuntimeRunParams{
+			WaitSeconds: int32(c.Wait.Seconds()),
+		})
+		if err == nil && claimResult != nil && claimResult.Run != nil {
 			if c.handlers.OnAssigned != nil {
-				c.handlers.OnAssigned(assignment)
+				c.handlers.OnAssigned(assignmentFromClaim(claimResult.Run))
 			}
 			c.processed++
-		case http.StatusNoContent:
+			continue
+		}
+		if err == nil {
 			if c.StopOnEmpty {
 				return nil
 			}
-			if err := sleepContext(c.ctx, retryAfterDuration(res, c.EmptyRetry)); err != nil {
+			if err := sleepContext(c.ctx, retryAfterFromClaimResult(claimResult, c.EmptyRetry)); err != nil {
 				return err
 			}
-		case http.StatusTooManyRequests:
-			if err := sleepContext(c.ctx, retryAfterDuration(res, c.EmptyRetry)); err != nil {
-				return err
+			continue
+		}
+
+		var sdkErr *openlinker.Error
+		if errors.As(err, &sdkErr) {
+			if sdkErr.StatusCode == http.StatusTooManyRequests {
+				if err := sleepContext(c.ctx, retryAfterFromSDKError(sdkErr, c.EmptyRetry)); err != nil {
+					return err
+				}
+				continue
 			}
-		default:
 			if c.handlers.OnError != nil {
-				c.handlers.OnError(fmt.Errorf("runtime pull claim returned %d: %v", status, body))
+				c.handlers.OnError(fmt.Errorf("runtime pull claim returned %d: %s", sdkErr.StatusCode, sdkErr.Message))
 			}
-			if err := sleepContext(c.ctx, c.EmptyRetry); err != nil {
-				return err
-			}
+		} else if c.handlers.OnError != nil {
+			c.handlers.OnError(err)
+		}
+		if err := sleepContext(c.ctx, c.EmptyRetry); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -123,59 +135,123 @@ func (c *RuntimePullConnector) SendRunEvent(ctx context.Context, runID string, e
 }
 
 func (c *RuntimePullConnector) CompleteRun(ctx context.Context, runID string, result RunResult) error {
-	body := JSONMap{
-		"status":      result.Status,
-		"output":      result.Output,
-		"events":      result.Events,
-		"error":       result.Error,
-		"duration_ms": result.DurationMS,
+	client, err := c.sdkClient()
+	if err != nil {
+		return err
 	}
-	status, jsonBody, _ := c.request(ctx, http.MethodPost, "/api/v1/agent-runtime/runs/"+url.PathEscape(runID)+"/result", body)
-	if status != http.StatusOK {
-		return fmt.Errorf("runtime pull result returned %d: %v", status, jsonBody)
-	}
-	return nil
+	_, err = client.CompleteRuntimeRun(ctx, runID, openlinker.RuntimePullResultRequest{
+		Status:     result.Status,
+		Output:     result.Output,
+		Events:     sdkEventsFromRunEvents(result.Events),
+		Error:      sdkErrorFromAgentError(result.Error),
+		DurationMS: int32(result.DurationMS),
+	})
+	return err
 }
 
-func (c *RuntimePullConnector) request(ctx context.Context, method, pathName string, body any) (int, any, *http.Response) {
-	var reader *bytes.Reader
-	if body != nil {
-		encoded, _ := json.Marshal(body)
-		reader = bytes.NewReader(encoded)
-	} else {
-		reader = bytes.NewReader(nil)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, joinAPIPath(c.APIBase, pathName), reader)
-	if err != nil {
-		return 0, JSONMap{"error": err.Error()}, nil
-	}
-	req.Header.Set("authorization", "Bearer "+c.RuntimeToken)
-	if body != nil {
-		req.Header.Set("content-type", "application/json")
-	}
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return 0, JSONMap{"error": err.Error()}, nil
-	}
-	jsonBody, _ := readJSONResponse(res)
-	return res.StatusCode, jsonBody, res
+func (c *RuntimePullConnector) sdkClient() (*openlinker.Client, error) {
+	return openlinker.NewClient(
+		c.APIBase,
+		openlinker.WithRuntimeToken(c.RuntimeToken),
+		openlinker.WithHTTPClient(c.HTTPClient),
+	)
 }
 
-func assignmentFromClaim(body any) (Assignment, error) {
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return Assignment{}, err
+func assignmentFromClaim(claim *openlinker.RuntimePullRunResponse) Assignment {
+	return Assignment{
+		Type:           "run.assigned",
+		RunID:          claim.RunID,
+		AgentID:        claim.AgentID,
+		Input:          claim.Input,
+		Metadata:       jsonMapFromAny(claim.Metadata),
+		Source:         claim.Source,
+		ResultEndpoint: claim.ResultEndpoint,
+		ResultMethod:   claim.ResultMethod,
+		ResultRequired: claim.ResultRequired,
+		A2A:            jsonMapFromA2A(claim.A2A),
 	}
-	var assignment Assignment
-	if err := json.Unmarshal(encoded, &assignment); err != nil {
-		return Assignment{}, err
+}
+
+func jsonMapFromA2A(a2a *openlinker.AgentA2AContext) JSONMap {
+	if a2a == nil {
+		return nil
 	}
-	assignment.Type = "run.assigned"
-	return assignment, nil
+	out := JSONMap{}
+	if a2a.CurrentRunID != "" {
+		out["current_run_id"] = a2a.CurrentRunID
+	}
+	if a2a.ParentRunID != "" {
+		out["parent_run_id"] = a2a.ParentRunID
+	}
+	if a2a.CallerAgentID != "" {
+		out["caller_agent_id"] = a2a.CallerAgentID
+	}
+	if a2a.CallAgentEndpoint != "" {
+		out["call_agent_endpoint"] = a2a.CallAgentEndpoint
+	}
+	if a2a.CallAgentMethod != "" {
+		out["call_agent_method"] = a2a.CallAgentMethod
+	}
+	if a2a.RuntimeTokenType != "" {
+		out["runtime_token_type"] = a2a.RuntimeTokenType
+	}
+	if len(a2a.RuntimeScopes) > 0 {
+		out["runtime_scopes"] = a2a.RuntimeScopes
+	}
+	return out
+}
+
+func jsonMapFromAny(value any) JSONMap {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case JSONMap:
+		return typed
+	case map[string]any:
+		return JSONMap(typed)
+	case openlinker.JSON:
+		return JSONMap(typed)
+	default:
+		return nil
+	}
+}
+
+func sdkEventsFromRunEvents(events []RunEvent) []openlinker.AgentEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]openlinker.AgentEvent, 0, len(events))
+	for _, event := range events {
+		out = append(out, openlinker.AgentEvent{
+			EventType: event.EventType,
+			Payload:   event.Payload,
+		})
+	}
+	return out
+}
+
+func sdkErrorFromAgentError(agentErr *AgentError) *openlinker.AgentError {
+	if agentErr == nil {
+		return nil
+	}
+	return &openlinker.AgentError{
+		Code:    agentErr.Code,
+		Message: agentErr.Message,
+	}
+}
+
+func retryAfterFromSDKError(err *openlinker.Error, fallback time.Duration) time.Duration {
+	if err != nil && err.RetryAfter > 0 {
+		return err.RetryAfter
+	}
+	return fallback
+}
+
+func retryAfterFromClaimResult(result *openlinker.ClaimRuntimeRunResult, fallback time.Duration) time.Duration {
+	if result != nil && result.RetryAfter > 0 {
+		return result.RetryAfter
+	}
+	return fallback
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {

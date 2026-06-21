@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	openlinker "github.com/kinzhi/openlinker-go"
 )
 
 type AgentA2AClient struct {
@@ -21,42 +23,37 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 	if targetAgentID == "" {
 		return nil, fmt.Errorf("targetAgentID is required")
 	}
-	endpoint := options.Endpoint
-	if endpoint == "" {
-		endpoint = "/api/v1/agent-runtime/call-agent"
-	}
-	body := JSONMap{
-		"current_run_id":  currentRunID,
-		"target_agent_id": targetAgentID,
-		"reason":          options.Reason,
-		"input":           input,
-	}
-	if options.Metadata != nil {
-		body["metadata"] = options.Metadata
-	}
-	encoded, err := json.Marshal(body)
+	client, err := openlinker.NewClient(
+		c.APIBase,
+		openlinker.WithRuntimeToken(c.RuntimeToken),
+		openlinker.WithHTTPClient(c.HTTPClient),
+	)
 	if err != nil {
 		return nil, err
 	}
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinAPIPath(c.APIBase, endpoint), bytes.NewReader(encoded))
+	resp, err := client.CallAgentAt(ctx, options.Endpoint, openlinker.CallAgentRequest{
+		CurrentRunID:  currentRunID,
+		TargetAgentID: targetAgentID,
+		Reason:        options.Reason,
+		Input:         input,
+		Metadata:      options.Metadata,
+	})
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("authorization", "Bearer "+c.RuntimeToken)
-	req.Header.Set("content-type", "application/json")
-	res, err := client.Do(req)
+	return runResponseToJSONMap(resp)
+}
+
+func runResponseToJSONMap(resp *openlinker.RunResponse) (map[string]any, error) {
+	encoded, err := json.Marshal(resp)
 	if err != nil {
 		return nil, err
 	}
-	jsonBody, _ := readJSONResponse(res)
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("A2A call failed with HTTP %d: %v", res.StatusCode, jsonBody)
+	var body map[string]any
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		return nil, err
 	}
-	return jsonBody, nil
+	return body, nil
 }
 
 type PublicA2AClient struct {
