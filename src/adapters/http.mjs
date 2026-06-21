@@ -1,5 +1,6 @@
 import { AgentNodeError } from "../errors.mjs";
 import { readJSONResponse } from "../util.mjs";
+import { buildAdapterEnvelope } from "./envelope.mjs";
 
 export function createHTTPAdapter({
   url,
@@ -21,12 +22,7 @@ export function createHTTPAdapter({
             "content-type": "application/json",
           },
           signal: controller.signal,
-          body: JSON.stringify({
-            input,
-            run_id: ctx.runId,
-            metadata: ctx.metadata,
-            a2a: ctx.a2a,
-          }),
+          body: JSON.stringify(buildAdapterEnvelope(input, ctx)),
         });
         const json = await readJSONResponse(res);
         if (!res.ok) {

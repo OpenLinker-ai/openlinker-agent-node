@@ -2,7 +2,7 @@ import { AgentA2AClient } from "./a2a-client.mjs";
 import { normalizeError } from "./errors.mjs";
 
 export class AgentNode {
-  constructor({ connector, adapter, apiBase, runtimeToken, logger = console } = {}) {
+  constructor({ connector, adapter, apiBase, runtimeToken, helper = null, logger = console } = {}) {
     if (!connector) throw new Error("connector is required");
     if (!adapter) throw new Error("adapter is required");
     if (!apiBase) throw new Error("apiBase is required");
@@ -11,6 +11,7 @@ export class AgentNode {
     this.adapter = adapter;
     this.apiBase = apiBase;
     this.runtimeToken = runtimeToken;
+    this.helper = helper;
     this.logger = logger;
     this.queue = [];
     this.processing = false;
@@ -19,6 +20,7 @@ export class AgentNode {
 
   async start() {
     this.stopped = false;
+    await this.helper?.start?.();
     await this.connector.start({
       onAssigned: async (assignment) => this.enqueue(assignment),
       onReady: (message) => this.logger.info?.("agent node ready", message.agent_id ?? ""),
@@ -29,6 +31,7 @@ export class AgentNode {
   async stop() {
     this.stopped = true;
     await this.connector.stop?.();
+    await this.helper?.stop?.();
   }
 
   async enqueue(assignment) {
@@ -53,6 +56,10 @@ export class AgentNode {
     const startedAt = Date.now();
     const bufferedEvents = [];
     const ctx = this.createContext(assignment, bufferedEvents);
+    const helperSession = this.helper?.createSession?.({ runId: assignment.run_id, ctx });
+    if (helperSession) {
+      ctx.helper = helperSession.clientInfo;
+    }
     try {
       const raw = await this.adapter.run(assignment.input ?? {}, ctx);
       const normalized = normalizeAdapterResult(raw);
@@ -70,6 +77,8 @@ export class AgentNode {
         events: this.connector.supportsLiveEvents ? [] : bufferedEvents,
         duration_ms: Math.max(1, Date.now() - startedAt),
       });
+    } finally {
+      helperSession?.close?.();
     }
   }
 

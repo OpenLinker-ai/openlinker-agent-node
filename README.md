@@ -52,7 +52,7 @@ OPENLINKER_AGENT_NODE_MODULE=./agent.mjs
 
 ### http
 
-POSTs to a local backend, useful for Xiaolongxia-style local services.
+POSTs to a local backend, useful for OpenClaw/Xiaolongxia-style local services.
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=http
@@ -114,3 +114,43 @@ export async function handle(input, ctx) {
 
 The node supplies `current_run_id` from the assigned run context and uses the
 runtime token. Backends do not manage parent run IDs.
+
+For `http`, `command`, and `codex` adapters, Agent Node enables a localhost
+helper by default. The backend receives `agent_node.helper` in its JSON envelope
+and command backends also receive:
+
+```bash
+OPENLINKER_AGENT_NODE_HELPER_URL
+OPENLINKER_AGENT_NODE_HELPER_TOKEN
+OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL
+OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL
+```
+
+Call another Agent:
+
+```bash
+curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL" \
+  -H "Authorization: Bearer $OPENLINKER_AGENT_NODE_HELPER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"target_agent_id":"target-agent-uuid","reason":"delegate","input":{"query":"hello"}}'
+```
+
+Emit progress:
+
+```bash
+curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
+  -H "Authorization: Bearer $OPENLINKER_AGENT_NODE_HELPER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"event_type":"run.message.delta","payload":{"text":"working"}}'
+```
+
+The helper token is local and run-scoped. The real runtime token stays inside
+Agent Node.
+
+Helper settings:
+
+```bash
+OPENLINKER_AGENT_NODE_HELPER=auto   # auto | true | false
+OPENLINKER_AGENT_NODE_HELPER_HOST=127.0.0.1
+OPENLINKER_AGENT_NODE_HELPER_PORT=0
+```

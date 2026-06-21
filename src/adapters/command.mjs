@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { AgentNodeError } from "../errors.mjs";
+import { buildAdapterEnvelope, helperEnv } from "./envelope.mjs";
 
 export function createCommandAdapter({
   command,
@@ -11,16 +12,14 @@ export function createCommandAdapter({
   if (!command) throw new AgentNodeError("command is required", { code: "ADAPTER_CONFIG_ERROR" });
   return {
     async run(input, ctx) {
-      const payload = JSON.stringify({
-        input,
-        run_id: ctx.runId,
-        metadata: ctx.metadata,
-        a2a: ctx.a2a,
-      });
+      const payload = JSON.stringify(buildAdapterEnvelope(input, ctx));
       const startedAt = Date.now();
       const child = spawn(command, args, {
         cwd,
-        env: sanitizedEnv(env),
+        env: {
+          ...sanitizedEnv(env),
+          ...helperEnv(ctx),
+        },
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stdout = "";

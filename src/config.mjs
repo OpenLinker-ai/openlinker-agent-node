@@ -1,4 +1,5 @@
 import { AgentNode } from "./node.mjs";
+import { LocalHelperServer } from "./local-helper-server.mjs";
 import { RuntimePullConnector } from "./runtime-pull-connector.mjs";
 import { RuntimeWSConnector } from "./runtime-ws-connector.mjs";
 import {
@@ -12,13 +13,16 @@ import { boolOption, numberOption, parseJSONOption } from "./util.mjs";
 export async function createAgentNodeFromEnv(env = process.env) {
   const apiBase = env.OPENLINKER_API_BASE ?? env.OPENLINKER_API_ROOT?.replace(/\/api\/v1\/?$/, "");
   const runtimeToken = env.OPENLINKER_RUNTIME_TOKEN;
+  const adapterMode = env.OPENLINKER_AGENT_NODE_ADAPTER ?? "module";
   const connector = createConnectorFromEnv(env, { apiBase, runtimeToken });
   const adapter = await createAdapterFromEnv(env);
+  const helper = createLocalHelperFromEnv(env, { adapterMode });
   return new AgentNode({
     apiBase,
     runtimeToken,
     connector,
     adapter,
+    helper,
   });
 }
 
@@ -77,4 +81,22 @@ export async function createAdapterFromEnv(env = process.env) {
     default:
       throw new Error(`unsupported OPENLINKER_AGENT_NODE_ADAPTER=${adapter}`);
   }
+}
+
+export function createLocalHelperFromEnv(env = process.env, { adapterMode = env.OPENLINKER_AGENT_NODE_ADAPTER ?? "module" } = {}) {
+  const mode = (env.OPENLINKER_AGENT_NODE_HELPER ?? "auto").toLowerCase();
+  const enabled = mode === "auto"
+    ? ["http", "command", "codex"].includes(adapterMode)
+    : parseHelperBoolean(mode);
+  if (!enabled) return null;
+  return new LocalHelperServer({
+    host: env.OPENLINKER_AGENT_NODE_HELPER_HOST ?? "127.0.0.1",
+    port: numberOption(env.OPENLINKER_AGENT_NODE_HELPER_PORT, 0, "OPENLINKER_AGENT_NODE_HELPER_PORT"),
+  });
+}
+
+function parseHelperBoolean(value) {
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  throw new Error(`invalid OPENLINKER_AGENT_NODE_HELPER=${value}; use auto, true, or false`);
 }
