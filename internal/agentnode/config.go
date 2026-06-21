@@ -1,0 +1,199 @@
+package agentnode
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
+
+type Env map[string]string
+type EnvLookup func(string) string
+
+func NewFromEnv() (*Node, error) {
+	return NewFromLookup(os.Getenv)
+}
+
+func NewFromEnvMap(env Env) (*Node, error) {
+	return NewFromLookup(func(key string) string {
+		return env[key]
+	})
+}
+
+func NewFromLookup(get EnvLookup) (*Node, error) {
+	apiBase := get("OPENLINKER_API_BASE")
+	if apiBase == "" {
+		apiBase = strings.TrimSuffix(get("OPENLINKER_API_ROOT"), "/api/v1")
+	}
+	runtimeToken := get("OPENLINKER_RUNTIME_TOKEN")
+	connector, err := connectorFromEnv(get, apiBase, runtimeToken)
+	if err != nil {
+		return nil, err
+	}
+	adapterMode := get("OPENLINKER_AGENT_NODE_ADAPTER")
+	if adapterMode == "" {
+		adapterMode = inferAdapterMode(get)
+	}
+	adapter, err := adapterFromEnv(get, adapterMode)
+	if err != nil {
+		return nil, err
+	}
+	helper, err := helperFromEnv(get, adapterMode)
+	if err != nil {
+		return nil, err
+	}
+	return &Node{
+		APIBase:      apiBase,
+		RuntimeToken: runtimeToken,
+		Connector:    connector,
+		Adapter:      adapter,
+		Helper:       helper,
+	}, nil
+}
+
+func connectorFromEnv(get EnvLookup, apiBase, runtimeToken string) (Connector, error) {
+	mode := get("OPENLINKER_AGENT_NODE_CONNECTOR")
+	if mode == "" {
+		mode = "runtime_ws"
+	}
+	switch mode {
+	case "runtime_pull":
+		waitSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS"), 25, "OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS")
+		if err != nil {
+			return nil, err
+		}
+		heartbeatSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), 60, "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
+		if err != nil {
+			return nil, err
+		}
+		maxRuns, err := numberOption(get("OPENLINKER_AGENT_NODE_MAX_RUNS"), 0, "OPENLINKER_AGENT_NODE_MAX_RUNS")
+		if err != nil {
+			return nil, err
+		}
+		return &RuntimePullConnector{
+			APIBase:      apiBase,
+			RuntimeToken: runtimeToken,
+			Wait:         time.Duration(waitSeconds) * time.Second,
+			Heartbeat:    time.Duration(heartbeatSeconds) * time.Second,
+			MaxRuns:      maxRuns,
+			StopOnEmpty:  boolOption(get("OPENLINKER_AGENT_NODE_STOP_ON_EMPTY"), false),
+			EmptyRetry:   5 * time.Second,
+		}, nil
+	case "runtime_ws":
+		return &RuntimeWSConnector{
+			APIBase:      apiBase,
+			RuntimeToken: runtimeToken,
+			Reconnect:    boolOption(get("OPENLINKER_AGENT_NODE_RECONNECT"), true),
+			ReconnectMin: 500 * time.Millisecond,
+			ReconnectMax: 10 * time.Second,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_CONNECTOR=%s", mode)
+	}
+}
+
+func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
+	timeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 15*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
+	if err != nil {
+		return nil, err
+	}
+	switch mode {
+	case "http", "openclaw":
+		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_HTTP_HEADERS"), "OPENLINKER_AGENT_NODE_HTTP_HEADERS")
+		if err != nil {
+			return nil, err
+		}
+		return HTTPAdapter{
+			URL:     get("OPENLINKER_AGENT_NODE_HTTP_URL"),
+			Headers: headers,
+			Timeout: time.Duration(timeout) * time.Millisecond,
+		}, nil
+	case "command":
+		args, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_ARGS"), "OPENLINKER_AGENT_NODE_ARGS")
+		if err != nil {
+			return nil, err
+		}
+		cwd := get("OPENLINKER_AGENT_NODE_CWD")
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		return CommandAdapter{
+			Command: get("OPENLINKER_AGENT_NODE_COMMAND"),
+			Args:    args,
+			CWD:     cwd,
+			Timeout: time.Duration(timeout) * time.Millisecond,
+		}, nil
+	case "codex":
+		codexTimeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 30*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
+		if err != nil {
+			return nil, err
+		}
+		return CodexAdapter{
+			CodexBin:     defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),
+			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CODEX_WORKSPACE"), mustGetwd()),
+			Sandbox:      defaultString(get("OPENLINKER_AGENT_NODE_CODEX_SANDBOX"), "read-only"),
+			Approval:     defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
+			Model:        get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
+			Timeout:      time.Duration(codexTimeout) * time.Millisecond,
+			MockResponse: get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
+		}, nil
+	case "module":
+		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, or codex")
+	default:
+		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_ADAPTER=%s", mode)
+	}
+}
+
+func helperFromEnv(get EnvLookup, adapterMode string) (*LocalHelperServer, error) {
+	mode := strings.ToLower(defaultString(get("OPENLINKER_AGENT_NODE_HELPER"), "auto"))
+	enabled := false
+	switch mode {
+	case "auto":
+		enabled = adapterMode == "http" || adapterMode == "openclaw" || adapterMode == "command" || adapterMode == "codex"
+	case "1", "true", "yes", "on":
+		enabled = true
+	case "0", "false", "no", "off":
+		enabled = false
+	default:
+		return nil, fmt.Errorf("invalid OPENLINKER_AGENT_NODE_HELPER=%s; use auto, true, or false", mode)
+	}
+	if !enabled {
+		return nil, nil
+	}
+	port, err := numberOption(get("OPENLINKER_AGENT_NODE_HELPER_PORT"), 0, "OPENLINKER_AGENT_NODE_HELPER_PORT")
+	if err != nil {
+		return nil, err
+	}
+	return &LocalHelperServer{
+		Host: defaultString(get("OPENLINKER_AGENT_NODE_HELPER_HOST"), "127.0.0.1"),
+		Port: port,
+	}, nil
+}
+
+func inferAdapterMode(get EnvLookup) string {
+	if get("OPENLINKER_AGENT_NODE_HTTP_URL") != "" {
+		return "http"
+	}
+	if get("OPENLINKER_AGENT_NODE_COMMAND") != "" {
+		return "command"
+	}
+	if get("OPENLINKER_AGENT_NODE_CODEX_WORKSPACE") != "" || get("OPENLINKER_AGENT_NODE_CODEX_BIN") != "" {
+		return "codex"
+	}
+	return "http"
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func mustGetwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}

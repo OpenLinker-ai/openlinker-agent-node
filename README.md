@@ -21,41 +21,43 @@ The preferred order is:
 
 ```bash
 cd openlinker-agent-node
-npm install
+go test ./...
+go build ./cmd/openlinker-agent-node
 
 OPENLINKER_API_BASE=https://api.openlinker.ai \
 OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
-OPENLINKER_AGENT_NODE_ADAPTER=module \
-OPENLINKER_AGENT_NODE_MODULE=./my-agent.mjs \
-npm start
+OPENLINKER_AGENT_NODE_ADAPTER=openclaw \
+OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
+go run ./cmd/openlinker-agent-node
 ```
 
-`my-agent.mjs`:
+The local HTTP backend receives an envelope:
 
-```js
-export async function handle(input, ctx) {
-  ctx.emit("run.message.delta", { text: "working" });
-  return { ok: true, input };
+```json
+{
+  "input": { "query": "..." },
+  "run_id": "run uuid",
+  "metadata": {},
+  "a2a": {},
+  "agent_node": {
+    "helper": {
+      "endpoints": {
+        "call_agent": "http://127.0.0.1:12345/a2a/call",
+        "events": "http://127.0.0.1:12345/events"
+      }
+    }
+  }
 }
 ```
 
 ## Adapter Modes
 
-### module
-
-Loads a local ESM module.
-
-```bash
-OPENLINKER_AGENT_NODE_ADAPTER=module
-OPENLINKER_AGENT_NODE_MODULE=./agent.mjs
-```
-
-### http
+### http / openclaw
 
 POSTs to a local backend, useful for OpenClaw/Xiaolongxia-style local services.
 
 ```bash
-OPENLINKER_AGENT_NODE_ADAPTER=http
+OPENLINKER_AGENT_NODE_ADAPTER=openclaw
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run
 ```
 
@@ -65,7 +67,7 @@ Runs a local command and writes the task envelope to stdin.
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=command
-OPENLINKER_AGENT_NODE_COMMAND=xiaolongxia
+OPENLINKER_AGENT_NODE_COMMAND=/usr/local/bin/xiaolongxia
 OPENLINKER_AGENT_NODE_ARGS='["run","--json"]'
 ```
 
@@ -99,18 +101,6 @@ OPENLINKER_AGENT_NODE_CONNECTOR=runtime_pull
 ## A2A Delegation
 
 Backends can call another Agent while processing a run:
-
-```js
-export async function handle(input, ctx) {
-  const child = await ctx.callAgent("target-agent-uuid", {
-    query: input.query,
-  }, {
-    reason: "delegate search",
-  });
-
-  return { child };
-}
-```
 
 The node supplies `current_run_id` from the assigned run context and uses the
 runtime token. Backends do not manage parent run IDs.
