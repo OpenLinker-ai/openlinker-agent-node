@@ -171,13 +171,35 @@ func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	if err != nil || headers["x"] != "y" {
 		t.Fatalf("parseJSONMap = %#v, %v", headers, err)
 	}
+	if headers, err := parseJSONMap("", "TEST_HEADERS"); err != nil || headers != nil {
+		t.Fatalf("parseJSONMap empty = %#v, %v", headers, err)
+	}
+	if _, err := parseJSONMap("not-json", "TEST_HEADERS"); err == nil {
+		t.Fatal("expected parseJSONMap invalid JSON error")
+	}
+	if got := joinAPIPath("https://example.test/api/v1/", "agents"); got != "https://example.test/api/v1/agents" {
+		t.Fatalf("joinAPIPath relative = %q", got)
+	}
+	if got := joinAPIPath("https://example.test/api/v1", "https://other.test/run"); got != "https://other.test/run" {
+		t.Fatalf("joinAPIPath absolute = %q", got)
+	}
 	wsURL, err := websocketURL("https://example.test/api/v1/", "/agent-runtime/ws")
 	if err != nil || wsURL != "wss://example.test/api/v1/agent-runtime/ws" {
 		t.Fatalf("websocketURL = %q, %v", wsURL, err)
 	}
+	wsURL, err = websocketURL("http://example.test/api/v1", "agent-runtime/ws")
+	if err != nil || wsURL != "ws://example.test/api/v1/agent-runtime/ws" {
+		t.Fatalf("websocketURL http = %q, %v", wsURL, err)
+	}
 	res := &http.Response{Header: http.Header{"Retry-After": []string{"3"}}}
 	if retryAfterDuration(res, time.Second) != 3*time.Second {
 		t.Fatal("retryAfterDuration did not parse seconds")
+	}
+	if retryAfterDuration(nil, 2*time.Second) != 2*time.Second {
+		t.Fatal("retryAfterDuration nil response should use fallback")
+	}
+	if retryAfterDuration(&http.Response{Header: http.Header{}}, time.Second) != time.Second {
+		t.Fatal("retryAfterDuration empty header should use fallback")
 	}
 	if retryAfterDuration(&http.Response{Header: http.Header{"Retry-After": []string{"bad"}}}, time.Second) != time.Second {
 		t.Fatal("retryAfterDuration should fall back on invalid values")
@@ -185,9 +207,16 @@ func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	if stringFromMap(JSONMap{"answer": 123}, "answer") != "123" {
 		t.Fatal("stringFromMap should stringify values")
 	}
+	if stringFromMap(JSONMap{"answer": nil}, "answer") != "" || stringFromMap(JSONMap{}, "missing") != "" {
+		t.Fatal("stringFromMap should return empty string for nil or missing values")
+	}
 	body, err := readJSONResponse(&http.Response{Body: io.NopCloser(strings.NewReader("not-json"))})
 	if err != nil || len(body.(JSONMap)) != 0 {
 		t.Fatalf("readJSONResponse invalid body = %#v, %v", body, err)
+	}
+	body, err = readJSONResponse(&http.Response{Body: io.NopCloser(strings.NewReader("null"))})
+	if err != nil || len(body.(JSONMap)) != 0 {
+		t.Fatalf("readJSONResponse null body = %#v, %v", body, err)
 	}
 }
 
@@ -205,6 +234,26 @@ func TestNormalizeAdapterResultBranches(t *testing.T) {
 	if output["answer"] != "ok" {
 		t.Fatalf("output = %#v", output)
 	}
+	withOutput := normalizeAdapterResult(map[string]any{
+		"status": "failed",
+		"output": JSONMap{"reason": "bad input"},
+	})
+	if withOutput.Status != "failed" || withOutput.Output.(JSONMap)["reason"] != "bad input" {
+		t.Fatalf("withOutput = %#v", withOutput)
+	}
+	if got := normalizeAdapterResult(AdapterResult{Output: JSONMap{"ok": true}}); got.Status != "success" || got.Output.(JSONMap)["ok"] != true {
+		t.Fatalf("typed adapter result = %#v", got)
+	}
+	typed := &AdapterResult{Status: "success", Output: "done"}
+	if got := normalizeAdapterResult(typed); got.Output != "done" {
+		t.Fatalf("pointer adapter result = %#v", got)
+	}
+	if got := normalizeAdapterResult((*AdapterResult)(nil)); got.Status != "success" || len(got.Output.(JSONMap)) != 0 {
+		t.Fatalf("nil pointer adapter result = %#v", got)
+	}
+	if got := normalizeAdapterResult("plain output"); got.Status != "success" || got.Output != "plain output" {
+		t.Fatalf("raw adapter result = %#v", got)
+	}
 	filled := fillAdapterDefaults(AdapterResult{Error: &AgentError{Code: "BAD", Message: "bad"}})
 	if filled.Status != "success" || filled.Output != nil {
 		t.Fatalf("filled = %#v", filled)
@@ -218,8 +267,20 @@ func TestNormalizeAdapterResultBranches(t *testing.T) {
 	if len(eventsFromAny([]RunEvent{{EventType: "done"}})) != 1 {
 		t.Fatal("eventsFromAny should preserve typed events")
 	}
-	if normalizeMetadata("not-a-map") == nil {
-		t.Fatal("normalizeMetadata should return an empty map")
+	if len(eventsFromAny("not-events")) != 0 {
+		t.Fatal("eventsFromAny should ignore unsupported values")
+	}
+	if len(normalizeMetadata(nil)) != 0 {
+		t.Fatal("normalizeMetadata nil should return an empty map")
+	}
+	if got := normalizeMetadata(JSONMap{"x": "y"}); got["x"] != "y" {
+		t.Fatalf("normalizeMetadata JSONMap = %#v", got)
+	}
+	if got := normalizeMetadata(map[string]any{"x": "y"}); got["x"] != "y" {
+		t.Fatalf("normalizeMetadata map = %#v", got)
+	}
+	if len(normalizeMetadata("not-a-map")) != 0 {
+		t.Fatal("normalizeMetadata should return an empty map for unsupported values")
 	}
 }
 
