@@ -3,6 +3,9 @@ package agentnode
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +76,53 @@ func TestCommandAdapterPassesHelper(t *testing.T) {
 	}
 	if out["call_agent_url"] != "http://127.0.0.1:19090/a2a/call" {
 		t.Fatalf("call_agent_url = %v", out["call_agent_url"])
+	}
+}
+
+func TestAdapterErrorBranches(t *testing.T) {
+	if _, err := (HTTPAdapter{}).Run(context.Background(), JSONMap{"q": "missing"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "HTTP_URL") {
+		t.Fatalf("missing HTTP url error = %v", err)
+	}
+	if _, err := (HTTPAdapter{URL: "://bad"}).Run(context.Background(), JSONMap{"q": "bad-url"}, RunContext{}); err == nil {
+		t.Fatal("expected invalid HTTP URL error")
+	}
+	if _, err := (HTTPAdapter{
+		URL: "https://adapter.example/run",
+		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("dial failed")
+		}),
+	}).Run(context.Background(), JSONMap{"q": "dial"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "dial failed") {
+		t.Fatalf("HTTP client error = %v", err)
+	}
+	if _, err := (HTTPAdapter{
+		URL: "https://adapter.example/run",
+		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
+			return adapterHTTPResponse(http.StatusBadGateway, `{"error":"bad gateway"}`), nil
+		}),
+	}).Run(context.Background(), JSONMap{"q": "bad-status"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("HTTP status error = %v", err)
+	}
+	output, err := (HTTPAdapter{
+		URL: "https://adapter.example/run",
+		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
+			return adapterHTTPResponse(http.StatusOK, `{"answer":"ok"}`), nil
+		}),
+	}).Run(context.Background(), JSONMap{"q": "raw-json"}, RunContext{})
+	if err != nil || output.(map[string]any)["answer"] != "ok" {
+		t.Fatalf("HTTP raw output = %#v, %v", output, err)
+	}
+
+	if _, err := (CommandAdapter{}).Run(context.Background(), JSONMap{"q": "missing"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "COMMAND") {
+		t.Fatalf("missing command error = %v", err)
+	}
+	env := sanitizedEnv([]string{
+		"NO_EQUALS",
+		"OPENLINKER_RUNTIME_TOKEN=secret",
+		"OPENLINKER_PUBLIC_HOST=example.test",
+		"NORMAL=value",
+	})
+	if strings.Join(env, ",") != "OPENLINKER_PUBLIC_HOST=example.test,NORMAL=value" {
+		t.Fatalf("sanitized env = %#v", env)
 	}
 }
 
@@ -210,6 +260,24 @@ func writeFakeCodex(t *testing.T, script string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+type adapterRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f adapterRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func adapterHTTPClient(fn func(*http.Request) (*http.Response, error)) *http.Client {
+	return &http.Client{Transport: adapterRoundTripper(fn)}
+}
+
+func adapterHTTPResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
 
 func testHelperInfo() *HelperInfo {

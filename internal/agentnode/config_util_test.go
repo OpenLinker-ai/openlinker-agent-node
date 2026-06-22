@@ -318,6 +318,59 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 	if err := (&RuntimePullConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
 		t.Fatal("Start should require runtime token")
 	}
+	if err := (&RuntimeWSConnector{}).Start(context.Background(), ConnectorHandlers{}); err == nil {
+		t.Fatal("RuntimeWSConnector Start should require API base")
+	}
+	if err := (&RuntimeWSConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
+		t.Fatal("RuntimeWSConnector Start should require runtime token")
+	}
+	if err := (&RuntimeWSConnector{}).SendRunEvent(context.Background(), "run-id", RunEvent{EventType: "noop"}); err == nil {
+		t.Fatal("RuntimeWSConnector SendRunEvent should require Start")
+	}
+	if err := (&RuntimeWSConnector{}).CompleteRun(context.Background(), "run-id", RunResult{Status: "success"}); err == nil {
+		t.Fatal("RuntimeWSConnector CompleteRun should require Start")
+	}
+	if err := (&RuntimeWSConnector{}).Stop(context.Background()); err != nil {
+		t.Fatalf("RuntimeWSConnector Stop without start = %v", err)
+	}
+	if _, err := connectorFromEnv(func(key string) string {
+		if key == "OPENLINKER_AGENT_NODE_CONNECTOR" {
+			return "bad"
+		}
+		return ""
+	}, "https://example.test", "ol_live"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported connector error = %v", err)
+	}
+	if _, err := adapterFromEnv(func(string) string { return "" }, "module"); err == nil || !strings.Contains(err.Error(), "module adapter") {
+		t.Fatalf("module adapter error = %v", err)
+	}
+	if _, err := adapterFromEnv(func(string) string { return "" }, "bad"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported adapter error = %v", err)
+	}
+	if _, err := adapterFromEnv(func(key string) string {
+		if key == "OPENLINKER_AGENT_NODE_TIMEOUT_MS" {
+			return "-1"
+		}
+		return ""
+	}, "http"); err == nil || !strings.Contains(err.Error(), "OPENLINKER_AGENT_NODE_TIMEOUT_MS") {
+		t.Fatalf("invalid adapter timeout error = %v", err)
+	}
+	if _, err := helperFromEnv(func(key string) string {
+		if key == "OPENLINKER_AGENT_NODE_HELPER" {
+			return "surprise"
+		}
+		return ""
+	}, "http"); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("invalid helper mode error = %v", err)
+	}
+	if _, err := helperFromEnv(func(key string) string {
+		if key == "OPENLINKER_AGENT_NODE_HELPER_PORT" {
+			return "-1"
+		}
+		return ""
+	}, "http"); err == nil || !strings.Contains(err.Error(), "OPENLINKER_AGENT_NODE_HELPER_PORT") {
+		t.Fatalf("invalid helper port error = %v", err)
+	}
 	defaultPull := &RuntimePullConnector{}
 	defaultPull.applyDefaults()
 	if defaultPull.Wait != 25*time.Second || defaultPull.Heartbeat != time.Minute || defaultPull.EmptyRetry != 5*time.Second {
