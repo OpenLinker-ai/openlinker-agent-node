@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,6 +125,93 @@ func TestNodeRuntimeWSHTTPBackendHelperDelegation(t *testing.T) {
 	})
 	if status != http.StatusUnauthorized {
 		t.Fatalf("expired helper status = %d", status)
+	}
+}
+
+func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
+	var connections int32
+	wsMessages := make(chan map[string]any, 8)
+	upgrader := websocket.Upgrader{}
+
+	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agent-runtime/ws" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("authorization"); got != "Bearer ol_live_reconnect" {
+			t.Errorf("authorization = %q", got)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		connectionID := atomic.AddInt32(&connections, 1)
+		go func() {
+			defer conn.Close()
+			if connectionID == 1 {
+				_ = conn.WriteJSON(JSONMap{"type": "runtime.ready", "agent_id": "agent-reconnect"})
+				return
+			}
+			_ = conn.WriteJSON(JSONMap{
+				"type":     "run.assigned",
+				"run_id":   "run-reconnect",
+				"agent_id": "agent-reconnect",
+				"input":    JSONMap{"task": "after reconnect"},
+				"a2a": JSONMap{
+					"current_run_id": "run-reconnect",
+				},
+			})
+			for {
+				var msg map[string]any
+				if err := conn.ReadJSON(&msg); err != nil {
+					return
+				}
+				wsMessages <- msg
+				if msg["type"] == "run.result" {
+					return
+				}
+			}
+		}()
+	}))
+	defer platform.Close()
+
+	node := &Node{
+		APIBase:      platform.URL,
+		RuntimeToken: "ol_live_reconnect",
+		Connector: &RuntimeWSConnector{
+			APIBase:      platform.URL,
+			RuntimeToken: "ol_live_reconnect",
+			Reconnect:    true,
+			ReconnectMin: time.Millisecond,
+			ReconnectMax: 5 * time.Millisecond,
+		},
+		Adapter: AdapterFunc(func(ctx context.Context, input any, runCtx RunContext) (any, error) {
+			runCtx.Emit("run.message.delta", JSONMap{"text": "handled after reconnect"})
+			payload := input.(map[string]any)
+			return JSONMap{"handled": payload["task"]}, nil
+		}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := node.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	event := waitForMessage(t, wsMessages, "run.event")
+	result := waitForMessage(t, wsMessages, "run.result")
+	if atomic.LoadInt32(&connections) < 2 {
+		t.Fatalf("connections = %d", connections)
+	}
+	if payload := event["payload"].(map[string]any); payload["text"] != "handled after reconnect" {
+		t.Fatalf("event = %#v", event)
+	}
+	output := result["output"].(map[string]any)
+	if output["handled"] != "after reconnect" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

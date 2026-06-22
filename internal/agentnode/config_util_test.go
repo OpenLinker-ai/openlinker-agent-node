@@ -303,6 +303,28 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 	if err := (&RuntimePullConnector{}).SendRunEvent(context.Background(), "run-id", RunEvent{EventType: "noop"}); err != nil {
 		t.Fatalf("SendRunEvent = %v", err)
 	}
+	if err := (&RuntimePullConnector{}).CompleteRun(context.Background(), "run-id", RunResult{Status: "success"}); err == nil {
+		t.Fatal("CompleteRun should fail before the pull connector is started")
+	}
+	if err := (&RuntimePullConnector{}).Stop(context.Background()); err != nil {
+		t.Fatalf("Stop without start = %v", err)
+	}
+	if err := (&RuntimePullConnector{}).Start(context.Background(), ConnectorHandlers{}); err == nil {
+		t.Fatal("Start should require API base")
+	}
+	if err := (&RuntimePullConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
+		t.Fatal("Start should require runtime token")
+	}
+	defaultPull := &RuntimePullConnector{}
+	defaultPull.applyDefaults()
+	if defaultPull.Wait != 25*time.Second || defaultPull.Heartbeat != time.Minute || defaultPull.EmptyRetry != 5*time.Second {
+		t.Fatalf("runtime pull defaults = wait %s heartbeat %s empty %s", defaultPull.Wait, defaultPull.Heartbeat, defaultPull.EmptyRetry)
+	}
+	customPull := &RuntimePullConnector{Wait: time.Millisecond, Heartbeat: 2 * time.Millisecond, EmptyRetry: 3 * time.Millisecond}
+	customPull.applyDefaults()
+	if customPull.Wait != time.Millisecond || customPull.Heartbeat != 2*time.Millisecond || customPull.EmptyRetry != 3*time.Millisecond {
+		t.Fatalf("runtime pull custom timings were overwritten: %#v", customPull)
+	}
 	if err := sleepContext(context.Background(), time.Nanosecond); err != nil {
 		t.Fatalf("sleepContext short duration = %v", err)
 	}
@@ -364,12 +386,17 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	defer helper.Stop(context.Background())
 
 	emitted := 0
+	var delegated CallAgentOptions
 	runCtx := &RunContext{
 		RunID: "run-helper",
 		Emit: func(eventType string, payload any) {
 			emitted++
 		},
 		CallAgent: func(ctx context.Context, targetAgentID string, input any, options CallAgentOptions) (any, error) {
+			if targetAgentID == "agent-fail" {
+				return nil, fmt.Errorf("delegate failed")
+			}
+			delegated = options
 			return JSONMap{"target_agent_id": targetAgentID, "ok": true}, nil
 		},
 	}
@@ -377,12 +404,15 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	defer session.Close()
 
 	assertHelperStatus(t, http.MethodGet, session.Info.Endpoints.Events, session.Info.Token, nil, http.StatusMethodNotAllowed)
+	assertHelperStatus(t, http.MethodGet, session.Info.Endpoints.CallAgent, session.Info.Token, nil, http.StatusMethodNotAllowed)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.Events, "", JSONMap{"event_type": "run.message.delta"}, http.StatusUnauthorized)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, "", JSONMap{"target_agent_id": "agent-child"}, http.StatusUnauthorized)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.Events, session.Info.Token, JSONMap{
 		"run_id":     "other-run",
 		"event_type": "run.message.delta",
 	}, http.StatusConflict)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.Events, session.Info.Token, JSONMap{}, http.StatusBadRequest)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, "not-json", http.StatusBadRequest)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{}, http.StatusBadRequest)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"run_id":          "other-run",
@@ -391,13 +421,22 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"target_agent_id": "agent-child",
 		"input":           JSONMap{"q": "hello"},
+		"reason":          "chain",
+		"metadata":        JSONMap{"trace": "helper"},
+		"endpoint":        "/custom/a2a/call",
 	}, http.StatusOK)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
+		"target_agent_id": "agent-fail",
+	}, http.StatusBadGateway)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.Events, session.Info.Token, JSONMap{
 		"event_type": "run.message.delta",
 		"payload":    JSONMap{"text": "ok"},
 	}, http.StatusOK)
 	if emitted != 1 {
 		t.Fatalf("emitted = %d", emitted)
+	}
+	if delegated.Reason != "chain" || delegated.Endpoint != "/custom/a2a/call" || delegated.Metadata.(map[string]any)["trace"] != "helper" {
+		t.Fatalf("delegated options = %#v", delegated)
 	}
 }
 
