@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	openlinker "github.com/kinzhi/openlinker-go"
@@ -15,9 +16,11 @@ type RuntimeWSConnector struct {
 	Reconnect    bool
 	ReconnectMin time.Duration
 	ReconnectMax time.Duration
+	Heartbeat    time.Duration
 	Dialer       openlinker.WebSocketDialer
 	HTTPClient   *http.Client
 
+	mu        sync.RWMutex
 	connector *openlinker.RuntimeWSConnector
 }
 
@@ -44,36 +47,56 @@ func (c *RuntimeWSConnector) Start(ctx context.Context, handlers ConnectorHandle
 	connector.Reconnect = c.Reconnect
 	connector.ReconnectMin = c.ReconnectMin
 	connector.ReconnectMax = c.ReconnectMax
+	connector.Heartbeat = c.Heartbeat
 	connector.Dialer = c.Dialer
+	c.setConnector(connector)
 	if err := connector.Start(ctx, sdkRuntimeHandlers(handlers)); err != nil {
+		c.setConnector(nil)
 		return err
 	}
+	c.mu.Lock()
 	c.ReconnectMin = connector.ReconnectMin
 	c.ReconnectMax = connector.ReconnectMax
-	c.connector = connector
+	c.Heartbeat = connector.Heartbeat
+	c.mu.Unlock()
 	return nil
 }
 
 func (c *RuntimeWSConnector) Stop(ctx context.Context) error {
-	if c.connector == nil {
+	connector := c.currentConnector()
+	if connector == nil {
 		return nil
 	}
-	return c.connector.Stop(ctx)
+	return connector.Stop(ctx)
 }
 
 func (c *RuntimeWSConnector) SendRunEvent(ctx context.Context, runID string, event RunEvent) error {
-	if c.connector == nil {
+	connector := c.currentConnector()
+	if connector == nil {
 		return fmt.Errorf("runtime websocket connector is not started")
 	}
-	return c.connector.SendRunEvent(ctx, runID, openlinker.AgentEvent{
+	return connector.SendRunEvent(ctx, runID, openlinker.AgentEvent{
 		EventType: event.EventType,
 		Payload:   event.Payload,
 	})
 }
 
 func (c *RuntimeWSConnector) CompleteRun(ctx context.Context, runID string, result RunResult) error {
-	if c.connector == nil {
+	connector := c.currentConnector()
+	if connector == nil {
 		return fmt.Errorf("runtime websocket connector is not started")
 	}
-	return c.connector.CompleteRun(ctx, runID, sdkRunResult(result))
+	return connector.CompleteRun(ctx, runID, sdkRunResult(result))
+}
+
+func (c *RuntimeWSConnector) setConnector(connector *openlinker.RuntimeWSConnector) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connector = connector
+}
+
+func (c *RuntimeWSConnector) currentConnector() *openlinker.RuntimeWSConnector {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connector
 }

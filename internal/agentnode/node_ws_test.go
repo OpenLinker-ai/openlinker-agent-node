@@ -155,6 +155,16 @@ func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
 				_ = conn.WriteJSON(JSONMap{"type": "runtime.ready", "agent_id": "agent-reconnect"})
 				return
 			}
+			for {
+				var msg map[string]any
+				if err := conn.ReadJSON(&msg); err != nil {
+					return
+				}
+				wsMessages <- msg
+				if msg["type"] == "heartbeat" {
+					break
+				}
+			}
 			_ = conn.WriteJSON(JSONMap{
 				"type":     "run.assigned",
 				"run_id":   "run-reconnect",
@@ -187,6 +197,7 @@ func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
 			Reconnect:    true,
 			ReconnectMin: time.Millisecond,
 			ReconnectMax: 5 * time.Millisecond,
+			Heartbeat:    time.Millisecond,
 		},
 		Adapter: AdapterFunc(func(ctx context.Context, input any, runCtx RunContext) (any, error) {
 			runCtx.Emit("run.message.delta", JSONMap{"text": "handled after reconnect"})
@@ -201,10 +212,14 @@ func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
 	}
 	defer node.Stop(context.Background())
 
+	heartbeat := waitForMessage(t, wsMessages, "heartbeat")
 	event := waitForMessage(t, wsMessages, "run.event")
 	result := waitForMessage(t, wsMessages, "run.result")
 	if atomic.LoadInt32(&connections) < 2 {
 		t.Fatalf("connections = %d", connections)
+	}
+	if heartbeat["id"] == "" {
+		t.Fatalf("heartbeat = %#v", heartbeat)
 	}
 	if payload := event["payload"].(map[string]any); payload["text"] != "handled after reconnect" {
 		t.Fatalf("event = %#v", event)

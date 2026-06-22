@@ -80,12 +80,17 @@ func connectorFromEnv(get EnvLookup, apiBase, runtimeToken string) (Connector, e
 			EmptyRetry:   5 * time.Second,
 		}, nil
 	case "runtime_ws":
+		heartbeatSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), 60, "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
+		if err != nil {
+			return nil, err
+		}
 		return &RuntimeWSConnector{
 			APIBase:      apiBase,
 			RuntimeToken: runtimeToken,
 			Reconnect:    boolOption(get("OPENLINKER_AGENT_NODE_RECONNECT"), true),
 			ReconnectMin: 500 * time.Millisecond,
 			ReconnectMax: 10 * time.Second,
+			Heartbeat:    time.Duration(heartbeatSeconds) * time.Second,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_CONNECTOR=%s", mode)

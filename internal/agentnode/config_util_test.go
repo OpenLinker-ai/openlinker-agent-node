@@ -35,6 +35,9 @@ func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
 	if ws.Reconnect {
 		t.Fatal("expected reconnect=false")
 	}
+	if ws.Heartbeat != time.Minute {
+		t.Fatalf("ws heartbeat = %s", ws.Heartbeat)
+	}
 	adapter, ok := node.Adapter.(HTTPAdapter)
 	if !ok {
 		t.Fatalf("adapter = %T", node.Adapter)
