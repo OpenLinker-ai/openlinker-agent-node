@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	openlinker "github.com/kinzhi/openlinker-go"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 type AgentA2AClient struct {

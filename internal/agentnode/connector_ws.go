@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	openlinker "github.com/kinzhi/openlinker-go"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 type RuntimeWSConnector struct {

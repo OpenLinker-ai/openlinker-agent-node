@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kinzhi/openlinker-agent-node/internal/agentnode"
+	"github.com/OpenLinker-ai/openlinker-agent-node/internal/agentnode"
 	"github.com/stretchr/testify/require"
 )
 

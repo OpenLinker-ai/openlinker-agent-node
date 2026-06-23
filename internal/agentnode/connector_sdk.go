@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	openlinker "github.com/kinzhi/openlinker-go"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func sdkRuntimeHandlers(handlers ConnectorHandlers) openlinker.RuntimeHandlers {

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	openlinker "github.com/kinzhi/openlinker-go"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func TestSDKRuntimeHandlersBridgeCallbacks(t *testing.T) {

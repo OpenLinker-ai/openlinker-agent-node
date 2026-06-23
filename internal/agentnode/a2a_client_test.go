@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	openlinker "github.com/kinzhi/openlinker-go"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func TestAgentA2AClientCallAgent(t *testing.T) {
