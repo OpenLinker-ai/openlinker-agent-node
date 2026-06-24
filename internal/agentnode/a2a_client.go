@@ -37,11 +37,32 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 		Reason:        options.Reason,
 		Input:         input,
 		Metadata:      options.Metadata,
+		TaskCallback:  openlinkerTaskCallback(options.TaskCallback),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return runResponseToJSONMap(resp)
+}
+
+func openlinkerTaskCallback(cfg *TaskCallbackConfig) *openlinker.TaskCallbackConfig {
+	if cfg == nil {
+		return nil
+	}
+	var auth *openlinker.TaskCallbackAuthentication
+	if cfg.Authentication != nil {
+		auth = &openlinker.TaskCallbackAuthentication{
+			Scheme:      cfg.Authentication.Scheme,
+			Credentials: cfg.Authentication.Credentials,
+		}
+	}
+	return &openlinker.TaskCallbackConfig{
+		URL:            cfg.URL,
+		Token:          cfg.Token,
+		Authentication: auth,
+		Metadata:       cfg.Metadata,
+		EventTypes:     append([]string{}, cfg.EventTypes...),
+	}
 }
 
 func runResponseToJSONMap(resp *openlinker.RunResponse) (map[string]any, error) {

@@ -77,6 +77,20 @@ type CallAgentOptions struct {
 	Reason       string
 	Metadata     any
 	Endpoint     string
+	TaskCallback *TaskCallbackConfig
+}
+
+type TaskCallbackAuthentication struct {
+	Scheme      string `json:"scheme,omitempty"`
+	Credentials string `json:"credentials,omitempty"`
+}
+
+type TaskCallbackConfig struct {
+	URL            string                      `json:"url,omitempty"`
+	Token          string                      `json:"token,omitempty"`
+	Authentication *TaskCallbackAuthentication `json:"authentication,omitempty"`
+	Metadata       any                         `json:"metadata,omitempty"`
+	EventTypes     []string                    `json:"event_types,omitempty"`
 }
 
 type Adapter interface {

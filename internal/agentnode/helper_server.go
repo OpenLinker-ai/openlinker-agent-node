@@ -158,12 +158,16 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
-		RunID         string `json:"run_id"`
-		TargetAgentID string `json:"target_agent_id"`
-		Reason        string `json:"reason"`
-		Input         any    `json:"input"`
-		Metadata      any    `json:"metadata"`
-		Endpoint      string `json:"endpoint"`
+		RunID                     string              `json:"run_id"`
+		TargetAgentID             string              `json:"target_agent_id"`
+		Reason                    string              `json:"reason"`
+		Input                     any                 `json:"input"`
+		Metadata                  any                 `json:"metadata"`
+		Endpoint                  string              `json:"endpoint"`
+		TaskCallback              *TaskCallbackConfig `json:"task_callback"`
+		PushNotification          *TaskCallbackConfig `json:"push_notification"`
+		PushNotificationConfig    *TaskCallbackConfig `json:"pushNotificationConfig"`
+		PushNotificationShorthand *TaskCallbackConfig `json:"pushNotification"`
 	}
 	if err := decodeHelperJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_JSON", "message": err.Error()}})
@@ -177,10 +181,21 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_TARGET_AGENT", "message": "target_agent_id is required"}})
 		return
 	}
+	taskCallback := body.TaskCallback
+	if taskCallback == nil {
+		taskCallback = body.PushNotification
+	}
+	if taskCallback == nil {
+		taskCallback = body.PushNotificationConfig
+	}
+	if taskCallback == nil {
+		taskCallback = body.PushNotificationShorthand
+	}
 	result, err := session.runCtx.CallAgent(r.Context(), body.TargetAgentID, body.Input, CallAgentOptions{
-		Reason:   body.Reason,
-		Metadata: body.Metadata,
-		Endpoint: body.Endpoint,
+		Reason:       body.Reason,
+		Metadata:     body.Metadata,
+		Endpoint:     body.Endpoint,
+		TaskCallback: taskCallback,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, JSONMap{"error": JSONMap{"code": "A2A_CALL_FAILED", "message": err.Error()}})

@@ -480,6 +480,11 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 		"reason":          "chain",
 		"metadata":        JSONMap{"trace": "helper"},
 		"endpoint":        "/custom/a2a/call",
+		"task_callback": JSONMap{
+			"url":         "https://caller.example.com/a2a/events",
+			"token":       "caller-token",
+			"event_types": []string{"run.completed"},
+		},
 	}, http.StatusOK)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"target_agent_id": "agent-fail",
@@ -493,6 +498,19 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	}
 	if delegated.Reason != "chain" || delegated.Endpoint != "/custom/a2a/call" || delegated.Metadata.(map[string]any)["trace"] != "helper" {
 		t.Fatalf("delegated options = %#v", delegated)
+	}
+	if delegated.TaskCallback == nil || delegated.TaskCallback.URL != "https://caller.example.com/a2a/events" || delegated.TaskCallback.Token != "caller-token" {
+		t.Fatalf("delegated task callback = %#v", delegated.TaskCallback)
+	}
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
+		"target_agent_id": "agent-child",
+		"pushNotificationConfig": JSONMap{
+			"url":   "https://caller.example.com/a2a/protocol-events",
+			"token": "protocol-token",
+		},
+	}, http.StatusOK)
+	if delegated.TaskCallback == nil || delegated.TaskCallback.URL != "https://caller.example.com/a2a/protocol-events" || delegated.TaskCallback.Token != "protocol-token" {
+		t.Fatalf("delegated pushNotificationConfig callback = %#v", delegated.TaskCallback)
 	}
 }
 

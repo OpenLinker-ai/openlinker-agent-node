@@ -28,12 +28,24 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 	defer server.Close()
 
 	client := AgentA2AClient{APIBase: server.URL, RuntimeToken: "ol_live_test"}
-	result, err := client.CallAgent(context.Background(), "run-parent", "target-agent", JSONMap{"q": "hello"}, CallAgentOptions{Reason: "delegate"})
+	result, err := client.CallAgent(context.Background(), "run-parent", "target-agent", JSONMap{"q": "hello"}, CallAgentOptions{
+		Reason: "delegate",
+		TaskCallback: &TaskCallbackConfig{
+			URL:        "https://caller.example.com/a2a/events",
+			Token:      "caller-token",
+			EventTypes: []string{"run.completed", "run.failed"},
+			Metadata:   JSONMap{"client": "agent-node"},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if received["current_run_id"] != "run-parent" || received["target_agent_id"] != "target-agent" {
 		t.Fatalf("unexpected body: %#v", received)
+	}
+	push, ok := received["task_callback"].(map[string]any)
+	if !ok || push["url"] != "https://caller.example.com/a2a/events" || push["token"] != "caller-token" {
+		t.Fatalf("task_callback = %#v", received["task_callback"])
 	}
 	body := result.(map[string]any)
 	if body["run_id"] != "child-run" {
