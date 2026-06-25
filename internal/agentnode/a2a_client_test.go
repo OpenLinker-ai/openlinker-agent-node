@@ -33,6 +33,7 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 		TaskCallback: &TaskCallbackConfig{
 			URL:        "https://caller.example.com/a2a/events",
 			Token:      "caller-token",
+			Secret:     "caller-secret",
 			EventTypes: []string{"run.completed", "run.failed"},
 			Metadata:   JSONMap{"client": "agent-node"},
 		},
@@ -46,6 +47,9 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 	push, ok := received["task_callback"].(map[string]any)
 	if !ok || push["url"] != "https://caller.example.com/a2a/events" || push["token"] != "caller-token" {
 		t.Fatalf("task_callback = %#v", received["task_callback"])
+	}
+	if push["secret"] != "caller-secret" {
+		t.Fatalf("task_callback secret = %#v", push["secret"])
 	}
 	body := result.(map[string]any)
 	if body["run_id"] != "child-run" {

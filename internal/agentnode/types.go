@@ -88,6 +88,7 @@ type TaskCallbackAuthentication struct {
 type TaskCallbackConfig struct {
 	URL            string                      `json:"url,omitempty"`
 	Token          string                      `json:"token,omitempty"`
+	Secret         string                      `json:"secret,omitempty"`
 	Authentication *TaskCallbackAuthentication `json:"authentication,omitempty"`
 	Metadata       any                         `json:"metadata,omitempty"`
 	EventTypes     []string                    `json:"event_types,omitempty"`

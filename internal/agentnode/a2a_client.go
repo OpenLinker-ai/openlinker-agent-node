@@ -59,6 +59,7 @@ func openlinkerTaskCallback(cfg *TaskCallbackConfig) *openlinker.TaskCallbackCon
 	return &openlinker.TaskCallbackConfig{
 		URL:            cfg.URL,
 		Token:          cfg.Token,
+		Secret:         cfg.Secret,
 		Authentication: auth,
 		Metadata:       cfg.Metadata,
 		EventTypes:     append([]string{}, cfg.EventTypes...),
