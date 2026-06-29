@@ -3,8 +3,15 @@ module github.com/OpenLinker-ai/openlinker-agent-node
 go 1.25.0
 
 require (
-	github.com/gorilla/websocket v1.5.3
 	github.com/OpenLinker-ai/openlinker-go v0.0.0
+	github.com/gorilla/websocket v1.5.3
+	github.com/stretchr/testify v1.11.1
 )
 
-replace github.com/OpenLinker-ai/openlinker-go => ../packages/openlinker-go
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+replace github.com/OpenLinker-ai/openlinker-go => ../openlinker-sdk/openlinker-go

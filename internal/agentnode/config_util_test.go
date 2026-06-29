@@ -156,6 +156,34 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	}
 }
 
+func TestNewFromEnvMapA2AAdapter(t *testing.T) {
+	node, err := NewFromEnvMap(Env{
+		"OPENLINKER_API_BASE":                             "https://api.example.test",
+		"OPENLINKER_RUNTIME_TOKEN":                        "ol_live_a2a",
+		"OPENLINKER_AGENT_NODE_A2A_BASE_URL":              "http://127.0.0.1:9001/",
+		"OPENLINKER_AGENT_NODE_A2A_HEADERS":               `{"authorization":"Bearer local"}`,
+		"OPENLINKER_AGENT_NODE_A2A_ACCEPTED_OUTPUT_MODES": `["application/json"]`,
+		"OPENLINKER_AGENT_NODE_A2A_METHOD":                "message/send",
+		"OPENLINKER_AGENT_NODE_TIMEOUT_MS":                "120000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := node.Adapter.(A2AAdapter)
+	if !ok {
+		t.Fatalf("adapter = %T", node.Adapter)
+	}
+	if adapter.BaseURL != "http://127.0.0.1:9001/" || adapter.Headers["authorization"] != "Bearer local" {
+		t.Fatalf("a2a adapter = %#v", adapter)
+	}
+	if adapter.Timeout != 2*time.Minute || strings.Join(adapter.AcceptedOutputModes, ",") != "application/json" {
+		t.Fatalf("a2a adapter timing/modes = %#v", adapter)
+	}
+	if node.Helper != nil {
+		t.Fatalf("a2a adapter should not enable helper by default: %#v", node.Helper)
+	}
+}
+
 func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	if !boolOption("YES", false) || boolOption("off", true) || !boolOption("maybe", true) {
 		t.Fatal("boolOption returned an unexpected value")

@@ -113,6 +113,22 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Headers: headers,
 			Timeout: time.Duration(timeout) * time.Millisecond,
 		}, nil
+	case "a2a":
+		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_A2A_HEADERS"), "OPENLINKER_AGENT_NODE_A2A_HEADERS")
+		if err != nil {
+			return nil, err
+		}
+		modes, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_A2A_ACCEPTED_OUTPUT_MODES"), "OPENLINKER_AGENT_NODE_A2A_ACCEPTED_OUTPUT_MODES")
+		if err != nil {
+			return nil, err
+		}
+		return A2AAdapter{
+			BaseURL:             get("OPENLINKER_AGENT_NODE_A2A_BASE_URL"),
+			Headers:             headers,
+			Method:              defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), defaultA2AMessageMethod),
+			AcceptedOutputModes: modes,
+			Timeout:             time.Duration(timeout) * time.Millisecond,
+		}, nil
 	case "command":
 		args, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_ARGS"), "OPENLINKER_AGENT_NODE_ARGS")
 		if err != nil {
@@ -178,6 +194,9 @@ func helperFromEnv(get EnvLookup, adapterMode string) (*LocalHelperServer, error
 func inferAdapterMode(get EnvLookup) string {
 	if get("OPENLINKER_AGENT_NODE_HTTP_URL") != "" {
 		return "http"
+	}
+	if get("OPENLINKER_AGENT_NODE_A2A_BASE_URL") != "" {
+		return "a2a"
 	}
 	if get("OPENLINKER_AGENT_NODE_COMMAND") != "" {
 		return "command"
