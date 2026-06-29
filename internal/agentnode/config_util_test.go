@@ -458,9 +458,10 @@ func TestPublicA2AClientSendMessage(t *testing.T) {
 			"jsonrpc": "2.0",
 			"id":      received["id"],
 			"result": JSONMap{
-				"kind":   "task",
-				"id":     "task-public",
-				"status": JSONMap{"state": "completed"},
+				"task": JSONMap{
+					"id":     "task-public",
+					"status": JSONMap{"state": "completed"},
+				},
 			},
 		})
 	}))
@@ -473,6 +474,11 @@ func TestPublicA2AClientSendMessage(t *testing.T) {
 	}
 	if received["method"] != "SendMessage" {
 		t.Fatalf("body = %#v", received)
+	}
+	params := received["params"].(map[string]any)
+	message := params["message"].(map[string]any)
+	if message["role"] != "ROLE_USER" {
+		t.Fatalf("message role = %#v", message)
 	}
 	task, ok := result.(*openlinker.A2ATask)
 	if !ok || task.ID != "task-public" {

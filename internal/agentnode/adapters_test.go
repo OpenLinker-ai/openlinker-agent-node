@@ -176,10 +176,11 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 				"jsonrpc":"2.0",
 				"id":"msg-run-a2a",
 				"result":{
-					"kind":"task",
-					"id":"task-a2a",
-					"status":{"state":"TASK_STATE_COMPLETED"},
-					"artifacts":[{"parts":[{"kind":"text","text":"done from a2a"}]}]
+					"task":{
+						"id":"task-a2a",
+						"status":{"state":"TASK_STATE_COMPLETED"},
+						"artifacts":[{"parts":[{"text":"done from a2a"}]}]
+					}
 				}
 			}`), nil
 		}),
@@ -199,6 +200,9 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	message := params["message"].(map[string]any)
 	if _, ok := message["kind"]; ok {
 		t.Fatalf("current message should not include kind = %#v", message)
+	}
+	if message["role"] != "ROLE_USER" {
+		t.Fatalf("current message role = %#v", message)
 	}
 	parts := message["parts"].([]any)
 	part := parts[0].(map[string]any)

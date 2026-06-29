@@ -163,6 +163,13 @@ func a2aAdapterTaskState(value any) string {
 			return typed.Status.State
 		}
 	case map[string]any:
+		for _, key := range []string{"task", "statusUpdate", "artifactUpdate"} {
+			if nested, ok := typed[key]; ok {
+				if state := a2aAdapterTaskState(nested); state != "" {
+					return state
+				}
+			}
+		}
 		if status, ok := typed["status"]; ok {
 			return a2aAdapterTaskState(status)
 		}
