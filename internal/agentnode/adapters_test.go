@@ -124,6 +124,122 @@ func TestAdapterErrorBranches(t *testing.T) {
 	if strings.Join(env, ",") != "OPENLINKER_PUBLIC_HOST=example.test,NORMAL=value" {
 		t.Fatalf("sanitized env = %#v", env)
 	}
+
+	if _, err := (A2AAdapter{}).Run(context.Background(), JSONMap{"q": "missing"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "A2A_BASE_URL") {
+		t.Fatalf("missing A2A url error = %v", err)
+	}
+	if _, err := (A2AAdapter{
+		BaseURL: "://bad",
+	}).Run(context.Background(), JSONMap{"q": "bad-url"}, RunContext{}); err == nil {
+		t.Fatal("expected invalid A2A URL error")
+	}
+	if _, err := (A2AAdapter{
+		BaseURL: "https://a2a.example/",
+		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
+			return adapterHTTPResponse(http.StatusBadGateway, `{"error":"bad gateway"}`), nil
+		}),
+	}).Run(context.Background(), JSONMap{"q": "bad-status"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "HTTP_502") {
+		t.Fatalf("A2A status error = %v", err)
+	}
+	if _, err := (A2AAdapter{
+		BaseURL: "https://a2a.example/",
+		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
+			return adapterHTTPResponse(http.StatusOK, `{"jsonrpc":"2.0","error":{"code":-32603,"message":"boom"}}`), nil
+		}),
+	}).Run(context.Background(), JSONMap{"q": "rpc-error"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("A2A JSON-RPC error = %v", err)
+	}
+}
+
+func TestA2AAdapterMessageSend(t *testing.T) {
+	var received JSONMap
+	adapter := A2AAdapter{
+		BaseURL: "https://a2a.example/",
+		Token:   "local-agent",
+		Headers: map[string]string{
+			"x-a2a-agent": "node",
+		},
+		HTTPClient: adapterHTTPClient(func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("authorization") != "Bearer local-agent" || req.Header.Get("x-a2a-agent") != "node" {
+				t.Fatalf("headers = %#v", req.Header)
+			}
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(body, &received); err != nil {
+				t.Fatal(err)
+			}
+			return adapterHTTPResponse(http.StatusOK, `{
+				"jsonrpc":"2.0",
+				"id":"msg-run-a2a",
+				"result":{
+					"kind":"task",
+					"id":"task-a2a",
+					"status":{"state":"TASK_STATE_COMPLETED"},
+					"artifacts":[{"parts":[{"kind":"text","text":"done from a2a"}]}]
+				}
+			}`), nil
+		}),
+	}
+
+	raw, err := adapter.Run(context.Background(), JSONMap{"query": "hello a2a"}, RunContext{
+		RunID:  "run-a2a",
+		Source: "web",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received["method"] != "message/send" {
+		t.Fatalf("received rpc = %#v", received)
+	}
+	params := received["params"].(map[string]any)
+	message := params["message"].(map[string]any)
+	if message["kind"] != "message" {
+		t.Fatalf("message kind = %#v", message)
+	}
+	parts := message["parts"].([]any)
+	part := parts[0].(map[string]any)
+	if part["text"] != "hello a2a" {
+		t.Fatalf("message part = %#v", part)
+	}
+
+	result := raw.(AdapterResult)
+	if result.Status != "success" || len(result.Events) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	output := result.Output.(JSONMap)
+	if output["text"] != "done from a2a" {
+		t.Fatalf("output = %#v", output)
+	}
+}
+
+func TestA2AAdapterExplicitParamsAndFailedStatus(t *testing.T) {
+	adapter := A2AAdapter{
+		BaseURL: "https://a2a.example/",
+		HTTPClient: adapterHTTPClient(func(req *http.Request) (*http.Response, error) {
+			var received JSONMap
+			if err := json.NewDecoder(req.Body).Decode(&received); err != nil {
+				t.Fatal(err)
+			}
+			params := received["params"].(map[string]any)
+			if params["custom"] != "value" {
+				t.Fatalf("params = %#v", params)
+			}
+			return adapterHTTPResponse(http.StatusOK, `{
+				"jsonrpc":"2.0",
+				"result":{"kind":"task","status":{"state":"TASK_STATE_FAILED","message":{"parts":[{"kind":"text","text":"failed badly"}]}}}
+			}`), nil
+		}),
+	}
+	raw, err := adapter.Run(context.Background(), JSONMap{"a2a_params": JSONMap{"custom": "value"}}, RunContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := raw.(AdapterResult)
+	if result.Status != "failed" || result.Error == nil || !strings.Contains(result.Error.Message, "failed badly") {
+		t.Fatalf("failed result = %#v", result)
+	}
 }
 
 func TestCodexAdapterMockAndPromptHelper(t *testing.T) {

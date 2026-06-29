@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
@@ -153,6 +155,36 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 		"OPENLINKER_AGENT_NODE_COMMAND":   "openclaw",
 	}); err == nil || !strings.Contains(err.Error(), "JSON string array") {
 		t.Fatalf("args parse error = %v", err)
+	}
+}
+
+func TestNewFromEnvMapA2AAdapter(t *testing.T) {
+	node, err := NewFromEnvMap(Env{
+		"OPENLINKER_API_BASE":                             "https://api.example.test",
+		"OPENLINKER_RUNTIME_TOKEN":                        "ol_live_a2a",
+		"OPENLINKER_AGENT_NODE_A2A_BASE_URL":              "http://127.0.0.1:9001/",
+		"OPENLINKER_AGENT_NODE_A2A_TOKEN":                 "a2a-token",
+		"OPENLINKER_AGENT_NODE_A2A_HEADERS":               `{"x-a2a-agent":"local"}`,
+		"OPENLINKER_AGENT_NODE_A2A_ACCEPTED_OUTPUT_MODES": `["application/json"]`,
+		"OPENLINKER_AGENT_NODE_A2A_METHOD":                "SendMessage",
+		"OPENLINKER_AGENT_NODE_A2A_PROTOCOL_VERSION":      "1.0",
+		"OPENLINKER_AGENT_NODE_TIMEOUT_MS":                "120000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := node.Adapter.(A2AAdapter)
+	if !ok {
+		t.Fatalf("adapter = %T", node.Adapter)
+	}
+	if adapter.BaseURL != "http://127.0.0.1:9001/" || adapter.Token != "a2a-token" || adapter.Headers["x-a2a-agent"] != "local" {
+		t.Fatalf("a2a adapter = %#v", adapter)
+	}
+	if adapter.Method != "message/send" || adapter.Timeout != 2*time.Minute || strings.Join(adapter.AcceptedOutputModes, ",") != "application/json" {
+		t.Fatalf("a2a adapter timing/method = %#v", adapter)
+	}
+	if node.Helper != nil {
+		t.Fatalf("a2a adapter should not enable helper by default: %#v", node.Helper)
 	}
 }
 
@@ -403,7 +435,15 @@ func TestPublicA2AClientSendMessage(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 			t.Fatal(err)
 		}
-		writeJSON(w, http.StatusOK, JSONMap{"jsonrpc": "2.0", "result": JSONMap{"ok": true}})
+		writeJSON(w, http.StatusOK, JSONMap{
+			"jsonrpc": "2.0",
+			"id":      received["id"],
+			"result": JSONMap{
+				"kind":   "task",
+				"id":     "task-public",
+				"status": JSONMap{"state": "completed"},
+			},
+		})
 	}))
 	defer server.Close()
 
@@ -412,10 +452,11 @@ func TestPublicA2AClientSendMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if received["method"] != "SendMessage" {
+	if received["method"] != "message/send" {
 		t.Fatalf("body = %#v", received)
 	}
-	if result.(map[string]any)["result"] == nil {
+	task, ok := result.(*openlinker.A2ATask)
+	if !ok || task.ID != "task-public" {
 		t.Fatalf("result = %#v", result)
 	}
 }

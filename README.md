@@ -71,6 +71,26 @@ OPENLINKER_AGENT_NODE_COMMAND=/usr/local/bin/xiaolongxia
 OPENLINKER_AGENT_NODE_ARGS='["run","--json"]'
 ```
 
+### a2a
+
+Forwards assigned OpenLinker runs to a local or remote A2A JSON-RPC Agent. Use
+this when the backend already speaks A2A and Agent Node only needs to keep the
+runtime connection open for NAT or private-network deployment.
+
+```bash
+OPENLINKER_API_BASE=https://api.openlinker.ai \
+OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
+OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
+OPENLINKER_AGENT_NODE_ADAPTER=a2a \
+OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc \
+OPENLINKER_AGENT_NODE_A2A_METHOD=message/send \
+go run ./cmd/openlinker-agent-node
+```
+
+By default, Agent Node builds a blocking A2A `message/send` request from
+`input.text`, `input.query`, `input.task`, or `input.prompt`. To pass raw A2A
+params, set `input.a2a_params` or `input.params`.
+
 ### codex
 
 Runs Codex non-interactively. Keep this adapter in an isolated workspace.
