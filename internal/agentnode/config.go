@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 type Env map[string]string
@@ -124,9 +126,11 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		}
 		return A2AAdapter{
 			BaseURL:             get("OPENLINKER_AGENT_NODE_A2A_BASE_URL"),
+			Token:               get("OPENLINKER_AGENT_NODE_A2A_TOKEN"),
 			Headers:             headers,
-			Method:              defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), defaultA2AMessageMethod),
+			Method:              openlinker.NormalizeA2AJSONRPCMethod(defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), openlinker.A2AMethodMessageSend)),
 			AcceptedOutputModes: modes,
+			ProtocolVersion:     get("OPENLINKER_AGENT_NODE_A2A_PROTOCOL_VERSION"),
 			Timeout:             time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "command":

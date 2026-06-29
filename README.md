@@ -73,24 +73,23 @@ OPENLINKER_AGENT_NODE_ARGS='["run","--json"]'
 
 ### a2a
 
-Calls a local or remote A2A-compatible Agent over JSON-RPC `message/send`.
-This is useful when the backend already exposes `/.well-known/agent-card.json`
-and A2A task endpoints, but OpenLinker should still own runs, events, workflow,
-and delivery.
+Forwards assigned OpenLinker runs to a local or remote A2A JSON-RPC Agent. Use
+this when the backend already speaks A2A and Agent Node only needs to keep the
+runtime connection open for NAT or private-network deployment.
 
 ```bash
-OPENLINKER_API_BASE=http://你的-openlinker-core \
-OPENLINKER_RUNTIME_TOKEN=你的-runtime-token \
+OPENLINKER_API_BASE=https://api.openlinker.ai \
+OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
 OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
 OPENLINKER_AGENT_NODE_ADAPTER=a2a \
 OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc \
-OPENLINKER_AGENT_NODE_A2A_METHOD=SendMessage \
+OPENLINKER_AGENT_NODE_A2A_METHOD=message/send \
 go run ./cmd/openlinker-agent-node
 ```
 
-By default, the adapter builds a blocking A2A message from `input.text`,
-`input.query`, `input.task`, or `input.prompt`. To pass raw A2A params, set
-`input.a2a_params` or `input.params` in the OpenLinker run input.
+By default, Agent Node builds a blocking A2A `message/send` request from
+`input.text`, `input.query`, `input.task`, or `input.prompt`. To pass raw A2A
+params, set `input.a2a_params` or `input.params`.
 
 ### codex
 

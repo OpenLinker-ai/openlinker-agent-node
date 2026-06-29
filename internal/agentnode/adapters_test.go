@@ -138,7 +138,7 @@ func TestAdapterErrorBranches(t *testing.T) {
 		HTTPClient: adapterHTTPClient(func(*http.Request) (*http.Response, error) {
 			return adapterHTTPResponse(http.StatusBadGateway, `{"error":"bad gateway"}`), nil
 		}),
-	}).Run(context.Background(), JSONMap{"q": "bad-status"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "502") {
+	}).Run(context.Background(), JSONMap{"q": "bad-status"}, RunContext{}); err == nil || !strings.Contains(err.Error(), "HTTP_502") {
 		t.Fatalf("A2A status error = %v", err)
 	}
 	if _, err := (A2AAdapter{
@@ -155,12 +155,13 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	var received JSONMap
 	adapter := A2AAdapter{
 		BaseURL: "https://a2a.example/",
+		Token:   "local-agent",
 		Headers: map[string]string{
-			"authorization": "Bearer local-agent",
+			"x-a2a-agent": "node",
 		},
 		HTTPClient: adapterHTTPClient(func(req *http.Request) (*http.Response, error) {
-			if req.Header.Get("authorization") != "Bearer local-agent" {
-				t.Fatalf("authorization header = %q", req.Header.Get("authorization"))
+			if req.Header.Get("authorization") != "Bearer local-agent" || req.Header.Get("x-a2a-agent") != "node" {
+				t.Fatalf("headers = %#v", req.Header)
 			}
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
@@ -173,8 +174,9 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 				"jsonrpc":"2.0",
 				"id":"msg-run-a2a",
 				"result":{
+					"kind":"task",
 					"id":"task-a2a",
-					"status":{"state":"completed"},
+					"status":{"state":"TASK_STATE_COMPLETED"},
 					"artifacts":[{"parts":[{"kind":"text","text":"done from a2a"}]}]
 				}
 			}`), nil
@@ -188,11 +190,14 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if received["method"] != defaultA2AMessageMethod || received["id"] != "msg-run-a2a" {
+	if received["method"] != "message/send" {
 		t.Fatalf("received rpc = %#v", received)
 	}
 	params := received["params"].(map[string]any)
 	message := params["message"].(map[string]any)
+	if message["kind"] != "message" {
+		t.Fatalf("message kind = %#v", message)
+	}
 	parts := message["parts"].([]any)
 	part := parts[0].(map[string]any)
 	if part["text"] != "hello a2a" {
@@ -223,7 +228,7 @@ func TestA2AAdapterExplicitParamsAndFailedStatus(t *testing.T) {
 			}
 			return adapterHTTPResponse(http.StatusOK, `{
 				"jsonrpc":"2.0",
-				"result":{"status":{"state":"failed"},"message":{"parts":[{"kind":"text","text":"failed badly"}]}}
+				"result":{"kind":"task","status":{"state":"TASK_STATE_FAILED","message":{"parts":[{"kind":"text","text":"failed badly"}]}}}
 			}`), nil
 		}),
 	}

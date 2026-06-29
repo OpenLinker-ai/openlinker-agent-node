@@ -1,11 +1,11 @@
 package agentnode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
@@ -85,50 +85,13 @@ type PublicA2AClient struct {
 }
 
 func (c PublicA2AClient) SendMessage(ctx context.Context, slug, text string) (any, error) {
-	body := JSONMap{
-		"jsonrpc": "2.0",
-		"id":      "msg-openlinker-agent-node",
-		"method":  "SendMessage",
-		"params": JSONMap{
-			"message": JSONMap{
-				"messageId": "msg-openlinker-agent-node",
-				"role":      "user",
-				"parts": []JSONMap{{
-					"kind": "text",
-					"text": text,
-				}},
-			},
-			"configuration": JSONMap{
-				"blocking":            true,
-				"acceptedOutputModes": []string{"application/json", "text/plain"},
-			},
-		},
-	}
-	encoded, err := json.Marshal(body)
+	client, err := openlinker.NewA2AClient(
+		joinAPIPath(c.APIBase, "/api/v1/a2a/agents/"+url.PathEscape(slug)),
+		openlinker.WithA2AToken(c.Token),
+		openlinker.WithA2AHTTPClient(c.HTTPClient),
+	)
 	if err != nil {
 		return nil, err
 	}
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinAPIPath(c.APIBase, "/api/v1/a2a/agents/"+slug), bytes.NewReader(encoded))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("authorization", "Bearer "+c.Token)
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("a2a-version", "1.0")
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	jsonBody, _ := readJSONResponse(res)
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("A2A SendMessage failed with HTTP %d: %v", res.StatusCode, jsonBody)
-	}
-	if bodyMap, ok := jsonBody.(map[string]any); ok && bodyMap["error"] != nil {
-		return nil, fmt.Errorf("A2A SendMessage returned error: %v", bodyMap["error"])
-	}
-	return jsonBody, nil
+	return client.SendMessage(ctx, openlinker.NewA2ATextMessageParams("msg-openlinker-agent-node", text, []string{"application/json", "text/plain"}))
 }
