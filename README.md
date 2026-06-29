@@ -167,3 +167,12 @@ OPENLINKER_AGENT_NODE_HELPER=auto   # auto | true | false
 OPENLINKER_AGENT_NODE_HELPER_HOST=127.0.0.1
 OPENLINKER_AGENT_NODE_HELPER_PORT=0
 ```
+
+## Contributing and Security
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development rules and
+[SECURITY.md](./SECURITY.md) for vulnerability reporting.
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
