@@ -128,9 +128,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			BaseURL:             get("OPENLINKER_AGENT_NODE_A2A_BASE_URL"),
 			Token:               get("OPENLINKER_AGENT_NODE_A2A_TOKEN"),
 			Headers:             headers,
-			Method:              openlinker.NormalizeA2AJSONRPCMethod(defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), openlinker.A2AMethodMessageSend)),
+			Method:              openlinker.NormalizeA2AJSONRPCMethodForDialect(defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), openlinker.A2AMethodMessageSend), defaultString(get("OPENLINKER_AGENT_NODE_A2A_DIALECT"), get("OPENLINKER_AGENT_NODE_A2A_METHOD_DIALECT"))),
 			AcceptedOutputModes: modes,
 			ProtocolVersion:     get("OPENLINKER_AGENT_NODE_A2A_PROTOCOL_VERSION"),
+			Dialect:             openlinker.NormalizeA2ADialect(defaultString(get("OPENLINKER_AGENT_NODE_A2A_DIALECT"), get("OPENLINKER_AGENT_NODE_A2A_METHOD_DIALECT"))),
 			Timeout:             time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "command":

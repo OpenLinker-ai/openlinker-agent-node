@@ -180,11 +180,30 @@ func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 	if adapter.BaseURL != "http://127.0.0.1:9001/" || adapter.Token != "a2a-token" || adapter.Headers["x-a2a-agent"] != "local" {
 		t.Fatalf("a2a adapter = %#v", adapter)
 	}
-	if adapter.Method != "message/send" || adapter.Timeout != 2*time.Minute || strings.Join(adapter.AcceptedOutputModes, ",") != "application/json" {
+	if adapter.Method != "SendMessage" || adapter.Dialect != openlinker.A2ADialectCurrent || adapter.Timeout != 2*time.Minute || strings.Join(adapter.AcceptedOutputModes, ",") != "application/json" {
 		t.Fatalf("a2a adapter timing/method = %#v", adapter)
 	}
 	if node.Helper != nil {
 		t.Fatalf("a2a adapter should not enable helper by default: %#v", node.Helper)
+	}
+}
+
+func TestNewFromEnvMapA2AAdapterLegacyDialect(t *testing.T) {
+	node, err := NewFromEnvMap(Env{
+		"OPENLINKER_API_BASE":                "https://api.example.test",
+		"OPENLINKER_RUNTIME_TOKEN":           "ol_live_a2a",
+		"OPENLINKER_AGENT_NODE_A2A_BASE_URL": "http://127.0.0.1:9001/",
+		"OPENLINKER_AGENT_NODE_A2A_DIALECT":  "legacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := node.Adapter.(A2AAdapter)
+	if !ok {
+		t.Fatalf("adapter = %T", node.Adapter)
+	}
+	if adapter.Method != openlinker.A2ALegacyMethodMessageSend || adapter.Dialect != openlinker.A2ADialectLegacy {
+		t.Fatalf("legacy a2a adapter = %#v", adapter)
 	}
 }
 
@@ -452,7 +471,7 @@ func TestPublicA2AClientSendMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if received["method"] != "message/send" {
+	if received["method"] != "SendMessage" {
 		t.Fatalf("body = %#v", received)
 	}
 	task, ok := result.(*openlinker.A2ATask)

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func TestHTTPAdapterEnvelopeIncludesHelper(t *testing.T) {
@@ -190,18 +192,21 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if received["method"] != "message/send" {
+	if received["method"] != "SendMessage" {
 		t.Fatalf("received rpc = %#v", received)
 	}
 	params := received["params"].(map[string]any)
 	message := params["message"].(map[string]any)
-	if message["kind"] != "message" {
-		t.Fatalf("message kind = %#v", message)
+	if _, ok := message["kind"]; ok {
+		t.Fatalf("current message should not include kind = %#v", message)
 	}
 	parts := message["parts"].([]any)
 	part := parts[0].(map[string]any)
 	if part["text"] != "hello a2a" {
 		t.Fatalf("message part = %#v", part)
+	}
+	if _, ok := part["kind"]; ok {
+		t.Fatalf("current part should not include kind = %#v", part)
 	}
 
 	result := raw.(AdapterResult)
@@ -211,6 +216,40 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	output := result.Output.(JSONMap)
 	if output["text"] != "done from a2a" {
 		t.Fatalf("output = %#v", output)
+	}
+}
+
+func TestA2AAdapterLegacyDialectMessageSend(t *testing.T) {
+	var received JSONMap
+	adapter := A2AAdapter{
+		BaseURL: "https://a2a.example/",
+		Dialect: openlinker.A2ADialectLegacy,
+		HTTPClient: adapterHTTPClient(func(req *http.Request) (*http.Response, error) {
+			if err := json.NewDecoder(req.Body).Decode(&received); err != nil {
+				t.Fatal(err)
+			}
+			return adapterHTTPResponse(http.StatusOK, `{
+				"jsonrpc":"2.0",
+				"id":"msg-run-a2a",
+				"result":{"id":"task-a2a","status":{"state":"completed"}}
+			}`), nil
+		}),
+	}
+
+	if _, err := adapter.Run(context.Background(), JSONMap{"query": "hello legacy"}, RunContext{RunID: "run-a2a"}); err != nil {
+		t.Fatal(err)
+	}
+	if received["method"] != "message/send" {
+		t.Fatalf("legacy rpc = %#v", received)
+	}
+	params := received["params"].(map[string]any)
+	message := params["message"].(map[string]any)
+	if message["kind"] != "message" {
+		t.Fatalf("legacy message = %#v", message)
+	}
+	part := message["parts"].([]any)[0].(map[string]any)
+	if part["kind"] != "text" || part["text"] != "hello legacy" {
+		t.Fatalf("legacy part = %#v", part)
 	}
 }
 

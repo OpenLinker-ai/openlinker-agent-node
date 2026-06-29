@@ -83,13 +83,16 @@ OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
 OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
 OPENLINKER_AGENT_NODE_ADAPTER=a2a \
 OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc \
-OPENLINKER_AGENT_NODE_A2A_METHOD=message/send \
+OPENLINKER_AGENT_NODE_A2A_METHOD=SendMessage \
 go run ./cmd/openlinker-agent-node
 ```
 
-By default, Agent Node builds a blocking A2A `message/send` request from
+By default, Agent Node builds a blocking A2A 1.0 `SendMessage` request from
 `input.text`, `input.query`, `input.task`, or `input.prompt`. To pass raw A2A
-params, set `input.a2a_params` or `input.params`.
+params, set `input.a2a_params` or `input.params`. Set
+`OPENLINKER_AGENT_NODE_A2A_DIALECT=legacy` only when the upstream Agent still
+expects the older slash-style methods such as `message/send` and legacy `kind`
+fields on message parts.
 
 ### codex
 

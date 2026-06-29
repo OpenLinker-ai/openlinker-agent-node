@@ -18,6 +18,7 @@ type A2AAdapter struct {
 	Method              string
 	AcceptedOutputModes []string
 	ProtocolVersion     string
+	Dialect             string
 	HTTPClient          *http.Client
 	Timeout             time.Duration
 }
@@ -39,13 +40,14 @@ func (a A2AAdapter) Run(ctx context.Context, input any, runCtx RunContext) (any,
 		openlinker.WithA2AHeaders(a.Headers),
 		openlinker.WithA2AHTTPClient(a.HTTPClient),
 		openlinker.WithA2AProtocolVersion(defaultString(a.ProtocolVersion, "1.0")),
+		openlinker.WithA2ADialect(defaultString(a.Dialect, openlinker.A2ADialectCurrent)),
 		openlinker.WithA2ASDKAgent("openlinker-agent-node/0.1.0"),
 	)
 	if err != nil {
 		return nil, err
 	}
-	method := openlinker.NormalizeA2AJSONRPCMethod(defaultString(a.Method, openlinker.A2AMethodMessageSend))
-	result, err := client.Call(reqCtx, method, a2aAdapterParams(input, runCtx, a.AcceptedOutputModes))
+	method := openlinker.NormalizeA2AJSONRPCMethodForDialect(defaultString(a.Method, openlinker.A2AMethodMessageSend), a.Dialect)
+	result, err := client.Call(reqCtx, method, a2aAdapterParams(input, runCtx, a.AcceptedOutputModes, a.Dialect))
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +64,11 @@ func (a A2AAdapter) Run(ctx context.Context, input any, runCtx RunContext) (any,
 	}, nil
 }
 
-func a2aAdapterParams(input any, runCtx RunContext, acceptedOutputModes []string) any {
+func a2aAdapterParams(input any, runCtx RunContext, acceptedOutputModes []string, dialect string) any {
 	if params, ok := explicitA2AAdapterParams(input); ok {
 		return params
 	}
-	params := openlinker.NewA2ATextMessageParams(a2aMessageID(runCtx), a2aInputText(input), acceptedOutputModes)
+	params := openlinker.NewA2ATextMessageParamsForDialect(a2aMessageID(runCtx), a2aInputText(input), acceptedOutputModes, dialect)
 	if mappedInput := jsonMapFromAny(input); mappedInput != nil {
 		if rawMessage, ok := mappedInput["message"]; ok {
 			if message, ok := a2aMessageFromAny(rawMessage); ok {
