@@ -1,5 +1,5 @@
-github.com/OpenLinker-ai/openlinker-go v0.1.2 h1:PWqL6hV9Kk8NGv5+O1s9r7FxykTgbmKlQ9aP4EFDBNs=
-github.com/OpenLinker-ai/openlinker-go v0.1.2/go.mod h1:OeNQN/iFZzh8E3gqZgkove7MOOr4OpxG+Ing/SrimvQ=
+github.com/OpenLinker-ai/openlinker-go v0.1.3 h1:JVEZDZPS9xQCv3lZ/9Oqa66lcA2HL0e7dE8vMpMDlMc=
+github.com/OpenLinker-ai/openlinker-go v0.1.3/go.mod h1:OeNQN/iFZzh8E3gqZgkove7MOOr4OpxG+Ing/SrimvQ=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

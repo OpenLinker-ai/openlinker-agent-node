@@ -208,6 +208,13 @@ func TestA2AAdapterMessageSend(t *testing.T) {
 	if _, ok := part["kind"]; ok {
 		t.Fatalf("current part should not include kind = %#v", part)
 	}
+	config := params["configuration"].(map[string]any)
+	if config["returnImmediately"] != false {
+		t.Fatalf("current config = %#v", config)
+	}
+	if _, ok := config["blocking"]; ok {
+		t.Fatalf("current config should not include blocking = %#v", config)
+	}
 
 	result := raw.(AdapterResult)
 	if result.Status != "success" || len(result.Events) != 1 {
@@ -250,6 +257,13 @@ func TestA2AAdapterLegacyDialectMessageSend(t *testing.T) {
 	part := message["parts"].([]any)[0].(map[string]any)
 	if part["kind"] != "text" || part["text"] != "hello legacy" {
 		t.Fatalf("legacy part = %#v", part)
+	}
+	config := params["configuration"].(map[string]any)
+	if config["blocking"] != true {
+		t.Fatalf("legacy config = %#v", config)
+	}
+	if _, ok := config["returnImmediately"]; ok {
+		t.Fatalf("legacy config should not include returnImmediately = %#v", config)
 	}
 }
 
