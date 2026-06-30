@@ -3,6 +3,9 @@ package agentnode
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -28,6 +31,7 @@ type PublicA2AServer struct {
 	baseURL  string
 	mu       sync.RWMutex
 	tasks    map[string]*publicA2ATask
+	pushes   map[string]map[string]*publicA2APushConfig
 }
 
 type publicA2ATask struct {
@@ -38,6 +42,19 @@ type publicA2ATask struct {
 	Error     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type publicA2APushConfig struct {
+	ID             string
+	TaskID         string
+	URL            string
+	Token          string
+	Secret         string
+	Authentication *openlinker.A2APushAuthenticationInfo
+	Metadata       map[string]any
+	EventTypes     []string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type publicA2AJSONRPCRequest struct {
@@ -76,6 +93,9 @@ func (s *PublicA2AServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.tasks == nil {
 		s.tasks = map[string]*publicA2ATask{}
+	}
+	if s.pushes == nil {
+		s.pushes = map[string]map[string]*publicA2APushConfig{}
 	}
 	s.mu.Unlock()
 
@@ -202,6 +222,42 @@ func (s *PublicA2AServer) handleJSONRPC(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: task})
+	case "CreateTaskPushNotificationConfig":
+		var params openlinker.A2ATaskPushConfigParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Error: publicA2AError(-32602, "invalid Push Config params")})
+			return
+		}
+		cfg, err := s.createPushConfig(r.Context(), params)
+		if err != nil {
+			writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Error: publicA2AError(-32002, err.Error())})
+			return
+		}
+		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: cfg})
+	case "GetTaskPushNotificationConfig":
+		var params openlinker.A2ATaskPushConfigParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Error: publicA2AError(-32602, "invalid Push Config params")})
+			return
+		}
+		cfg, ok := s.pushConfig(publicA2ATaskIDFromPushParams(params), publicA2APushConfigID(params))
+		if !ok {
+			writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Error: publicA2AError(-32001, "push config not found")})
+			return
+		}
+		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: cfg})
+	case "ListTaskPushNotificationConfigs":
+		var params openlinker.A2ATaskPushConfigParams
+		_ = json.Unmarshal(req.Params, &params)
+		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: s.pushConfigList(publicA2ATaskIDFromPushParams(params))})
+	case "DeleteTaskPushNotificationConfig":
+		var params openlinker.A2ATaskPushConfigParams
+		_ = json.Unmarshal(req.Params, &params)
+		if err := s.deletePushConfig(publicA2ATaskIDFromPushParams(params), publicA2APushConfigID(params)); err != nil {
+			writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Error: publicA2AError(-32001, err.Error())})
+			return
+		}
+		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: nil})
 	case "GetExtendedAgentCard":
 		writeA2AJSONRPC(w, publicA2AJSONRPCResponse{JSONRPC: "2.0", ID: normalizeA2AJSONRPCID(req.ID), Result: s.agentCard(true)})
 	default:
@@ -272,6 +328,8 @@ func (s *PublicA2AServer) handleTaskPath(w http.ResponseWriter, r *http.Request)
 	}
 	raw := strings.TrimPrefix(r.URL.Path, "/tasks/")
 	switch {
+	case publicA2APushPath(raw):
+		s.handleTaskPushConfigPath(w, r, raw)
 	case strings.HasSuffix(raw, "/subscribe"):
 		if r.Method != http.MethodGet {
 			writeA2AError(w, http.StatusMethodNotAllowed, "UnsupportedOperationError", "method not allowed")
@@ -307,6 +365,53 @@ func (s *PublicA2AServer) handleTaskPath(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeA2AJSON(w, http.StatusOK, task)
+	}
+}
+
+func (s *PublicA2AServer) handleTaskPushConfigPath(w http.ResponseWriter, r *http.Request, raw string) {
+	taskID, pushID, ok := splitPublicA2APushPath(raw)
+	if !ok || strings.TrimSpace(taskID) == "" {
+		writeA2AError(w, http.StatusNotFound, "TaskNotFoundError", "task not found")
+		return
+	}
+	if pushID == "" {
+		switch r.Method {
+		case http.MethodPost:
+			var params openlinker.A2ATaskPushConfigParams
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxHelperBodyBytes)).Decode(&params); err != nil {
+				writeA2AError(w, http.StatusBadRequest, "InvalidParamsError", "invalid Push Config params")
+				return
+			}
+			params.TaskID = taskID
+			cfg, err := s.createPushConfig(r.Context(), params)
+			if err != nil {
+				writeA2AError(w, http.StatusBadRequest, "InvalidParamsError", err.Error())
+				return
+			}
+			writeA2AJSON(w, http.StatusCreated, cfg)
+		case http.MethodGet:
+			writeA2AJSON(w, http.StatusOK, s.pushConfigList(taskID))
+		default:
+			writeA2AError(w, http.StatusMethodNotAllowed, "UnsupportedOperationError", "method not allowed")
+		}
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		cfg, ok := s.pushConfig(taskID, pushID)
+		if !ok {
+			writeA2AError(w, http.StatusNotFound, "TaskNotFoundError", "push config not found")
+			return
+		}
+		writeA2AJSON(w, http.StatusOK, cfg)
+	case http.MethodDelete:
+		if err := s.deletePushConfig(taskID, pushID); err != nil {
+			writeA2AError(w, http.StatusNotFound, "TaskNotFoundError", err.Error())
+			return
+		}
+		writeA2AJSON(w, http.StatusOK, nil)
+	default:
+		writeA2AError(w, http.StatusMethodNotAllowed, "UnsupportedOperationError", "method not allowed")
 	}
 }
 
@@ -350,9 +455,21 @@ func (s *PublicA2AServer) runMessage(ctx context.Context, params openlinker.A2AM
 	if result.Error != nil {
 		task.Error = result.Error.Message
 	}
+	inlinePush := publicA2AInlinePushConfig(taskID, params.Configuration)
 	s.mu.Lock()
 	s.tasks[taskID] = task
+	if inlinePush != nil {
+		if s.pushes == nil {
+			s.pushes = map[string]map[string]*publicA2APushConfig{}
+		}
+		if s.pushes[taskID] == nil {
+			s.pushes[taskID] = map[string]*publicA2APushConfig{}
+		}
+		s.pushes[taskID][inlinePush.ID] = inlinePush
+	}
+	pushes := s.pushConfigsForTaskLocked(taskID)
 	s.mu.Unlock()
+	s.deliverTerminalPushNotifications(ctx, task, pushes)
 	return publicA2ATaskDTO(task), nil
 }
 
@@ -376,6 +493,89 @@ func (s *PublicA2AServer) taskList() openlinker.A2ATaskListResponse {
 	return openlinker.A2ATaskListResponse{Tasks: tasks, PageSize: int32(len(tasks)), TotalSize: int32(len(tasks))}
 }
 
+func (s *PublicA2AServer) createPushConfig(ctx context.Context, params openlinker.A2ATaskPushConfigParams) (*openlinker.A2ATaskPushNotificationConfig, error) {
+	taskID := publicA2ATaskIDFromPushParams(params)
+	if taskID == "" {
+		return nil, fmt.Errorf("task id is required")
+	}
+	cfg, err := publicA2APushConfigFromParams(taskID, params)
+	if err != nil {
+		return nil, err
+	}
+	var terminalTask *publicA2ATask
+	s.mu.Lock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task not found")
+	}
+	if s.pushes == nil {
+		s.pushes = map[string]map[string]*publicA2APushConfig{}
+	}
+	if s.pushes[taskID] == nil {
+		s.pushes[taskID] = map[string]*publicA2APushConfig{}
+	}
+	s.pushes[taskID][cfg.ID] = cfg
+	if publicA2ATaskTerminal(task.State) {
+		terminalTask = clonePublicA2ATask(task)
+	}
+	s.mu.Unlock()
+	if terminalTask != nil {
+		s.deliverTerminalPushNotifications(ctx, terminalTask, []*publicA2APushConfig{cfg})
+	}
+	return publicA2APushConfigDTO(cfg), nil
+}
+
+func (s *PublicA2AServer) pushConfig(taskID, configID string) (*openlinker.A2ATaskPushNotificationConfig, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cfgs := s.pushes[strings.TrimSpace(taskID)]
+	cfg, ok := cfgs[strings.TrimSpace(configID)]
+	if !ok {
+		return nil, false
+	}
+	return publicA2APushConfigDTO(cfg), true
+}
+
+func (s *PublicA2AServer) pushConfigList(taskID string) openlinker.A2ATaskPushConfigList {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cfgs := s.pushes[strings.TrimSpace(taskID)]
+	items := make([]openlinker.A2ATaskPushNotificationConfig, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		items = append(items, *publicA2APushConfigDTO(cfg))
+	}
+	return openlinker.A2ATaskPushConfigList{Configs: items, Items: items}
+}
+
+func (s *PublicA2AServer) deletePushConfig(taskID, configID string) error {
+	taskID = strings.TrimSpace(taskID)
+	configID = strings.TrimSpace(configID)
+	if taskID == "" || configID == "" {
+		return fmt.Errorf("task id and push config id are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfgs := s.pushes[taskID]
+	if cfgs == nil {
+		return fmt.Errorf("push config not found")
+	}
+	if _, ok := cfgs[configID]; !ok {
+		return fmt.Errorf("push config not found")
+	}
+	delete(cfgs, configID)
+	return nil
+}
+
+func (s *PublicA2AServer) pushConfigsForTaskLocked(taskID string) []*publicA2APushConfig {
+	cfgs := s.pushes[strings.TrimSpace(taskID)]
+	out := make([]*publicA2APushConfig, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		out = append(out, cfg)
+	}
+	return out
+}
+
 func (s *PublicA2AServer) cancelTask(taskID string) (*openlinker.A2ATask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -388,7 +588,63 @@ func (s *PublicA2AServer) cancelTask(taskID string) (*openlinker.A2ATask, error)
 	}
 	task.State = "TASK_STATE_CANCELED"
 	task.UpdatedAt = time.Now().UTC()
-	return publicA2ATaskDTO(task), nil
+	dto := publicA2ATaskDTO(task)
+	pushes := s.pushConfigsForTaskLocked(task.ID)
+	terminal := clonePublicA2ATask(task)
+	go s.deliverTerminalPushNotifications(context.Background(), terminal, pushes)
+	return dto, nil
+}
+
+func (s *PublicA2AServer) deliverTerminalPushNotifications(ctx context.Context, task *publicA2ATask, configs []*publicA2APushConfig) {
+	if task == nil || len(configs) == 0 {
+		return
+	}
+	eventType := publicA2ATerminalEventType(task.State)
+	if eventType == "" {
+		return
+	}
+	for _, cfg := range configs {
+		if cfg == nil || !publicA2APushWantsEvent(cfg, eventType) {
+			continue
+		}
+		s.deliverPushNotification(ctx, task, cfg, eventType)
+	}
+}
+
+func (s *PublicA2AServer) deliverPushNotification(ctx context.Context, task *publicA2ATask, cfg *publicA2APushConfig, eventType string) {
+	payload := JSONMap{
+		"event_type": eventType,
+		"task_id":    task.ID,
+		"run_id":     task.ID,
+		"agent_slug": s.Slug,
+		"source":     "openlinker-agent-node-public-a2a",
+		"task":       publicA2ATaskDTO(task),
+		"metadata":   cfg.Metadata,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	deliverCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(deliverCtx, http.MethodPost, cfg.URL, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("X-OpenLinker-Event", eventType)
+	req.Header.Set("X-OpenLinker-Task-Id", task.ID)
+	if cfg.Secret != "" {
+		req.Header.Set("X-OpenLinker-Signature", "sha256="+publicA2ASignPayload(body, cfg.Secret))
+	}
+	if auth := publicA2AAuthorizationHeader(cfg); auth != "" {
+		req.Header.Set("authorization", auth)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
 }
 
 func publicA2ATaskDTO(task *publicA2ATask) *openlinker.A2ATask {
@@ -457,7 +713,7 @@ func (s *PublicA2AServer) agentCard(extended bool) map[string]any {
 		},
 		"capabilities": map[string]any{
 			"streaming":         true,
-			"pushNotifications": false,
+			"pushNotifications": true,
 			"extendedAgentCard": true,
 		},
 		"defaultInputModes":  []string{"text/plain", "application/json"},
@@ -492,6 +748,14 @@ func normalizePublicA2AMethod(method string) string {
 		return "ListTasks"
 	case "CancelTask", "tasks/cancel":
 		return "CancelTask"
+	case "CreateTaskPushNotificationConfig", "tasks/pushNotificationConfig/set", "tasks/pushNotificationConfigs/set":
+		return "CreateTaskPushNotificationConfig"
+	case "GetTaskPushNotificationConfig", "tasks/pushNotificationConfig/get", "tasks/pushNotificationConfigs/get":
+		return "GetTaskPushNotificationConfig"
+	case "ListTaskPushNotificationConfigs", "tasks/pushNotificationConfig/list", "tasks/pushNotificationConfigs/list":
+		return "ListTaskPushNotificationConfigs"
+	case "DeleteTaskPushNotificationConfig", "tasks/pushNotificationConfig/delete", "tasks/pushNotificationConfigs/delete":
+		return "DeleteTaskPushNotificationConfig"
 	case "GetExtendedAgentCard", "agent/getExtendedCard":
 		return "GetExtendedAgentCard"
 	default:
@@ -531,4 +795,202 @@ func writePublicA2ASSE(w http.ResponseWriter, event string, payload any) {
 	var buf bytes.Buffer
 	_ = json.NewEncoder(&buf).Encode(payload)
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, strings.TrimSpace(buf.String()))
+}
+
+func publicA2AInlinePushConfig(taskID string, cfg *openlinker.A2ASendConfiguration) *publicA2APushConfig {
+	if cfg == nil {
+		return nil
+	}
+	params := openlinker.A2ATaskPushConfigParams{TaskID: taskID}
+	if cfg.TaskPushNotificationConfig != nil {
+		params.PushNotificationConfigID = cfg.TaskPushNotificationConfig.ID
+		params.PushNotificationConfig = cfg.TaskPushNotificationConfig.PushNotificationConfig
+		params.URL = cfg.TaskPushNotificationConfig.URL
+		params.Token = cfg.TaskPushNotificationConfig.Token
+		params.Secret = cfg.TaskPushNotificationConfig.Secret
+		params.Authentication = cfg.TaskPushNotificationConfig.Authentication
+		params.Metadata = cfg.TaskPushNotificationConfig.Metadata
+		params.EventTypes = cfg.TaskPushNotificationConfig.EventTypes
+		params.EventTypesAlias = cfg.TaskPushNotificationConfig.EventTypesAlias
+	} else if cfg.PushNotificationConfig != nil {
+		params.PushNotificationConfig = *cfg.PushNotificationConfig
+	} else {
+		return nil
+	}
+	out, err := publicA2APushConfigFromParams(taskID, params)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+func publicA2APushConfigFromParams(taskID string, params openlinker.A2ATaskPushConfigParams) (*publicA2APushConfig, error) {
+	push := params.PushNotificationConfig
+	if push.URL == "" {
+		push.URL = params.URL
+	}
+	if push.Token == "" {
+		push.Token = params.Token
+	}
+	if push.Secret == "" {
+		push.Secret = params.Secret
+	}
+	if push.Authentication == nil {
+		push.Authentication = params.Authentication
+	}
+	if push.Metadata == nil {
+		push.Metadata = params.Metadata
+	}
+	if len(push.EventTypes) == 0 {
+		push.EventTypes = params.EventTypes
+	}
+	if len(push.EventTypesAlias) == 0 {
+		push.EventTypesAlias = params.EventTypesAlias
+	}
+	id := strings.TrimSpace(params.PushNotificationConfigID)
+	if id == "" {
+		id = strings.TrimSpace(params.ID)
+	}
+	if id == "" {
+		id = strings.TrimSpace(push.ID)
+	}
+	if id == "" {
+		id = "push-" + randomToken()
+	}
+	if strings.TrimSpace(push.URL) == "" {
+		return nil, fmt.Errorf("push notification URL is required")
+	}
+	now := time.Now().UTC()
+	return &publicA2APushConfig{
+		ID:             id,
+		TaskID:         strings.TrimSpace(taskID),
+		URL:            strings.TrimSpace(push.URL),
+		Token:          strings.TrimSpace(push.Token),
+		Secret:         strings.TrimSpace(push.Secret),
+		Authentication: push.Authentication,
+		Metadata:       push.Metadata,
+		EventTypes:     append([]string{}, append(push.EventTypes, push.EventTypesAlias...)...),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, nil
+}
+
+func publicA2APushConfigDTO(cfg *publicA2APushConfig) *openlinker.A2ATaskPushNotificationConfig {
+	if cfg == nil {
+		return nil
+	}
+	var auth *openlinker.A2APushAuthenticationInfo
+	if cfg.Authentication != nil {
+		auth = &openlinker.A2APushAuthenticationInfo{Scheme: cfg.Authentication.Scheme}
+	}
+	push := openlinker.A2APushNotificationConfig{
+		ID:             cfg.ID,
+		URL:            cfg.URL,
+		Authentication: auth,
+		Metadata:       cfg.Metadata,
+		EventTypes:     append([]string{}, cfg.EventTypes...),
+	}
+	return &openlinker.A2ATaskPushNotificationConfig{
+		ID:                     cfg.ID,
+		TaskID:                 cfg.TaskID,
+		URL:                    cfg.URL,
+		Authentication:         auth,
+		Metadata:               cfg.Metadata,
+		EventTypes:             append([]string{}, cfg.EventTypes...),
+		PushNotificationConfig: push,
+	}
+}
+
+func publicA2ATaskIDFromPushParams(params openlinker.A2ATaskPushConfigParams) string {
+	if strings.TrimSpace(params.TaskID) != "" {
+		return strings.TrimSpace(params.TaskID)
+	}
+	return strings.TrimSpace(params.ID)
+}
+
+func publicA2APushConfigID(params openlinker.A2ATaskPushConfigParams) string {
+	if strings.TrimSpace(params.PushNotificationConfigID) != "" {
+		return strings.TrimSpace(params.PushNotificationConfigID)
+	}
+	if strings.TrimSpace(params.PushNotificationConfig.ID) != "" {
+		return strings.TrimSpace(params.PushNotificationConfig.ID)
+	}
+	return strings.TrimSpace(params.ID)
+}
+
+func publicA2APushPath(raw string) bool {
+	return strings.Contains(raw, "/pushNotificationConfig")
+}
+
+func splitPublicA2APushPath(raw string) (string, string, bool) {
+	for _, marker := range []string{"/pushNotificationConfigs", "/pushNotificationConfig"} {
+		before, after, ok := strings.Cut(raw, marker)
+		if !ok {
+			continue
+		}
+		return strings.Trim(before, "/"), strings.Trim(strings.TrimPrefix(after, "/"), "/"), true
+	}
+	return "", "", false
+}
+
+func publicA2ATaskTerminal(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "COMPLETED", "FAILED", "CANCELED":
+		return true
+	default:
+		return false
+	}
+}
+
+func publicA2ATerminalEventType(state string) string {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "TASK_STATE_COMPLETED", "COMPLETED":
+		return "run.completed"
+	case "TASK_STATE_FAILED", "FAILED":
+		return "run.failed"
+	case "TASK_STATE_CANCELED", "CANCELED":
+		return "run.canceled"
+	default:
+		return ""
+	}
+}
+
+func publicA2APushWantsEvent(cfg *publicA2APushConfig, eventType string) bool {
+	if len(cfg.EventTypes) == 0 {
+		return true
+	}
+	for _, allowed := range cfg.EventTypes {
+		if strings.EqualFold(strings.TrimSpace(allowed), eventType) {
+			return true
+		}
+	}
+	return false
+}
+
+func publicA2AAuthorizationHeader(cfg *publicA2APushConfig) string {
+	if cfg.Authentication != nil && strings.TrimSpace(cfg.Authentication.Credentials) != "" {
+		scheme := strings.TrimSpace(cfg.Authentication.Scheme)
+		if scheme == "" {
+			scheme = "Bearer"
+		}
+		return scheme + " " + strings.TrimSpace(cfg.Authentication.Credentials)
+	}
+	if cfg.Token != "" {
+		return "Bearer " + cfg.Token
+	}
+	return ""
+}
+
+func publicA2ASignPayload(payload []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func clonePublicA2ATask(task *publicA2ATask) *publicA2ATask {
+	if task == nil {
+		return nil
+	}
+	copy := *task
+	return &copy
 }

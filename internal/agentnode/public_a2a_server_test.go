@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 func TestPublicA2AServerHTTPAndJSONRPC(t *testing.T) {
@@ -49,9 +52,13 @@ func TestPublicA2AServerHTTPAndJSONRPC(t *testing.T) {
 	}
 	for _, raw := range supported {
 		item := raw.(map[string]any)
-		if item["protocolBinding"] == "gRPC" {
+		if strings.EqualFold(item["protocolBinding"].(string), "grpc") {
 			t.Fatalf("public Agent Node must not advertise gRPC: %#v", supported)
 		}
+	}
+	capabilities, ok := cardPayload["capabilities"].(map[string]any)
+	if !ok || capabilities["pushNotifications"] != true {
+		t.Fatalf("capabilities = %#v", cardPayload["capabilities"])
 	}
 
 	unauthorized := doPublicA2ARequest(t, http.MethodGet, server.BaseURL()+"/extendedAgentCard", "", nil)
@@ -120,6 +127,132 @@ func TestPublicA2AServerHTTPAndJSONRPC(t *testing.T) {
 	}
 }
 
+func TestPublicA2AServerPushConfig(t *testing.T) {
+	webhookHits := make(chan publicA2AWebhookObservation, 4)
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		webhookHits <- publicA2AWebhookObservation{
+			Authorization: r.Header.Get("authorization"),
+			Signature:     r.Header.Get("X-OpenLinker-Signature"),
+			Body:          body,
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+
+	server := &PublicA2AServer{
+		Host:        "127.0.0.1",
+		Port:        0,
+		Slug:        "push-agent",
+		Name:        "Push Agent",
+		Description: "Local A2A push test agent",
+		Token:       "public-token",
+		Adapter: AdapterFunc(func(_ context.Context, input any, _ RunContext) (any, error) {
+			return JSONMap{"ok": true, "echo": input}, nil
+		}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop(context.Background())
+
+	sendBody := `{
+		"message":{"contextId":"ctx-push","role":"ROLE_USER","parts":[{"text":"hello push"}]},
+		"configuration":{
+			"pushNotificationConfig":{
+				"url":"` + webhook.URL + `",
+				"secret":"inline-secret",
+				"authentication":{"scheme":"Bearer","credentials":"inline-token"},
+				"eventTypes":["run.completed"],
+				"metadata":{"case":"inline"}
+			}
+		}
+	}`
+	send := doPublicA2ARequest(t, http.MethodPost, server.BaseURL()+"/message:send", sendBody, map[string]string{"authorization": "Bearer public-token"})
+	if send.StatusCode != http.StatusOK {
+		t.Fatalf("message send = %d %s", send.StatusCode, send.Body)
+	}
+	var sendResp struct {
+		Task struct {
+			ID string `json:"id"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(send.Body), &sendResp); err != nil {
+		t.Fatal(err)
+	}
+	inlineHit := waitPublicA2AWebhook(t, webhookHits)
+	if inlineHit.Authorization != "Bearer inline-token" {
+		t.Fatalf("inline authorization = %q", inlineHit.Authorization)
+	}
+	if !openlinker.VerifyTaskCallbackSignature(inlineHit.Body, "inline-secret", inlineHit.Signature) {
+		t.Fatalf("inline signature did not verify: %q", inlineHit.Signature)
+	}
+	assertPublicA2AWebhookPayload(t, inlineHit.Body, sendResp.Task.ID, "run.completed")
+
+	createBody := `{
+		"pushNotificationConfig":{
+			"url":"` + webhook.URL + `",
+			"secret":"set-secret",
+			"authentication":{"scheme":"Bearer","credentials":"set-token"},
+			"eventTypes":["run.completed"],
+			"metadata":{"case":"set"}
+		}
+	}`
+	create := doPublicA2ARequest(t, http.MethodPost, server.BaseURL()+"/tasks/"+sendResp.Task.ID+"/pushNotificationConfig", createBody, map[string]string{"authorization": "Bearer public-token"})
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create push config = %d %s", create.StatusCode, create.Body)
+	}
+	if strings.Contains(create.Body, "set-token") || strings.Contains(create.Body, "set-secret") {
+		t.Fatalf("push config response leaked credentials: %s", create.Body)
+	}
+	var created struct {
+		ID             string `json:"id"`
+		Authentication struct {
+			Scheme      string `json:"scheme"`
+			Credentials string `json:"credentials"`
+		} `json:"authentication"`
+	}
+	if err := json.Unmarshal([]byte(create.Body), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.Authentication.Scheme != "Bearer" || created.Authentication.Credentials != "" {
+		t.Fatalf("created push config = %#v", created)
+	}
+	setHit := waitPublicA2AWebhook(t, webhookHits)
+	if setHit.Authorization != "Bearer set-token" {
+		t.Fatalf("set authorization = %q", setHit.Authorization)
+	}
+	if !openlinker.VerifyTaskCallbackSignature(setHit.Body, "set-secret", setHit.Signature) {
+		t.Fatalf("set signature did not verify: %q", setHit.Signature)
+	}
+	assertPublicA2AWebhookPayload(t, setHit.Body, sendResp.Task.ID, "run.completed")
+
+	list := doPublicA2ARequest(t, http.MethodGet, server.BaseURL()+"/tasks/"+sendResp.Task.ID+"/pushNotificationConfig", "", map[string]string{"authorization": "Bearer public-token"})
+	if list.StatusCode != http.StatusOK || !strings.Contains(list.Body, created.ID) {
+		t.Fatalf("list push configs = %d %s", list.StatusCode, list.Body)
+	}
+	get := doPublicA2ARequest(t, http.MethodGet, server.BaseURL()+"/tasks/"+sendResp.Task.ID+"/pushNotificationConfig/"+created.ID, "", map[string]string{"authorization": "Bearer public-token"})
+	if get.StatusCode != http.StatusOK || !strings.Contains(get.Body, created.ID) || strings.Contains(get.Body, "set-token") {
+		t.Fatalf("get push config = %d %s", get.StatusCode, get.Body)
+	}
+	rpcListBody := `{"jsonrpc":"2.0","id":"list-push","method":"ListTaskPushNotificationConfigs","params":{"id":"` + sendResp.Task.ID + `"}}`
+	rpcList := doPublicA2ARequest(t, http.MethodPost, server.BaseURL()+"/", rpcListBody, map[string]string{"authorization": "Bearer public-token"})
+	if rpcList.StatusCode != http.StatusOK || !strings.Contains(rpcList.Body, created.ID) {
+		t.Fatalf("jsonrpc list push = %d %s", rpcList.StatusCode, rpcList.Body)
+	}
+	rpcDeleteBody := `{"jsonrpc":"2.0","id":"delete-push","method":"DeleteTaskPushNotificationConfig","params":{"id":"` + sendResp.Task.ID + `","pushNotificationConfigId":"` + created.ID + `"}}`
+	rpcDelete := doPublicA2ARequest(t, http.MethodPost, server.BaseURL()+"/", rpcDeleteBody, map[string]string{"authorization": "Bearer public-token"})
+	if rpcDelete.StatusCode != http.StatusOK || strings.Contains(rpcDelete.Body, `"error"`) {
+		t.Fatalf("jsonrpc delete push = %d %s", rpcDelete.StatusCode, rpcDelete.Body)
+	}
+	listAfterDelete := doPublicA2ARequest(t, http.MethodGet, server.BaseURL()+"/tasks/"+sendResp.Task.ID+"/pushNotificationConfig", "", map[string]string{"authorization": "Bearer public-token"})
+	if listAfterDelete.StatusCode != http.StatusOK || strings.Contains(listAfterDelete.Body, created.ID) {
+		t.Fatalf("list after delete = %d %s", listAfterDelete.StatusCode, listAfterDelete.Body)
+	}
+}
+
 func TestPublicA2AFromEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                          "https://api.example.test",
@@ -151,6 +284,12 @@ type publicA2AHTTPResult struct {
 	Body       string
 }
 
+type publicA2AWebhookObservation struct {
+	Authorization string
+	Signature     string
+	Body          []byte
+}
+
 func doPublicA2ARequest(t *testing.T, method, url, body string, headers map[string]string) publicA2AHTTPResult {
 	t.Helper()
 	var reader io.Reader
@@ -176,4 +315,26 @@ func doPublicA2ARequest(t *testing.T, method, url, body string, headers map[stri
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	return publicA2AHTTPResult{StatusCode: resp.StatusCode, Body: string(raw)}
+}
+
+func waitPublicA2AWebhook(t *testing.T, hits <-chan publicA2AWebhookObservation) publicA2AWebhookObservation {
+	t.Helper()
+	select {
+	case hit := <-hits:
+		return hit
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for webhook hit")
+	}
+	return publicA2AWebhookObservation{}
+}
+
+func assertPublicA2AWebhookPayload(t *testing.T, body []byte, taskID, eventType string) {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["task_id"] != taskID || payload["event_type"] != eventType || payload["source"] != "openlinker-agent-node-public-a2a" {
+		t.Fatalf("webhook payload = %#v", payload)
+	}
 }

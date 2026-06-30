@@ -168,6 +168,27 @@ OPENLINKER_AGENT_NODE_HELPER_HOST=127.0.0.1
 OPENLINKER_AGENT_NODE_HELPER_PORT=0
 ```
 
+## Public A2A Server
+
+Agent Node can optionally expose the local backend as a small public A2A server.
+Keep this off unless the local process is meant to accept inbound A2A traffic:
+
+```bash
+OPENLINKER_AGENT_NODE_PUBLIC_A2A=true
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_HOST=127.0.0.1
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT=19091
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG=my-agent
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN=optional-bearer-token
+```
+
+The public server supports Agent Card, extended card, JSON-RPC, HTTP+JSON
+send/stream, task get/list/subscribe/cancel, and task Push Notification Config
+CRUD. Push Config is memory-backed inside the Agent Node process; use Core's
+platform A2A adapter for durable webhook/callback subscriptions. Agent Node
+does not advertise gRPC. Core gRPC is a separate external A2A binding exposed
+by Core when `A2A_GRPC_ENABLED=true`.
+
 ## Contributing and Security
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development rules and
