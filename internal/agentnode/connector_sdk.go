@@ -63,6 +63,27 @@ func jsonMapFromA2A(a2a *openlinker.AgentA2AContext) JSONMap {
 	if a2a.CallerAgentID != "" {
 		out["caller_agent_id"] = a2a.CallerAgentID
 	}
+	if a2a.ProtocolContextID != "" {
+		out["protocol_context_id"] = a2a.ProtocolContextID
+	}
+	if a2a.ProtocolTaskID != "" {
+		out["protocol_task_id"] = a2a.ProtocolTaskID
+	}
+	if a2a.RootContextID != "" {
+		out["root_context_id"] = a2a.RootContextID
+	}
+	if a2a.ParentContextID != "" {
+		out["parent_context_id"] = a2a.ParentContextID
+	}
+	if a2a.ParentTaskID != "" {
+		out["parent_task_id"] = a2a.ParentTaskID
+	}
+	if a2a.TraceID != "" {
+		out["trace_id"] = a2a.TraceID
+	}
+	if len(a2a.ReferenceTaskIDs) > 0 {
+		out["reference_task_ids"] = a2a.ReferenceTaskIDs
+	}
 	if a2a.CallAgentEndpoint != "" {
 		out["call_agent_endpoint"] = a2a.CallAgentEndpoint
 	}

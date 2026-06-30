@@ -14,6 +14,7 @@ type Node struct {
 	Connector    Connector
 	Adapter      Adapter
 	Helper       *LocalHelperServer
+	PublicA2A    *PublicA2AServer
 	Logger       *log.Logger
 
 	ctx        context.Context
@@ -45,6 +46,14 @@ func (n *Node) Start(parent context.Context) error {
 
 	if n.Helper != nil {
 		if err := n.Helper.Start(n.ctx); err != nil {
+			return err
+		}
+	}
+	if n.PublicA2A != nil {
+		if n.PublicA2A.Adapter == nil {
+			n.PublicA2A.Adapter = n.Adapter
+		}
+		if err := n.PublicA2A.Start(n.ctx); err != nil {
 			return err
 		}
 	}
@@ -85,6 +94,11 @@ func (n *Node) Stop(ctx context.Context) error {
 		if n.Helper != nil {
 			if helperErr := n.Helper.Stop(ctx); helperErr != nil && err == nil {
 				err = helperErr
+			}
+		}
+		if n.PublicA2A != nil {
+			if publicErr := n.PublicA2A.Stop(ctx); publicErr != nil && err == nil {
+				err = publicErr
 			}
 		}
 	})
@@ -140,6 +154,15 @@ func (n *Node) processAssignment(assignment Assignment) {
 		}
 		if options.Endpoint == "" {
 			options.Endpoint = stringFromMap(runCtx.A2A, "call_agent_endpoint")
+		}
+		if options.ContextID == "" {
+			options.ContextID = stringFromMap(runCtx.A2A, "protocol_context_id")
+		}
+		if options.TraceID == "" {
+			options.TraceID = stringFromMap(runCtx.A2A, "trace_id")
+		}
+		if len(options.ReferenceTaskIDs) == 0 {
+			options.ReferenceTaskIDs = stringSliceFromMap(runCtx.A2A, "reference_task_ids")
 		}
 		return a2aClient.CallAgent(ctx, currentRunID, targetAgentID, input, options)
 	}

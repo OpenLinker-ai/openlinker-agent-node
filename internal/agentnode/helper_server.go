@@ -164,6 +164,12 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		Input                     any                 `json:"input"`
 		Metadata                  any                 `json:"metadata"`
 		Endpoint                  string              `json:"endpoint"`
+		ContextID                 string              `json:"context_id"`
+		ContextIDAlias            string              `json:"contextId"`
+		TraceID                   string              `json:"trace_id"`
+		TraceIDAlias              string              `json:"traceId"`
+		ReferenceTaskIDs          []string            `json:"reference_task_ids"`
+		ReferenceTaskIDsAlias     []string            `json:"referenceTaskIds"`
 		TaskCallback              *TaskCallbackConfig `json:"task_callback"`
 		PushNotification          *TaskCallbackConfig `json:"push_notification"`
 		PushNotificationConfig    *TaskCallbackConfig `json:"pushNotificationConfig"`
@@ -192,10 +198,13 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		taskCallback = body.PushNotificationShorthand
 	}
 	result, err := session.runCtx.CallAgent(r.Context(), body.TargetAgentID, body.Input, CallAgentOptions{
-		Reason:       body.Reason,
-		Metadata:     body.Metadata,
-		Endpoint:     body.Endpoint,
-		TaskCallback: taskCallback,
+		Reason:           body.Reason,
+		Metadata:         body.Metadata,
+		Endpoint:         body.Endpoint,
+		ContextID:        firstNonEmpty(body.ContextID, body.ContextIDAlias),
+		TraceID:          firstNonEmpty(body.TraceID, body.TraceIDAlias),
+		ReferenceTaskIDs: firstNonEmptyStrings(body.ReferenceTaskIDs, body.ReferenceTaskIDsAlias),
+		TaskCallback:     taskCallback,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, JSONMap{"error": JSONMap{"code": "A2A_CALL_FAILED", "message": err.Error()}})

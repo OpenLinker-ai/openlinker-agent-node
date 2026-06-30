@@ -29,7 +29,10 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 
 	client := AgentA2AClient{APIBase: server.URL, RuntimeToken: "ol_live_test"}
 	result, err := client.CallAgent(context.Background(), "run-parent", "target-agent", JSONMap{"q": "hello"}, CallAgentOptions{
-		Reason: "delegate",
+		Reason:           "delegate",
+		ContextID:        "ctx-node",
+		TraceID:          "trace-node",
+		ReferenceTaskIDs: []string{"task-parent"},
 		TaskCallback: &TaskCallbackConfig{
 			URL:        "https://caller.example.com/a2a/events",
 			Token:      "caller-token",
@@ -43,6 +46,13 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 	}
 	if received["current_run_id"] != "run-parent" || received["target_agent_id"] != "target-agent" {
 		t.Fatalf("unexpected body: %#v", received)
+	}
+	if received["context_id"] != "ctx-node" || received["trace_id"] != "trace-node" {
+		t.Fatalf("context body = %#v", received)
+	}
+	refs, ok := received["reference_task_ids"].([]any)
+	if !ok || len(refs) != 1 || refs[0] != "task-parent" {
+		t.Fatalf("reference_task_ids = %#v", received["reference_task_ids"])
 	}
 	push, ok := received["task_callback"].(map[string]any)
 	if !ok || push["url"] != "https://caller.example.com/a2a/events" || push["token"] != "caller-token" {

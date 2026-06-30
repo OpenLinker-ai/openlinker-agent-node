@@ -44,12 +44,17 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	publicA2A, err := publicA2AFromEnv(get, adapter)
+	if err != nil {
+		return nil, err
+	}
 	return &Node{
 		APIBase:      apiBase,
 		RuntimeToken: runtimeToken,
 		Connector:    connector,
 		Adapter:      adapter,
 		Helper:       helper,
+		PublicA2A:    publicA2A,
 	}, nil
 }
 
@@ -193,6 +198,25 @@ func helperFromEnv(get EnvLookup, adapterMode string) (*LocalHelperServer, error
 	return &LocalHelperServer{
 		Host: defaultString(get("OPENLINKER_AGENT_NODE_HELPER_HOST"), "127.0.0.1"),
 		Port: port,
+	}, nil
+}
+
+func publicA2AFromEnv(get EnvLookup, adapter Adapter) (*PublicA2AServer, error) {
+	if !boolOption(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A"), false) {
+		return nil, nil
+	}
+	port, err := numberOption(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT"), 0, "OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT")
+	if err != nil {
+		return nil, err
+	}
+	return &PublicA2AServer{
+		Host:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_HOST"), "127.0.0.1"),
+		Port:        port,
+		Slug:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG"), "agent-node"),
+		Name:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME"), "OpenLinker Agent Node"),
+		Description: get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION"),
+		Token:       get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN"),
+		Adapter:     adapter,
 	}, nil
 }
 

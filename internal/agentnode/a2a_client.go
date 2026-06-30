@@ -32,12 +32,15 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 		return nil, err
 	}
 	resp, err := client.CallAgentAt(ctx, options.Endpoint, openlinker.CallAgentRequest{
-		CurrentRunID:  currentRunID,
-		TargetAgentID: targetAgentID,
-		Reason:        options.Reason,
-		Input:         input,
-		Metadata:      options.Metadata,
-		TaskCallback:  openlinkerTaskCallback(options.TaskCallback),
+		CurrentRunID:     currentRunID,
+		TargetAgentID:    targetAgentID,
+		Reason:           options.Reason,
+		Input:            input,
+		Metadata:         options.Metadata,
+		ContextID:        options.ContextID,
+		TraceID:          options.TraceID,
+		ReferenceTaskIDs: append([]string{}, options.ReferenceTaskIDs...),
+		TaskCallback:     openlinkerTaskCallback(options.TaskCallback),
 	})
 	if err != nil {
 		return nil, err

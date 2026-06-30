@@ -143,3 +143,43 @@ func stringFromMap(value JSONMap, key string) string {
 	}
 	return fmt.Sprint(raw)
 }
+
+func stringSliceFromMap(value JSONMap, key string) []string {
+	raw, ok := value[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return append([]string{}, typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := fmt.Sprint(item)
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyStrings(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return append([]string{}, value...)
+		}
+	}
+	return nil
+}

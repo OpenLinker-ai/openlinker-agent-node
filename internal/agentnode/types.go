@@ -73,11 +73,14 @@ type RunContext struct {
 }
 
 type CallAgentOptions struct {
-	CurrentRunID string
-	Reason       string
-	Metadata     any
-	Endpoint     string
-	TaskCallback *TaskCallbackConfig
+	CurrentRunID     string
+	Reason           string
+	Metadata         any
+	Endpoint         string
+	ContextID        string
+	TraceID          string
+	ReferenceTaskIDs []string
+	TaskCallback     *TaskCallbackConfig
 }
 
 type TaskCallbackAuthentication struct {
