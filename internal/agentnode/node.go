@@ -119,6 +119,23 @@ func (n *Node) worker() {
 
 func (n *Node) processAssignment(assignment Assignment) {
 	startedAt := time.Now()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result := RunResult{
+				Status:     "failed",
+				DurationMS: maxDurationMS(startedAt),
+				Error: &AgentError{
+					Code:    "ADAPTER_PANIC",
+					Message: fmt.Sprintf("%v", recovered),
+				},
+			}
+			if n.Connector != nil {
+				if err := n.Connector.CompleteRun(n.ctx, assignment.RunID, result); err != nil {
+					n.logf("agent node panic result failed: %v", err)
+				}
+			}
+		}
+	}()
 	var mu sync.Mutex
 	bufferedEvents := make([]RunEvent, 0)
 	a2aClient := AgentA2AClient{
