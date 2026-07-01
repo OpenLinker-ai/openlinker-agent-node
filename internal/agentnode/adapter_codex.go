@@ -24,7 +24,7 @@ type CodexAdapter struct {
 }
 
 func (a CodexAdapter) Run(ctx context.Context, input any, runCtx RunContext) (any, error) {
-	runCtx.Emit("run.message.delta", JSONMap{"text": "Codex adapter started."})
+	runCtx.Emit("run.message.delta", JSONMap{"text": "Codex is processing the task."})
 	if a.MockResponse != "" {
 		return JSONMap{
 			"handled_by": "codex",
