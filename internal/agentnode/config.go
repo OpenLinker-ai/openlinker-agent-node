@@ -217,6 +217,10 @@ func publicA2AFromEnv(get EnvLookup, adapter Adapter) (*PublicA2AServer, error) 
 		Description: get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION"),
 		Token:       get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN"),
 		Adapter:     adapter,
+		AllowLocalPushURLs: boolOption(
+			get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS"),
+			false,
+		),
 	}, nil
 }
 

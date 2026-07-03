@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,9 @@ type PublicA2AServer struct {
 	Description string
 	Token       string
 	Adapter     Adapter
+	// AllowLocalPushURLs permits loopback HTTP(S) push callback URLs for local tests.
+	AllowLocalPushURLs bool
+	RunTimeout         time.Duration
 
 	server   *http.Server
 	listener net.Listener
@@ -77,6 +82,12 @@ type publicA2AJSONError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
+const (
+	defaultPublicA2ARunTimeout     = 15 * time.Minute
+	maxPublicA2ATasks              = 512
+	maxPublicA2APushConfigsPerTask = 32
+)
+
 func (s *PublicA2AServer) Start(ctx context.Context) error {
 	if s.Adapter == nil {
 		return fmt.Errorf("public A2A server requires adapter")
@@ -89,6 +100,9 @@ func (s *PublicA2AServer) Start(ctx context.Context) error {
 	}
 	if s.Name == "" {
 		s.Name = s.Slug
+	}
+	if !publicA2AHostIsLoopback(s.Host) && strings.TrimSpace(s.Token) == "" {
+		return fmt.Errorf("public A2A token is required when binding to non-loopback host")
 	}
 	s.mu.Lock()
 	if s.tasks == nil {
@@ -116,7 +130,13 @@ func (s *PublicA2AServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/tasks", s.handleTasks)
 	mux.HandleFunc("/tasks/", s.handleTaskPath)
 	mux.HandleFunc("/", s.handleJSONRPC)
-	s.server = &http.Server{Handler: mux}
+	s.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
@@ -434,7 +454,13 @@ func (s *PublicA2AServer) runMessage(ctx context.Context, params openlinker.A2AM
 			"protocol_task_id":    taskID,
 		},
 	}
-	raw, err := s.Adapter.Run(ctx, input, runCtx)
+	inlinePush, err := s.publicA2AInlinePushConfig(ctx, taskID, params.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	runCtxWithTimeout, cancel := context.WithTimeout(ctx, s.runTimeout())
+	defer cancel()
+	raw, err := s.Adapter.Run(runCtxWithTimeout, input, runCtx)
 	result := normalizeAdapterResult(raw)
 	if err != nil {
 		result.Status = "failed"
@@ -455,13 +481,16 @@ func (s *PublicA2AServer) runMessage(ctx context.Context, params openlinker.A2AM
 	if result.Error != nil {
 		task.Error = result.Error.Message
 	}
-	inlinePush := publicA2AInlinePushConfig(taskID, params.Configuration)
 	s.mu.Lock()
+	if s.tasks == nil {
+		s.tasks = map[string]*publicA2ATask{}
+	}
+	if s.pushes == nil {
+		s.pushes = map[string]map[string]*publicA2APushConfig{}
+	}
+	s.pruneTasksLocked(maxPublicA2ATasks - 1)
 	s.tasks[taskID] = task
 	if inlinePush != nil {
-		if s.pushes == nil {
-			s.pushes = map[string]map[string]*publicA2APushConfig{}
-		}
 		if s.pushes[taskID] == nil {
 			s.pushes[taskID] = map[string]*publicA2APushConfig{}
 		}
@@ -502,6 +531,9 @@ func (s *PublicA2AServer) createPushConfig(ctx context.Context, params openlinke
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validatePushURL(ctx, cfg.URL); err != nil {
+		return nil, err
+	}
 	var terminalTask *publicA2ATask
 	s.mu.Lock()
 	task, ok := s.tasks[taskID]
@@ -514,6 +546,10 @@ func (s *PublicA2AServer) createPushConfig(ctx context.Context, params openlinke
 	}
 	if s.pushes[taskID] == nil {
 		s.pushes[taskID] = map[string]*publicA2APushConfig{}
+	}
+	if _, exists := s.pushes[taskID][cfg.ID]; !exists && len(s.pushes[taskID]) >= maxPublicA2APushConfigsPerTask {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("too many push configs for task")
 	}
 	s.pushes[taskID][cfg.ID] = cfg
 	if publicA2ATaskTerminal(task.State) {
@@ -565,6 +601,28 @@ func (s *PublicA2AServer) deletePushConfig(taskID, configID string) error {
 	}
 	delete(cfgs, configID)
 	return nil
+}
+
+func (s *PublicA2AServer) pruneTasksLocked(maxTasks int) {
+	for len(s.tasks) > maxTasks {
+		var oldestID string
+		var oldest time.Time
+		for id, task := range s.tasks {
+			ts := task.UpdatedAt
+			if ts.IsZero() {
+				ts = task.CreatedAt
+			}
+			if oldestID == "" || ts.Before(oldest) {
+				oldestID = id
+				oldest = ts
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(s.tasks, oldestID)
+		delete(s.pushes, oldestID)
+	}
 }
 
 func (s *PublicA2AServer) pushConfigsForTaskLocked(taskID string) []*publicA2APushConfig {
@@ -623,6 +681,9 @@ func (s *PublicA2AServer) deliverPushNotification(ctx context.Context, task *pub
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
+		return
+	}
+	if err := s.validatePushURL(ctx, cfg.URL); err != nil {
 		return
 	}
 	deliverCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -738,6 +799,81 @@ func (s *PublicA2AServer) authorized(r *http.Request) bool {
 	return strings.TrimSpace(r.Header.Get("authorization")) == "Bearer "+strings.TrimSpace(s.Token)
 }
 
+func (s *PublicA2AServer) runTimeout() time.Duration {
+	if s.RunTimeout > 0 {
+		return s.RunTimeout
+	}
+	return defaultPublicA2ARunTimeout
+}
+
+func (s *PublicA2AServer) validatePushURL(ctx context.Context, raw string) error {
+	return validatePublicA2APushURL(ctx, raw, s.AllowLocalPushURLs)
+}
+
+func validatePublicA2APushURL(ctx context.Context, raw string, allowLocal bool) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("invalid push notification URL")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("push notification URL must not include credentials")
+	}
+	host := parsed.Hostname()
+	if allowLocal && (parsed.Scheme == "http" || parsed.Scheme == "https") && publicA2AHostIsLoopback(host) {
+		return nil
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("push notification URL must use https")
+	}
+	if addr, ok := publicA2AParseIP(host); ok {
+		if !publicA2AAddrAllowed(addr) {
+			return fmt.Errorf("push notification URL must resolve to public IPs")
+		}
+		return nil
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(lookupCtx, host)
+	if err != nil || len(addrs) == 0 {
+		return fmt.Errorf("push notification host could not be resolved")
+	}
+	for _, ip := range addrs {
+		addr, ok := publicA2AParseIP(ip.IP.String())
+		if !ok || !publicA2AAddrAllowed(addr) {
+			return fmt.Errorf("push notification URL must resolve to public IPs")
+		}
+	}
+	return nil
+}
+
+func publicA2AHostIsLoopback(host string) bool {
+	if strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		return true
+	}
+	addr, ok := publicA2AParseIP(host)
+	return ok && addr.IsLoopback()
+}
+
+func publicA2AParseIP(raw string) (netip.Addr, bool) {
+	addr, err := netip.ParseAddr(strings.Trim(raw, "[]"))
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addr.Unmap(), true
+}
+
+func publicA2AAddrAllowed(addr netip.Addr) bool {
+	return addr.IsValid() &&
+		addr.IsGlobalUnicast() &&
+		!addr.IsPrivate() &&
+		!addr.IsLoopback() &&
+		!addr.IsLinkLocalUnicast() &&
+		!addr.IsLinkLocalMulticast() &&
+		!addr.IsMulticast() &&
+		!addr.IsUnspecified()
+}
+
 func normalizePublicA2AMethod(method string) string {
 	switch strings.TrimSpace(method) {
 	case "SendMessage", "message/send", "message:send":
@@ -797,9 +933,9 @@ func writePublicA2ASSE(w http.ResponseWriter, event string, payload any) {
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, strings.TrimSpace(buf.String()))
 }
 
-func publicA2AInlinePushConfig(taskID string, cfg *openlinker.A2ASendConfiguration) *publicA2APushConfig {
+func (s *PublicA2AServer) publicA2AInlinePushConfig(ctx context.Context, taskID string, cfg *openlinker.A2ASendConfiguration) (*publicA2APushConfig, error) {
 	if cfg == nil {
-		return nil
+		return nil, nil
 	}
 	params := openlinker.A2ATaskPushConfigParams{TaskID: taskID}
 	if cfg.TaskPushNotificationConfig != nil {
@@ -815,13 +951,16 @@ func publicA2AInlinePushConfig(taskID string, cfg *openlinker.A2ASendConfigurati
 	} else if cfg.PushNotificationConfig != nil {
 		params.PushNotificationConfig = *cfg.PushNotificationConfig
 	} else {
-		return nil
+		return nil, nil
 	}
 	out, err := publicA2APushConfigFromParams(taskID, params)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return out
+	if err := s.validatePushURL(ctx, out.URL); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func publicA2APushConfigFromParams(taskID string, params openlinker.A2ATaskPushConfigParams) (*publicA2APushConfig, error) {

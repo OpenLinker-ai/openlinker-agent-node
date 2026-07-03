@@ -44,15 +44,21 @@ func (a CommandAdapter) Run(ctx context.Context, input any, runCtx RunContext) (
 	}
 	cmd.Env = append(sanitizedEnv(baseEnv), helperEnv(runCtx)...)
 	cmd.Stdin = bytes.NewReader(payload)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitedOutputBuffer(cancel)
+	stderr := newLimitedOutputBuffer(cancel)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
+		if outputErr := adapterOutputLimitError("command", stdout, stderr); outputErr != nil {
+			return nil, outputErr
+		}
 		if reqCtx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("command timed out after %s", timeout)
 		}
 		return nil, fmt.Errorf("command failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if outputErr := adapterOutputLimitError("command", stdout, stderr); outputErr != nil {
+		return nil, outputErr
 	}
 	return parseCommandOutput(stdout.String(), stderr.String())
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const maxHelperBodyBytes = 1024 * 1024
@@ -56,7 +57,13 @@ func (s *LocalHelperServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/a2a/call", s.handleCallAgent)
 	mux.HandleFunc("/events", s.handleEvent)
-	s.server = &http.Server{Handler: mux}
+	s.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)

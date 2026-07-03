@@ -180,6 +180,8 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT=19091
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG=my-agent
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN=optional-bearer-token
+# Default false. Only enable for local testing of loopback HTTP push callbacks.
+OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS=false
 ```
 
 The public server supports Agent Card, extended card, JSON-RPC, HTTP+JSON

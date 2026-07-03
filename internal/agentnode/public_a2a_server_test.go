@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -141,12 +142,13 @@ func TestPublicA2AServerPushConfig(t *testing.T) {
 	defer webhook.Close()
 
 	server := &PublicA2AServer{
-		Host:        "127.0.0.1",
-		Port:        0,
-		Slug:        "push-agent",
-		Name:        "Push Agent",
-		Description: "Local A2A push test agent",
-		Token:       "public-token",
+		Host:               "127.0.0.1",
+		Port:               0,
+		Slug:               "push-agent",
+		Name:               "Push Agent",
+		Description:        "Local A2A push test agent",
+		Token:              "public-token",
+		AllowLocalPushURLs: true,
 		Adapter: AdapterFunc(func(_ context.Context, input any, _ RunContext) (any, error) {
 			return JSONMap{"ok": true, "echo": input}, nil
 		}),
@@ -255,27 +257,115 @@ func TestPublicA2AServerPushConfig(t *testing.T) {
 
 func TestPublicA2AFromEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                          "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":                     "ol_live_public",
-		"OPENLINKER_AGENT_NODE_CONNECTOR":              "runtime_pull",
-		"OPENLINKER_AGENT_NODE_ADAPTER":                "command",
-		"OPENLINKER_AGENT_NODE_COMMAND":                "/bin/echo",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A":             "true",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_HOST":        "127.0.0.1",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT":        "0",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG":        "env-agent",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME":        "Env Agent",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN":       "env-token",
-		"OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS":      "1",
-		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS":      "1",
-		"OPENLINKER_AGENT_NODE_STOP_ON_EMPTY":          "true",
-		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION": "Env description",
+		"OPENLINKER_API_BASE":                                    "https://api.example.test",
+		"OPENLINKER_RUNTIME_TOKEN":                               "ol_live_public",
+		"OPENLINKER_AGENT_NODE_CONNECTOR":                        "runtime_pull",
+		"OPENLINKER_AGENT_NODE_ADAPTER":                          "command",
+		"OPENLINKER_AGENT_NODE_COMMAND":                          "/bin/echo",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A":                       "true",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_HOST":                  "127.0.0.1",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT":                  "0",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG":                  "env-agent",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME":                  "Env Agent",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN":                 "env-token",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS": "true",
+		"OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS":                "1",
+		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS":                "1",
+		"OPENLINKER_AGENT_NODE_STOP_ON_EMPTY":                    "true",
+		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION":           "Env description",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if node.PublicA2A == nil || node.PublicA2A.Slug != "env-agent" || node.PublicA2A.Token != "env-token" {
 		t.Fatalf("public A2A config = %#v", node.PublicA2A)
+	}
+	if !node.PublicA2A.AllowLocalPushURLs {
+		t.Fatalf("public A2A local push URL flag was not applied")
+	}
+}
+
+func TestPublicA2AServerRequiresTokenOnNonLoopback(t *testing.T) {
+	server := &PublicA2AServer{
+		Host: "0.0.0.0",
+		Port: 0,
+		Adapter: AdapterFunc(func(context.Context, any, RunContext) (any, error) {
+			return JSONMap{"ok": true}, nil
+		}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err == nil || !strings.Contains(err.Error(), "token is required") {
+		t.Fatalf("non-loopback without token error = %v", err)
+	}
+}
+
+func TestPublicA2AServerBoundsStoredTasksAndPushConfigs(t *testing.T) {
+	server := &PublicA2AServer{
+		AllowLocalPushURLs: true,
+		Adapter: AdapterFunc(func(_ context.Context, input any, _ RunContext) (any, error) {
+			return JSONMap{"output": input}, nil
+		}),
+	}
+	params := openlinker.A2AMessageSendParams{
+		Message: openlinker.A2AMessage{
+			Role:  "ROLE_USER",
+			Parts: []map[string]any{{"text": "hello"}},
+		},
+	}
+	for i := 0; i < maxPublicA2ATasks+3; i++ {
+		if _, err := server.runMessage(context.Background(), params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(server.tasks) != maxPublicA2ATasks {
+		t.Fatalf("stored task count = %d", len(server.tasks))
+	}
+
+	taskID := "task-push-limit"
+	server.tasks[taskID] = &publicA2ATask{
+		ID:        taskID,
+		ContextID: "ctx-push-limit",
+		State:     "TASK_STATE_RUNNING",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	for i := 0; i < maxPublicA2APushConfigsPerTask; i++ {
+		_, err := server.createPushConfig(context.Background(), openlinker.A2ATaskPushConfigParams{
+			TaskID: taskID,
+			PushNotificationConfig: openlinker.A2APushNotificationConfig{
+				ID:  fmt.Sprintf("push-%d", i),
+				URL: "http://127.0.0.1/callback",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := server.createPushConfig(context.Background(), openlinker.A2ATaskPushConfigParams{
+		TaskID: taskID,
+		PushNotificationConfig: openlinker.A2APushNotificationConfig{
+			ID:  "push-over-limit",
+			URL: "http://127.0.0.1/callback",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "too many push configs") {
+		t.Fatalf("push config limit error = %v", err)
+	}
+}
+
+func TestPublicA2APushURLPolicy(t *testing.T) {
+	if err := validatePublicA2APushURL(context.Background(), "http://127.0.0.1/callback", true); err != nil {
+		t.Fatalf("loopback local push URL should be allowed with explicit flag: %v", err)
+	}
+	for _, raw := range []string{
+		"http://127.0.0.1/callback",
+		"http://169.254.169.254/latest/meta-data",
+		"https://user:pass@example.com/callback",
+	} {
+		if err := validatePublicA2APushURL(context.Background(), raw, false); err == nil {
+			t.Fatalf("push URL %q should have been rejected", raw)
+		}
 	}
 }
 

@@ -1,9 +1,9 @@
 package agentnode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,17 +77,26 @@ func (a CodexAdapter) Run(ctx context.Context, input any, runCtx RunContext) (an
 	}
 	cmd.Env = append(sanitizedEnv(baseEnv), helperEnv(runCtx)...)
 	cmd.Stdin = strings.NewReader(BuildCodexPrompt(input, runCtx))
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := newLimitedOutputBuffer(cancel)
+	stderr := newLimitedOutputBuffer(cancel)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
+		if outputErr := adapterOutputLimitError("Codex", stdout, stderr); outputErr != nil {
+			return nil, outputErr
+		}
 		if reqCtx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("Codex timed out after %s", timeout)
 		}
 		return nil, fmt.Errorf("Codex failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	summaryBytes, err := os.ReadFile(outputFile)
+	if outputErr := adapterOutputLimitError("Codex", stdout, stderr); outputErr != nil {
+		return nil, outputErr
+	}
+	summaryBytes, err := readLimitedFile(outputFile, maxAdapterOutputBytes)
+	if errors.Is(err, errAdapterOutputTooLarge) {
+		return nil, fmt.Errorf("Codex final message exceeded %d bytes", maxAdapterOutputBytes)
+	}
 	summary := strings.TrimSpace(string(summaryBytes))
 	if err != nil || summary == "" {
 		summary = strings.TrimSpace(stdout.String())

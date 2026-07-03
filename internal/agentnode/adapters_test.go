@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -78,6 +79,25 @@ func TestCommandAdapterPassesHelper(t *testing.T) {
 	}
 	if out["call_agent_url"] != "http://127.0.0.1:19090/a2a/call" {
 		t.Fatalf("call_agent_url = %v", out["call_agent_url"])
+	}
+}
+
+func TestCommandAdapterRejectsOversizedOutput(t *testing.T) {
+	if os.Getenv("AGENTNODE_OVERSIZED_OUTPUT_PROCESS") == "1" {
+		_, _ = io.WriteString(os.Stdout, strings.Repeat("x", maxAdapterOutputBytes+1))
+		os.Exit(0)
+	}
+
+	_, err := (CommandAdapter{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestCommandAdapterRejectsOversizedOutput"},
+		Env:     append(os.Environ(), "AGENTNODE_OVERSIZED_OUTPUT_PROCESS=1"),
+		Timeout: testTimeout,
+	}).Run(context.Background(), JSONMap{"q": "oversized"}, RunContext{
+		RunID: "run-cli-oversized",
+	})
+	if err == nil || !strings.Contains(err.Error(), "output exceeded") {
+		t.Fatalf("oversized output error = %v", err)
 	}
 }
 
@@ -423,6 +443,37 @@ exit 7
 	})
 	if err == nil || !strings.Contains(err.Error(), "fake failure") {
 		t.Fatalf("failure error = %v", err)
+	}
+}
+
+func TestCodexAdapterRejectsOversizedFinalMessage(t *testing.T) {
+	workspace := t.TempDir()
+	oversizedCodex := writeFakeCodex(t, fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+out=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    out="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+cat >/dev/null
+dd if=/dev/zero of="$out" bs=%d count=1 2>/dev/null
+`, maxAdapterOutputBytes+1))
+
+	_, err := (CodexAdapter{
+		CodexBin:  oversizedCodex,
+		Workspace: workspace,
+		Timeout:   testTimeout,
+		Env:       []string{"PATH=/usr/bin:/bin"},
+	}).Run(context.Background(), "oversized", RunContext{
+		RunID: "run-cli-codex-oversized",
+		Emit:  func(string, any) {},
+	})
+	if err == nil || !strings.Contains(err.Error(), "final message exceeded") {
+		t.Fatalf("oversized codex output error = %v", err)
 	}
 }
 
