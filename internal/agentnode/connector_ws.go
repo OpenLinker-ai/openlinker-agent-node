@@ -12,7 +12,7 @@ import (
 
 type RuntimeWSConnector struct {
 	APIBase      string
-	RuntimeToken string
+	AgentToken   string
 	Reconnect    bool
 	ReconnectMin time.Duration
 	ReconnectMax time.Duration
@@ -32,12 +32,12 @@ func (c *RuntimeWSConnector) Start(ctx context.Context, handlers ConnectorHandle
 	if c.APIBase == "" {
 		return fmt.Errorf("api base is required")
 	}
-	if c.RuntimeToken == "" {
-		return fmt.Errorf("runtime token is required")
+	if c.AgentToken == "" {
+		return fmt.Errorf("agent token is required")
 	}
 	client, err := openlinker.NewClient(
 		c.APIBase,
-		openlinker.WithRuntimeToken(c.RuntimeToken),
+		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
 	)
 	if err != nil {

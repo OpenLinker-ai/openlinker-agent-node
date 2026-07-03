@@ -8,9 +8,9 @@ import (
 func TestProcessAssignmentRecoversAdapterPanic(t *testing.T) {
 	connector := &recordingConnector{}
 	node := &Node{
-		APIBase:      "https://api.example",
-		RuntimeToken: "ol_live_test",
-		Connector:    connector,
+		APIBase:    "https://api.example",
+		AgentToken: "ol_user_test",
+		Connector:  connector,
 		Adapter: AdapterFunc(func(context.Context, any, RunContext) (any, error) {
 			panic("adapter exploded")
 		}),

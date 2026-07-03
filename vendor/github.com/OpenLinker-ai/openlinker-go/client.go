@@ -18,12 +18,12 @@ import (
 const defaultSDKAgent = "openlinker-go/0.1.3"
 
 type Client struct {
-	baseURL      *url.URL
-	httpClient   *http.Client
-	accessToken  string
-	runtimeToken string
-	sdkAgent     string
-	headers      http.Header
+	baseURL    *url.URL
+	httpClient *http.Client
+	userToken  string
+	agentToken string
+	sdkAgent   string
+	headers    http.Header
 }
 
 type Option func(*Client)
@@ -36,15 +36,15 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-func WithAccessToken(token string) Option {
+func WithUserToken(token string) Option {
 	return func(c *Client) {
-		c.accessToken = strings.TrimSpace(token)
+		c.userToken = strings.TrimSpace(token)
 	}
 }
 
-func WithRuntimeToken(token string) Option {
+func WithAgentToken(token string) Option {
 	return func(c *Client) {
-		c.runtimeToken = strings.TrimSpace(token)
+		c.agentToken = strings.TrimSpace(token)
 	}
 }
 
@@ -366,15 +366,11 @@ func (c *Client) doRuntime(ctx context.Context, method, path string, query url.V
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, query url.Values, body any, accept string) (*http.Response, error) {
-	return c.newRequestWithToken(ctx, method, path, query, body, accept, c.accessToken)
+	return c.newRequestWithToken(ctx, method, path, query, body, accept, c.userToken)
 }
 
 func (c *Client) newRuntimeRequest(ctx context.Context, method, path string, query url.Values, body any, accept string) (*http.Response, error) {
-	token := c.runtimeToken
-	if token == "" {
-		token = c.accessToken
-	}
-	return c.newRequestWithToken(ctx, method, path, query, body, accept, token)
+	return c.newRequestWithToken(ctx, method, path, query, body, accept, c.agentToken)
 }
 
 func (c *Client) newRequestWithToken(ctx context.Context, method, path string, query url.Values, body any, accept, token string) (*http.Response, error) {

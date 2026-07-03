@@ -52,8 +52,8 @@ func TestSDKRuntimeHandlersBridgeCallbacks(t *testing.T) {
 			CallerAgentID:     "caller-1",
 			CallAgentEndpoint: "/a2a/call",
 			CallAgentMethod:   "POST",
-			RuntimeTokenType:  "bearer",
-			RuntimeScopes:     []string{"agents:run", "runs:read"},
+			AgentTokenType:    "bearer",
+			AgentScopes:       []string{"agents:run", "runs:read"},
 		},
 	})
 	if assigned.RunID != "run-1" || assigned.Metadata["priority"] != "high" || assigned.A2A["caller_agent_id"] != "caller-1" {
@@ -95,8 +95,8 @@ func TestJSONMapFromA2AAndMetadataVariants(t *testing.T) {
 		ReferenceTaskIDs:  []string{"task-parent"},
 		CallAgentEndpoint: "/a2a/call",
 		CallAgentMethod:   "POST",
-		RuntimeTokenType:  "bearer",
-		RuntimeScopes:     []string{"agents:run"},
+		AgentTokenType:    "bearer",
+		AgentScopes:       []string{"agents:run"},
 	})
 	wantA2A := JSONMap{
 		"current_run_id":      "run-1",
@@ -111,8 +111,8 @@ func TestJSONMapFromA2AAndMetadataVariants(t *testing.T) {
 		"reference_task_ids":  []string{"task-parent"},
 		"call_agent_endpoint": "/a2a/call",
 		"call_agent_method":   "POST",
-		"runtime_token_type":  "bearer",
-		"runtime_scopes":      []string{"agents:run"},
+		"agent_token_type":    "bearer",
+		"agent_scopes":        []string{"agents:run"},
 	}
 	if !reflect.DeepEqual(a2a, wantA2A) {
 		t.Fatalf("jsonMapFromA2A = %#v", a2a)

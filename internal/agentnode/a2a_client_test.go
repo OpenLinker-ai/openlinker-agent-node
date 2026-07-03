@@ -17,7 +17,7 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 		if r.URL.Path != "/api/v1/agent-runtime/call-agent" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
-		if got := r.Header.Get("authorization"); got != "Bearer ol_live_test" {
+		if got := r.Header.Get("authorization"); got != "Bearer ol_user_test" {
 			t.Fatalf("authorization = %q", got)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
@@ -27,7 +27,7 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := AgentA2AClient{APIBase: server.URL, RuntimeToken: "ol_live_test"}
+	client := AgentA2AClient{APIBase: server.URL, AgentToken: "ol_user_test"}
 	result, err := client.CallAgent(context.Background(), "run-parent", "target-agent", JSONMap{"q": "hello"}, CallAgentOptions{
 		Reason:           "delegate",
 		ContextID:        "ctx-node",
@@ -68,7 +68,7 @@ func TestAgentA2AClientCallAgent(t *testing.T) {
 }
 
 func TestAgentA2AClientCallAgentValidationAndErrors(t *testing.T) {
-	client := AgentA2AClient{APIBase: "http://127.0.0.1:1", RuntimeToken: "ol_live_test"}
+	client := AgentA2AClient{APIBase: "http://127.0.0.1:1", AgentToken: "ol_user_test"}
 	if _, err := client.CallAgent(context.Background(), "", "target-agent", JSONMap{}, CallAgentOptions{}); err == nil || !strings.Contains(err.Error(), "currentRunID") {
 		t.Fatalf("empty currentRunID error = %v", err)
 	}
@@ -91,7 +91,7 @@ func TestAgentA2AClientCallAgentValidationAndErrors(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client = AgentA2AClient{APIBase: server.URL, RuntimeToken: "ol_live_test"}
+	client = AgentA2AClient{APIBase: server.URL, AgentToken: "ol_user_test"}
 	_, err := client.CallAgent(context.Background(), "run-parent", "target-agent", JSONMap{"q": "hello"}, CallAgentOptions{
 		Endpoint: "/custom/a2a/call",
 		Reason:   "delegate",

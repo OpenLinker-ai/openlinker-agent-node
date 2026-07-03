@@ -25,7 +25,7 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 
 OPENLINKER_API_BASE=https://api.openlinker.ai \
-OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
+OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_ADAPTER=openclaw \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
@@ -79,7 +79,7 @@ runtime connection open for NAT or private-network deployment.
 
 ```bash
 OPENLINKER_API_BASE=https://api.openlinker.ai \
-OPENLINKER_RUNTIME_TOKEN=ol_live_xxx \
+OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
 OPENLINKER_AGENT_NODE_ADAPTER=a2a \
 OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc \
@@ -126,7 +126,7 @@ OPENLINKER_AGENT_NODE_CONNECTOR=runtime_pull
 Backends can call another Agent while processing a run:
 
 The node supplies `current_run_id` from the assigned run context and uses the
-runtime token. Backends do not manage parent run IDs.
+agent token. Backends do not manage parent run IDs.
 
 For `http`, `command`, and `codex` adapters, Agent Node enables a localhost
 helper by default. The backend receives `agent_node.helper` in its JSON envelope
@@ -157,7 +157,7 @@ curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
   -d '{"event_type":"run.message.delta","payload":{"text":"working"}}'
 ```
 
-The helper token is local and run-scoped. The real runtime token stays inside
+The helper token is local and run-scoped. The real agent token stays inside
 Agent Node.
 
 Helper settings:
@@ -179,7 +179,7 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_HOST=127.0.0.1
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_PORT=19091
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG=my-agent
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
-OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN=optional-bearer-token
+OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 # Default false. Only enable for local testing of loopback HTTP push callbacks.
 OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS=false
 ```

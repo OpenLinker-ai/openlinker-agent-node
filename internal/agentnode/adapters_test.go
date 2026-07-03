@@ -139,7 +139,7 @@ func TestAdapterErrorBranches(t *testing.T) {
 	}
 	env := sanitizedEnv([]string{
 		"NO_EQUALS",
-		"OPENLINKER_RUNTIME_TOKEN=secret",
+		"OPENLINKER_AGENT_TOKEN=secret",
 		"OPENLINKER_PUBLIC_HOST=example.test",
 		"NORMAL=value",
 	})

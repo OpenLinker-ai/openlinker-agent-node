@@ -11,14 +11,14 @@ import (
 )
 
 type RuntimePullConnector struct {
-	APIBase      string
-	RuntimeToken string
-	Wait         time.Duration
-	Heartbeat    time.Duration
-	EmptyRetry   time.Duration
-	MaxRuns      int
-	StopOnEmpty  bool
-	HTTPClient   *http.Client
+	APIBase     string
+	AgentToken  string
+	Wait        time.Duration
+	Heartbeat   time.Duration
+	EmptyRetry  time.Duration
+	MaxRuns     int
+	StopOnEmpty bool
+	HTTPClient  *http.Client
 
 	mu        sync.RWMutex
 	connector *openlinker.RuntimePullConnector
@@ -32,8 +32,8 @@ func (c *RuntimePullConnector) Start(ctx context.Context, handlers ConnectorHand
 	if c.APIBase == "" {
 		return fmt.Errorf("api base is required")
 	}
-	if c.RuntimeToken == "" {
-		return fmt.Errorf("runtime token is required")
+	if c.AgentToken == "" {
+		return fmt.Errorf("agent token is required")
 	}
 	client, err := c.sdkClient()
 	if err != nil {
@@ -77,7 +77,7 @@ func (c *RuntimePullConnector) CompleteRun(ctx context.Context, runID string, re
 func (c *RuntimePullConnector) sdkClient() (*openlinker.Client, error) {
 	return openlinker.NewClient(
 		c.APIBase,
-		openlinker.WithRuntimeToken(c.RuntimeToken),
+		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
 	)
 }

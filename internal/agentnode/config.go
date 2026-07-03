@@ -27,8 +27,8 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 	if apiBase == "" {
 		apiBase = strings.TrimSuffix(get("OPENLINKER_API_ROOT"), "/api/v1")
 	}
-	runtimeToken := get("OPENLINKER_RUNTIME_TOKEN")
-	connector, err := connectorFromEnv(get, apiBase, runtimeToken)
+	agentToken := get("OPENLINKER_AGENT_TOKEN")
+	connector, err := connectorFromEnv(get, apiBase, agentToken)
 	if err != nil {
 		return nil, err
 	}
@@ -49,16 +49,16 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 		return nil, err
 	}
 	return &Node{
-		APIBase:      apiBase,
-		RuntimeToken: runtimeToken,
-		Connector:    connector,
-		Adapter:      adapter,
-		Helper:       helper,
-		PublicA2A:    publicA2A,
+		APIBase:    apiBase,
+		AgentToken: agentToken,
+		Connector:  connector,
+		Adapter:    adapter,
+		Helper:     helper,
+		PublicA2A:  publicA2A,
 	}, nil
 }
 
-func connectorFromEnv(get EnvLookup, apiBase, runtimeToken string) (Connector, error) {
+func connectorFromEnv(get EnvLookup, apiBase, agentToken string) (Connector, error) {
 	mode := get("OPENLINKER_AGENT_NODE_CONNECTOR")
 	if mode == "" {
 		mode = "runtime_ws"
@@ -78,13 +78,13 @@ func connectorFromEnv(get EnvLookup, apiBase, runtimeToken string) (Connector, e
 			return nil, err
 		}
 		return &RuntimePullConnector{
-			APIBase:      apiBase,
-			RuntimeToken: runtimeToken,
-			Wait:         time.Duration(waitSeconds) * time.Second,
-			Heartbeat:    time.Duration(heartbeatSeconds) * time.Second,
-			MaxRuns:      maxRuns,
-			StopOnEmpty:  boolOption(get("OPENLINKER_AGENT_NODE_STOP_ON_EMPTY"), false),
-			EmptyRetry:   5 * time.Second,
+			APIBase:     apiBase,
+			AgentToken:  agentToken,
+			Wait:        time.Duration(waitSeconds) * time.Second,
+			Heartbeat:   time.Duration(heartbeatSeconds) * time.Second,
+			MaxRuns:     maxRuns,
+			StopOnEmpty: boolOption(get("OPENLINKER_AGENT_NODE_STOP_ON_EMPTY"), false),
+			EmptyRetry:  5 * time.Second,
 		}, nil
 	case "runtime_ws":
 		heartbeatSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), 60, "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
@@ -93,7 +93,7 @@ func connectorFromEnv(get EnvLookup, apiBase, runtimeToken string) (Connector, e
 		}
 		return &RuntimeWSConnector{
 			APIBase:      apiBase,
-			RuntimeToken: runtimeToken,
+			AgentToken:   agentToken,
 			Reconnect:    boolOption(get("OPENLINKER_AGENT_NODE_RECONNECT"), true),
 			ReconnectMin: 500 * time.Millisecond,
 			ReconnectMax: 10 * time.Second,
@@ -131,7 +131,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		}
 		return A2AAdapter{
 			BaseURL:             get("OPENLINKER_AGENT_NODE_A2A_BASE_URL"),
-			Token:               get("OPENLINKER_AGENT_NODE_A2A_TOKEN"),
+			Token:               get("OPENLINKER_UPSTREAM_A2A_TOKEN"),
 			Headers:             headers,
 			Method:              openlinker.NormalizeA2AJSONRPCMethodForDialect(defaultString(get("OPENLINKER_AGENT_NODE_A2A_METHOD"), openlinker.A2AMethodMessageSend), defaultString(get("OPENLINKER_AGENT_NODE_A2A_DIALECT"), get("OPENLINKER_AGENT_NODE_A2A_METHOD_DIALECT"))),
 			AcceptedOutputModes: modes,
@@ -215,7 +215,7 @@ func publicA2AFromEnv(get EnvLookup, adapter Adapter) (*PublicA2AServer, error) 
 		Slug:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_SLUG"), "agent-node"),
 		Name:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME"), "OpenLinker Agent Node"),
 		Description: get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION"),
-		Token:       get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_TOKEN"),
+		Token:       get("OPENLINKER_PUBLIC_A2A_TOKEN"),
 		Adapter:     adapter,
 		AllowLocalPushURLs: boolOption(
 			get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS"),

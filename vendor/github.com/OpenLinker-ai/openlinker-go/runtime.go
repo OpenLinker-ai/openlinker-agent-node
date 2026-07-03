@@ -127,7 +127,7 @@ func (c *RuntimePullConnector) validate() error {
 		return errors.New("openlinker: runtime pull connector requires client")
 	}
 	if c.Client.runtimeAuthToken() == "" {
-		return errors.New("openlinker: runtime token is required")
+		return errors.New("openlinker: agent token is required")
 	}
 	return nil
 }
@@ -306,7 +306,7 @@ func (c *RuntimeWSConnector) validate() error {
 		return errors.New("openlinker: runtime websocket connector requires client")
 	}
 	if c.Client.runtimeAuthToken() == "" {
-		return errors.New("openlinker: runtime token is required")
+		return errors.New("openlinker: agent token is required")
 	}
 	return nil
 }
@@ -487,10 +487,7 @@ func RuntimeAssignmentFromWSMessage(message RuntimeWSServerMessage) RuntimeAssig
 }
 
 func (c *Client) runtimeAuthToken() string {
-	if c.runtimeToken != "" {
-		return c.runtimeToken
-	}
-	return c.accessToken
+	return c.agentToken
 }
 
 func (c *Client) runtimeWebSocketHeaders() http.Header {

@@ -23,8 +23,8 @@ import (
 func main() {
 	client, err := openlinker.NewClient(
 		"https://core.example.com",
-		openlinker.WithAccessToken("ol_live_xxx"),
-		openlinker.WithRuntimeToken("ol_live_runtime_xxx"),
+		openlinker.WithUserToken("ol_user_xxx"),
+		openlinker.WithAgentToken("ol_agent_xxx"),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -109,7 +109,7 @@ slug:
 a2a, err := openlinker.NewA2AGRPCClient(
 	"https://grpc.core.example.com",
 	"research-agent",
-	openlinker.WithA2AGRPCToken("ol_live_xxx"),
+	openlinker.WithA2AGRPCToken("ol_user_xxx"),
 )
 if err != nil {
 	log.Fatal(err)

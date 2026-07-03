@@ -21,7 +21,7 @@ func TestNodeRuntimeWSHTTPBackendHelperDelegation(t *testing.T) {
 	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agent-runtime/call-agent":
-			if got := r.Header.Get("authorization"); got != "Bearer ol_live_ws" {
+			if got := r.Header.Get("authorization"); got != "Bearer ol_agent_ws" {
 				t.Fatalf("authorization = %q", got)
 			}
 			if err := json.NewDecoder(r.Body).Decode(&callAgentBody); err != nil {
@@ -29,7 +29,7 @@ func TestNodeRuntimeWSHTTPBackendHelperDelegation(t *testing.T) {
 			}
 			writeJSON(w, http.StatusOK, JSONMap{"run_id": "child-run-ws", "status": "success", "output": JSONMap{"answer": "child"}})
 		case r.URL.Path == "/api/v1/agent-runtime/ws":
-			if got := r.Header.Get("authorization"); got != "Bearer ol_live_ws" {
+			if got := r.Header.Get("authorization"); got != "Bearer ol_agent_ws" {
 				t.Fatalf("authorization = %q", got)
 			}
 			conn, err := upgrader.Upgrade(w, r, nil)
@@ -89,12 +89,12 @@ func TestNodeRuntimeWSHTTPBackendHelperDelegation(t *testing.T) {
 	defer backend.Close()
 
 	node := &Node{
-		APIBase:      platform.URL,
-		RuntimeToken: "ol_live_ws",
+		APIBase:    platform.URL,
+		AgentToken: "ol_agent_ws",
 		Connector: &RuntimeWSConnector{
-			APIBase:      platform.URL,
-			RuntimeToken: "ol_live_ws",
-			Reconnect:    false,
+			APIBase:    platform.URL,
+			AgentToken: "ol_agent_ws",
+			Reconnect:  false,
 		},
 		Adapter: HTTPAdapter{URL: backend.URL + "/run", Timeout: testTimeout},
 		Helper:  &LocalHelperServer{},
@@ -138,7 +138,7 @@ func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		if got := r.Header.Get("authorization"); got != "Bearer ol_live_reconnect" {
+		if got := r.Header.Get("authorization"); got != "Bearer ol_agent_reconnect" {
 			t.Errorf("authorization = %q", got)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -189,11 +189,11 @@ func TestNodeRuntimeWSReconnectsAndProcessesAssignment(t *testing.T) {
 	defer platform.Close()
 
 	node := &Node{
-		APIBase:      platform.URL,
-		RuntimeToken: "ol_live_reconnect",
+		APIBase:    platform.URL,
+		AgentToken: "ol_agent_reconnect",
 		Connector: &RuntimeWSConnector{
 			APIBase:      platform.URL,
-			RuntimeToken: "ol_live_reconnect",
+			AgentToken:   "ol_agent_reconnect",
 			Reconnect:    true,
 			ReconnectMin: time.Millisecond,
 			ReconnectMax: 5 * time.Millisecond,

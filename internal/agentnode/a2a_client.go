@@ -11,9 +11,9 @@ import (
 )
 
 type AgentA2AClient struct {
-	APIBase      string
-	RuntimeToken string
-	HTTPClient   *http.Client
+	APIBase    string
+	AgentToken string
+	HTTPClient *http.Client
 }
 
 func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgentID string, input any, options CallAgentOptions) (any, error) {
@@ -25,7 +25,7 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 	}
 	client, err := openlinker.NewClient(
 		c.APIBase,
-		openlinker.WithRuntimeToken(c.RuntimeToken),
+		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
 	)
 	if err != nil {

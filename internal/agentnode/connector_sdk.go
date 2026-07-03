@@ -90,11 +90,11 @@ func jsonMapFromA2A(a2a *openlinker.AgentA2AContext) JSONMap {
 	if a2a.CallAgentMethod != "" {
 		out["call_agent_method"] = a2a.CallAgentMethod
 	}
-	if a2a.RuntimeTokenType != "" {
-		out["runtime_token_type"] = a2a.RuntimeTokenType
+	if a2a.AgentTokenType != "" {
+		out["agent_token_type"] = a2a.AgentTokenType
 	}
-	if len(a2a.RuntimeScopes) > 0 {
-		out["runtime_scopes"] = a2a.RuntimeScopes
+	if len(a2a.AgentScopes) > 0 {
+		out["agent_scopes"] = a2a.AgentScopes
 	}
 	return out
 }

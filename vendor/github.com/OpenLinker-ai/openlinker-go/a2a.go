@@ -155,7 +155,7 @@ func (c *Client) A2AAgent(slug string) (*A2AClient, error) {
 	return NewA2AClient(
 		endpoint,
 		WithA2AHTTPClient(c.httpClient),
-		WithA2AToken(c.accessToken),
+		WithA2AToken(c.userToken),
 		WithA2AHeaders(headers),
 		WithA2ASDKAgent(c.sdkAgent),
 	)

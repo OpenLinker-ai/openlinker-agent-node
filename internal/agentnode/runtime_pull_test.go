@@ -13,7 +13,7 @@ func TestNodeRuntimePullFallbackBuffersEvents(t *testing.T) {
 	resultCh := make(chan map[string]any, 1)
 	claimed := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("authorization"); got != "Bearer ol_live_pull" {
+		if got := r.Header.Get("authorization"); got != "Bearer ol_agent_pull" {
 			t.Fatalf("authorization = %q", got)
 		}
 		switch {
@@ -46,15 +46,15 @@ func TestNodeRuntimePullFallbackBuffersEvents(t *testing.T) {
 	defer server.Close()
 
 	node := &Node{
-		APIBase:      server.URL,
-		RuntimeToken: "ol_live_pull",
+		APIBase:    server.URL,
+		AgentToken: "ol_agent_pull",
 		Connector: &RuntimePullConnector{
-			APIBase:      server.URL,
-			RuntimeToken: "ol_live_pull",
-			Wait:         time.Millisecond,
-			Heartbeat:    time.Millisecond,
-			EmptyRetry:   time.Millisecond,
-			MaxRuns:      1,
+			APIBase:    server.URL,
+			AgentToken: "ol_agent_pull",
+			Wait:       time.Millisecond,
+			Heartbeat:  time.Millisecond,
+			EmptyRetry: time.Millisecond,
+			MaxRuns:    1,
 		},
 		Adapter: AdapterFunc(func(ctx context.Context, input any, runCtx RunContext) (any, error) {
 			runCtx.Emit("run.message.delta", JSONMap{"text": "pull started"})
@@ -91,7 +91,7 @@ func TestNodeRuntimePullHTTPBackendHelperDelegationBuffersEvents(t *testing.T) {
 	resultCh := make(chan map[string]any, 1)
 	claimed := false
 	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("authorization"); got != "Bearer ol_live_pull_helper" {
+		if got := r.Header.Get("authorization"); got != "Bearer ol_agent_pull_helper" {
 			t.Fatalf("authorization = %q", got)
 		}
 		switch {
@@ -156,15 +156,15 @@ func TestNodeRuntimePullHTTPBackendHelperDelegationBuffersEvents(t *testing.T) {
 	defer backend.Close()
 
 	node := &Node{
-		APIBase:      platform.URL,
-		RuntimeToken: "ol_live_pull_helper",
+		APIBase:    platform.URL,
+		AgentToken: "ol_agent_pull_helper",
 		Connector: &RuntimePullConnector{
-			APIBase:      platform.URL,
-			RuntimeToken: "ol_live_pull_helper",
-			Wait:         time.Millisecond,
-			Heartbeat:    time.Millisecond,
-			EmptyRetry:   time.Millisecond,
-			MaxRuns:      1,
+			APIBase:    platform.URL,
+			AgentToken: "ol_agent_pull_helper",
+			Wait:       time.Millisecond,
+			Heartbeat:  time.Millisecond,
+			EmptyRetry: time.Millisecond,
+			MaxRuns:    1,
 		},
 		Adapter: HTTPAdapter{URL: backend.URL + "/run", Timeout: testTimeout},
 		Helper:  &LocalHelperServer{},

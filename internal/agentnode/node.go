@@ -9,13 +9,13 @@ import (
 )
 
 type Node struct {
-	APIBase      string
-	RuntimeToken string
-	Connector    Connector
-	Adapter      Adapter
-	Helper       *LocalHelperServer
-	PublicA2A    *PublicA2AServer
-	Logger       *log.Logger
+	APIBase    string
+	AgentToken string
+	Connector  Connector
+	Adapter    Adapter
+	Helper     *LocalHelperServer
+	PublicA2A  *PublicA2AServer
+	Logger     *log.Logger
 
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -28,8 +28,8 @@ func (n *Node) Start(parent context.Context) error {
 	if n.APIBase == "" {
 		return fmt.Errorf("api base is required")
 	}
-	if n.RuntimeToken == "" {
-		return fmt.Errorf("runtime token is required")
+	if n.AgentToken == "" {
+		return fmt.Errorf("agent token is required")
 	}
 	if n.Connector == nil {
 		return fmt.Errorf("connector is required")
@@ -139,8 +139,8 @@ func (n *Node) processAssignment(assignment Assignment) {
 	var mu sync.Mutex
 	bufferedEvents := make([]RunEvent, 0)
 	a2aClient := AgentA2AClient{
-		APIBase:      n.APIBase,
-		RuntimeToken: n.RuntimeToken,
+		APIBase:    n.APIBase,
+		AgentToken: n.AgentToken,
 	}
 	runCtx := RunContext{
 		RunID:    assignment.RunID,

@@ -18,7 +18,7 @@ import (
 func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_ROOT":                "https://example.test/api/v1",
-		"OPENLINKER_RUNTIME_TOKEN":           "ol_live_env",
+		"OPENLINKER_AGENT_TOKEN":             "ol_agent_env",
 		"OPENLINKER_AGENT_NODE_ADAPTER":      "openclaw",
 		"OPENLINKER_AGENT_NODE_HTTP_URL":     "http://127.0.0.1:18080/run",
 		"OPENLINKER_AGENT_NODE_HTTP_HEADERS": `{"x-openlinker-agent":"node"}`,
@@ -27,7 +27,7 @@ func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.APIBase != "https://example.test" || node.RuntimeToken != "ol_live_env" {
+	if node.APIBase != "https://example.test" || node.AgentToken != "ol_agent_env" {
 		t.Fatalf("node config = %#v", node)
 	}
 	ws, ok := node.Connector.(*RuntimeWSConnector)
@@ -55,7 +55,7 @@ func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
 func TestNewFromEnvMapRuntimePullCommand(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                     "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":                "ol_live_pull",
+		"OPENLINKER_AGENT_TOKEN":                  "ol_agent_pull",
 		"OPENLINKER_AGENT_NODE_CONNECTOR":         "runtime_pull",
 		"OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS": "2",
 		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS": "3",
@@ -91,7 +91,7 @@ func TestNewFromEnvMapRuntimePullCommand(t *testing.T) {
 
 func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 	t.Setenv("OPENLINKER_API_BASE", "https://env.example.test")
-	t.Setenv("OPENLINKER_RUNTIME_TOKEN", "ol_live_env_process")
+	t.Setenv("OPENLINKER_AGENT_TOKEN", "ol_agent_env_process")
 	t.Setenv("OPENLINKER_AGENT_NODE_CONNECTOR", "runtime_pull")
 	t.Setenv("OPENLINKER_AGENT_NODE_ADAPTER", "command")
 	t.Setenv("OPENLINKER_AGENT_NODE_COMMAND", "/bin/echo")
@@ -103,7 +103,7 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.APIBase != "https://env.example.test" || node.RuntimeToken != "ol_live_env_process" {
+	if node.APIBase != "https://env.example.test" || node.AgentToken != "ol_agent_env_process" {
 		t.Fatalf("node from env = %#v", node)
 	}
 	if _, ok := node.Connector.(*RuntimePullConnector); !ok {
@@ -118,7 +118,7 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                       "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":                  "ol_live_codex",
+		"OPENLINKER_AGENT_TOKEN":                    "ol_agent_codex",
 		"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":     "/workspace",
 		"OPENLINKER_AGENT_NODE_CODEX_SANDBOX":       "workspace-write",
 		"OPENLINKER_AGENT_NODE_CODEX_APPROVAL":      "never",
@@ -142,14 +142,14 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 
 	if _, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":           "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":      "ol_live_bad",
+		"OPENLINKER_AGENT_TOKEN":        "ol_agent_bad",
 		"OPENLINKER_AGENT_NODE_ADAPTER": "module",
 	}); err == nil || !strings.Contains(err.Error(), "module adapter is not supported") {
 		t.Fatalf("module adapter error = %v", err)
 	}
 	if _, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":             "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":        "ol_live_bad",
+		"OPENLINKER_AGENT_TOKEN":          "ol_agent_bad",
 		"OPENLINKER_AGENT_NODE_CONNECTOR": "runtime_pull",
 		"OPENLINKER_AGENT_NODE_ARGS":      "not-json",
 		"OPENLINKER_AGENT_NODE_COMMAND":   "openclaw",
@@ -161,9 +161,9 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                             "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":                        "ol_live_a2a",
+		"OPENLINKER_AGENT_TOKEN":                          "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL":              "http://127.0.0.1:9001/",
-		"OPENLINKER_AGENT_NODE_A2A_TOKEN":                 "a2a-token",
+		"OPENLINKER_UPSTREAM_A2A_TOKEN":                   "a2a-token",
 		"OPENLINKER_AGENT_NODE_A2A_HEADERS":               `{"x-a2a-agent":"local"}`,
 		"OPENLINKER_AGENT_NODE_A2A_ACCEPTED_OUTPUT_MODES": `["application/json"]`,
 		"OPENLINKER_AGENT_NODE_A2A_METHOD":                "SendMessage",
@@ -191,7 +191,7 @@ func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 func TestNewFromEnvMapA2AAdapterLegacyDialect(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
 		"OPENLINKER_API_BASE":                "https://api.example.test",
-		"OPENLINKER_RUNTIME_TOKEN":           "ol_live_a2a",
+		"OPENLINKER_AGENT_TOKEN":             "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL": "http://127.0.0.1:9001/",
 		"OPENLINKER_AGENT_NODE_A2A_DIALECT":  "legacy",
 	})
@@ -342,7 +342,7 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 	if modelLabel("") != "default" || modelLabel("gpt-5") != "gpt-5" {
 		t.Fatal("modelLabel returned an unexpected value")
 	}
-	if !looksSecretKey("OPENLINKER_RUNTIME_TOKEN") || looksSecretKey("OPENLINKER_PUBLIC_HOST") {
+	if !looksSecretKey("OPENLINKER_AGENT_TOKEN") || looksSecretKey("OPENLINKER_PUBLIC_HOST") {
 		t.Fatal("looksSecretKey returned an unexpected value")
 	}
 	if got, err := parseCommandOutput("", "warn"); err != nil || got.(JSONMap)["stderr"] != "warn" {
@@ -367,13 +367,13 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 		t.Fatal("Start should require API base")
 	}
 	if err := (&RuntimePullConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("Start should require runtime token")
+		t.Fatal("Start should require agent token")
 	}
 	if err := (&RuntimeWSConnector{}).Start(context.Background(), ConnectorHandlers{}); err == nil {
 		t.Fatal("RuntimeWSConnector Start should require API base")
 	}
 	if err := (&RuntimeWSConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("RuntimeWSConnector Start should require runtime token")
+		t.Fatal("RuntimeWSConnector Start should require agent token")
 	}
 	if err := (&RuntimeWSConnector{}).SendRunEvent(context.Background(), "run-id", RunEvent{EventType: "noop"}); err == nil {
 		t.Fatal("RuntimeWSConnector SendRunEvent should require Start")
@@ -389,7 +389,7 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 			return "bad"
 		}
 		return ""
-	}, "https://example.test", "ol_live"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+	}, "https://example.test", "ol_agent"); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("unsupported connector error = %v", err)
 	}
 	if _, err := adapterFromEnv(func(string) string { return "" }, "module"); err == nil || !strings.Contains(err.Error(), "module adapter") {
