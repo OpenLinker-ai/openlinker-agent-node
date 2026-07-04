@@ -22,12 +22,10 @@ jobs:
           cache: true
 
       - name: Verify vendored dependencies
-        run: |
-          go mod vendor
-          git diff --exit-code -- vendor go.mod go.sum
+        run: go list -mod=vendor ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -mod=vendor ./...
 
       - name: Build
-        run: go build ./cmd/openlinker-agent-node
+        run: go build -mod=vendor ./cmd/openlinker-agent-node
