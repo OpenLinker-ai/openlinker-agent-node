@@ -21,6 +21,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify vendored dependencies
+        run: |
+          go mod vendor
+          git diff --exit-code -- vendor go.mod go.sum
+
       - name: Test
         run: go test ./...
 
