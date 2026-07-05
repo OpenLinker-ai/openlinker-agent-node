@@ -1,0 +1,15 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+bin/
+/openlinker-agent-node
+coverage.out
+*.cover.out
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
