@@ -24,6 +24,29 @@ CLI 行为仍可能变化。
 3. `runtime_ws`：适合本地、内网或 NAT 后 Agent。Agent Node 主动建立 WebSocket 并实时接收 run。
 4. `runtime_pull`：只有 WebSocket 无法稳定连接或环境阻断时才作为 fallback。
 
+## 开源架构图
+
+Agent Node 位于 Core 的被调用方侧。它不接收调用方用户 session；后端子进程只应看到
+per-run helper envelope，不应拿到真实 Agent runtime token。
+
+```mermaid
+flowchart LR
+  Callers["Core Web / SDK / MCP / A2A 调用方"] -->|"run request"| Core["openlinker-core<br/>registry / run state / events"]
+  HostedBridge["Hosted Bridge<br/>可选部署适配层"] -.->|"授权后的 Core API"| Core
+
+  Core -->|"runtime_ws 下发 run.assigned"| AgentNode["openlinker-agent-node"]
+  AgentNode -.->|"heartbeat / claim fallback"| Core
+  AgentNode -->|"http adapter"| HTTPBackend["本地 HTTP backend"]
+  AgentNode -->|"command adapter"| CommandBackend["本地命令"]
+  AgentNode -->|"a2a adapter"| A2ABackend["上游 A2A Agent"]
+  AgentNode -->|"codex adapter"| CodexBackend["Codex workspace"]
+
+  HTTPBackend -->|"events / result via helper"| AgentNode
+  CommandBackend -->|"stdout result"| AgentNode
+  A2ABackend -->|"task result"| AgentNode
+  CodexBackend -->|"final output"| AgentNode
+```
+
 ## 快速开始
 
 依赖：

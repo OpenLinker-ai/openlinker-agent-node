@@ -30,6 +30,30 @@ Prefer the simplest working connection mode:
 4. `runtime_pull`: fallback only when WebSocket cannot stay connected or is
    blocked by the environment.
 
+## Open-source Architecture
+
+Agent Node sits on the callee side of Core. It never receives user sessions from
+callers, and backend subprocesses should only see the per-run helper envelope,
+not the real Agent runtime token.
+
+```mermaid
+flowchart LR
+  Callers["Core Web / SDK / MCP / A2A callers"] -->|"run request"| Core["openlinker-core<br/>registry / run state / events"]
+  HostedBridge["Hosted Bridge<br/>optional deployment adapter"] -.->|"authorized Core APIs"| Core
+
+  Core -->|"run.assigned over runtime_ws"| AgentNode["openlinker-agent-node"]
+  AgentNode -.->|"heartbeat / claim fallback"| Core
+  AgentNode -->|"http adapter"| HTTPBackend["Local HTTP backend"]
+  AgentNode -->|"command adapter"| CommandBackend["Local command"]
+  AgentNode -->|"a2a adapter"| A2ABackend["Upstream A2A Agent"]
+  AgentNode -->|"codex adapter"| CodexBackend["Codex workspace"]
+
+  HTTPBackend -->|"events / result via helper"| AgentNode
+  CommandBackend -->|"stdout result"| AgentNode
+  A2ABackend -->|"task result"| AgentNode
+  CodexBackend -->|"final output"| AgentNode
+```
+
 ## Quick Start
 
 Prerequisites:
