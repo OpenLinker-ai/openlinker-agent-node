@@ -9,12 +9,13 @@
 // that executable and adjust the flag set via Env / EnvAllowlist.
 //
 // Set via environment variables:
-//   OPENLINKER_AGENT_NODE_ADAPTER=codex
-//   OPENLINKER_AGENT_NODE_CODEX_BIN=/usr/local/bin/codex  (default: "codex")
-//   OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/path/to/workspace
-//   OPENLINKER_AGENT_NODE_CODEX_MODEL=o4-mini  (default: model flag omitted)
-//   OPENLINKER_AGENT_NODE_CODEX_SANDBOX=none|auto  (default: auto)
-//   OPENLINKER_AGENT_NODE_CODEX_TIMEOUT=300  (seconds, default: 300)
+//
+//	OPENLINKER_AGENT_NODE_ADAPTER=codex
+//	OPENLINKER_AGENT_NODE_CODEX_BIN=/usr/local/bin/codex  (default: "codex")
+//	OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/path/to/workspace
+//	OPENLINKER_AGENT_NODE_CODEX_MODEL=o4-mini  (default: model flag omitted)
+//	OPENLINKER_AGENT_NODE_CODEX_SANDBOX=none|auto  (default: auto)
+//	OPENLINKER_AGENT_NODE_CODEX_TIMEOUT=300  (seconds, default: 300)
 package agentnode
 
 import (
