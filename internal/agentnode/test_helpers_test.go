@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	httpOK      = http.StatusOK
-	testTimeout = 3 * time.Second
+	httpOK           = http.StatusOK
+	testTimeout      = 3 * time.Second
+	codexTestTimeout = 10 * time.Second
 )
 
 type testRequest struct {

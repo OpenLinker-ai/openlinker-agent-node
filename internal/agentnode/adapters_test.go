@@ -400,7 +400,7 @@ printf "%s" "stdout ignored"
 		Sandbox:   "workspace-write",
 		Approval:  "never",
 		Model:     "gpt-5",
-		Timeout:   testTimeout,
+		Timeout:   codexTestTimeout,
 		Env:       []string{"PATH=/usr/bin:/bin"},
 	}).Run(context.Background(), JSONMap{"task": "use fake codex"}, RunContext{
 		RunID: "run-cli-codex",
@@ -448,7 +448,7 @@ printf "%s" "summary from stdout"
 	output, err := (CodexAdapter{
 		CodexBin:  stdoutCodex,
 		Workspace: workspace,
-		Timeout:   testTimeout,
+		Timeout:   codexTestTimeout,
 		Env:       []string{"PATH=/usr/bin:/bin"},
 	}).Run(context.Background(), "stdout fallback", RunContext{
 		RunID: "run-cli-stdout",
@@ -469,7 +469,7 @@ exit 7
 	_, err = (CodexAdapter{
 		CodexBin:  failingCodex,
 		Workspace: workspace,
-		Timeout:   testTimeout,
+		Timeout:   codexTestTimeout,
 		Env:       []string{"PATH=/usr/bin:/bin"},
 	}).Run(context.Background(), "fail", RunContext{
 		RunID: "run-cli-fail",
@@ -505,7 +505,7 @@ printf '{"type":"session.created","session_id":"codex-session-1"}\n'
 		Workspace:    workspace,
 		Sandbox:      "workspace-write",
 		Approval:     "never",
-		Timeout:      testTimeout,
+		Timeout:      codexTestTimeout,
 		SessionReuse: true,
 		SessionStore: storePath,
 		Env:          []string{"PATH=/usr/bin:/bin"},
@@ -584,7 +584,7 @@ dd if=/dev/zero of="$out" bs=%d count=1 2>/dev/null
 	_, err := (CodexAdapter{
 		CodexBin:  oversizedCodex,
 		Workspace: workspace,
-		Timeout:   testTimeout,
+		Timeout:   codexTestTimeout,
 		Env:       []string{"PATH=/usr/bin:/bin"},
 	}).Run(context.Background(), "oversized", RunContext{
 		RunID: "run-cli-codex-oversized",
