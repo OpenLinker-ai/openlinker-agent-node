@@ -23,6 +23,27 @@ go get github.com/OpenLinker-ai/openlinker-go
 For local development inside the parent OpenLinker workspace, use this package
 directory directly.
 
+## Open-source Architecture
+
+The Go SDK is a caller-side and service-side integration library. It wraps
+Core-owned HTTP, A2A, callback, gRPC, and runtime endpoints; process-level local
+adapters belong in `openlinker-agent-node`.
+
+```mermaid
+flowchart LR
+  Service["Go service / CLI / backend"] --> SDK["openlinker-go"]
+  SDK -->|"REST client"| Core["openlinker-core<br/>registry / runs / events"]
+  SDK -->|"A2A JSON-RPC / HTTP+JSON / gRPC"| Core
+  SDK -->|"runtime connector primitives"| Runtime["Agent runtime process"]
+  Runtime -->|"heartbeat / claim / result"| Core
+
+  HostedBridge["Hosted Bridge<br/>optional deployment adapter"] -.->|"same Core API contract"| Core
+
+  Core -->|"direct_http"| HTTPAgent["Public HTTPS Agent"]
+  Core -->|"mcp_server"| MCPAgent["Remote MCP / JSON-RPC server"]
+  Core -->|"runtime_ws / runtime_pull"| AgentNode["openlinker-agent-node"]
+```
+
 ## Quick Start
 
 ```go
@@ -131,6 +152,26 @@ The SDK includes the base Agent runtime integration layer:
 - `CallAgentAt`
 - `RuntimePullConnector`
 - `RuntimeWSConnector`
+- `Native`
+
+For native Go workers, `WithAgent` wraps the connector lifecycle and default
+result mapping. Existing Agent code only needs to implement a minimal text
+runner:
+
+```go
+type MyAgent struct{}
+
+func (MyAgent) Run(ctx context.Context, input string) (string, error) {
+	return "hello " + input, nil
+}
+
+err := openlinker.WithAgent(MyAgent{}).Run(context.Background())
+```
+
+Use `Native` when you need full control over assignment handling and custom
+result mapping. By default both runners read `OPENLINKER_API_BASE`,
+`OPENLINKER_RUNTIME_TOKEN`, `OPENLINKER_WORKER_CONNECTOR`,
+`OPENLINKER_WORKER_PULL_WAIT`, and `OPENLINKER_WORKER_MAX_RUNS`.
 
 It does not include command, Codex, OpenClaw, or local HTTP backend adapters.
 Use `openlinker-agent-node` for those process-level integrations.
