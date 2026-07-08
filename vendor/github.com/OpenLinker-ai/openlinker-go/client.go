@@ -27,6 +27,7 @@ type Client struct {
 	agentToken string
 	sdkAgent   string
 	headers    http.Header
+	runtime    bool
 }
 
 type Option func(*Client)
@@ -51,6 +52,10 @@ func WithAgentToken(token string) Option {
 	}
 }
 
+func WithRuntimeToken(token string) Option {
+	return WithAgentToken(token)
+}
+
 func WithSDKAgent(agent string) Option {
 	return func(c *Client) {
 		if strings.TrimSpace(agent) != "" {
@@ -68,6 +73,10 @@ func WithHeader(name, value string) Option {
 }
 
 func NewClient(baseURL string, opts ...Option) (*Client, error) {
+	return newClient(baseURL, false, opts...)
+}
+
+func newClient(baseURL string, runtime bool, opts ...Option) (*Client, error) {
 	normalized := normalizeBaseURL(baseURL)
 	if normalized == "" {
 		return nil, errors.New("openlinker: base URL is required")
@@ -85,9 +94,21 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 		httpClient: http.DefaultClient,
 		sdkAgent:   defaultSDKAgent,
 		headers:    make(http.Header),
+		runtime:    runtime,
 	}
 	for _, opt := range opts {
 		opt(client)
+	}
+	if !runtime && client.agentToken != "" {
+		return nil, errors.New("openlinker: client does not accept agent token; use NewRuntime")
+	}
+	if runtime {
+		if client.userToken != "" {
+			return nil, errors.New("openlinker: runtime does not accept user token")
+		}
+		if client.agentToken == "" {
+			return nil, errors.New("openlinker: runtime requires agent token")
+		}
 	}
 	return client, nil
 }
@@ -188,6 +209,15 @@ func (c *Client) ListRunEvents(ctx context.Context, runID string, params ListRun
 	var out ListRunEventsResponse
 	path := "/runs/" + url.PathEscape(runID) + "/events"
 	if err := c.do(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListRunChildren(ctx context.Context, runID string) (*ListRunChildrenResponse, error) {
+	var out ListRunChildrenResponse
+	path := "/runs/" + url.PathEscape(runID) + "/children"
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -373,7 +403,23 @@ func (c *Client) newRequest(ctx context.Context, method, path string, query url.
 }
 
 func (c *Client) newRuntimeRequest(ctx context.Context, method, path string, query url.Values, body any, accept string) (*http.Response, error) {
+	if err := c.requireRuntime(); err != nil {
+		return nil, err
+	}
 	return c.newRequestWithToken(ctx, method, path, query, body, accept, c.agentToken)
+}
+
+func (c *Client) requireRuntime() error {
+	if c == nil {
+		return errors.New("openlinker: runtime client is nil")
+	}
+	if !c.runtime {
+		return errors.New("openlinker: client cannot call agent runtime endpoints; use NewRuntime")
+	}
+	if c.agentToken == "" {
+		return errors.New("openlinker: runtime requires agent token")
+	}
+	return nil
 }
 
 func (c *Client) newRequestWithToken(ctx context.Context, method, path string, query url.Values, body any, accept, token string) (*http.Response, error) {

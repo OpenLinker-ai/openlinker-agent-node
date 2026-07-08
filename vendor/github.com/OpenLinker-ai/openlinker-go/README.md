@@ -1,10 +1,10 @@
 # openlinker-go
 
 `openlinker-go` is the Go SDK for OpenLinker, an AI agent registry, agent
-marketplace, A2A/MCP runtime gateway, and self-hosted agent platform. Use this
-SDK from Go services to discover Agents, run Agents, stream events, verify
-webhooks, build Agent runtime connectors, and call A2A transports including
-JSON-RPC, HTTP+JSON/SSE, and gRPC.
+marketplace, A2A/MCP runtime gateway, and self-hosted agent platform. Use
+`NewClient` from Go services to discover Agents, run Agents, stream events,
+verify webhooks, and call A2A transports including JSON-RPC, HTTP+JSON/SSE, and
+gRPC. Use `NewRuntime` for Agent runtime connectors.
 
 Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -22,6 +22,27 @@ go get github.com/OpenLinker-ai/openlinker-go
 
 For local development inside the parent OpenLinker workspace, use this package
 directory directly.
+
+## Open-source Architecture
+
+The Go SDK keeps caller and Agent runtime credentials separate. `NewClient`
+wraps user-token platform calls. `NewRuntime` wraps agent-token runtime calls.
+Process-level local adapters belong in `openlinker-agent-node`.
+
+```mermaid
+flowchart LR
+  Service["Go service / CLI / backend"] --> ClientSDK["openlinker-go Client"]
+  ClientSDK -->|"REST client with OPENLINKER_USER_TOKEN"| Core["openlinker-core<br/>registry / runs / events"]
+  ClientSDK -->|"A2A JSON-RPC / HTTP+JSON / gRPC"| Core
+  Runtime["Agent runtime process"] --> RuntimeSDK["openlinker-go Runtime"]
+  RuntimeSDK -->|"heartbeat / claim / result with OPENLINKER_AGENT_TOKEN"| Core
+
+  HostedBridge["Hosted Bridge<br/>optional deployment adapter"] -.->|"same Core API contract"| Core
+
+  Core -->|"direct_http"| HTTPAgent["Public HTTPS Agent"]
+  Core -->|"mcp_server"| MCPAgent["Remote MCP / JSON-RPC server"]
+  Core -->|"runtime_ws / runtime_pull"| AgentNode["openlinker-agent-node"]
+```
 
 ## Quick Start
 
@@ -121,7 +142,21 @@ _ = body
 
 ## Runtime Connectors
 
-The SDK includes the base Agent runtime integration layer:
+Agent runtime processes use `OPENLINKER_AGENT_TOKEN` through `NewRuntime`:
+
+```go
+runtime, err := openlinker.NewRuntime(
+	"https://core.example.com",
+	openlinker.WithAgentToken(os.Getenv("OPENLINKER_AGENT_TOKEN")),
+)
+if err != nil {
+	log.Fatal(err)
+}
+
+connector := openlinker.NewRuntimePullConnector(runtime)
+```
+
+The SDK includes the base Agent runtime integration layer on `Runtime`:
 
 - `HeartbeatAgent`
 - `ClaimRuntimeRun`
@@ -131,6 +166,26 @@ The SDK includes the base Agent runtime integration layer:
 - `CallAgentAt`
 - `RuntimePullConnector`
 - `RuntimeWSConnector`
+- `Native`
+
+For native Go workers, `WithAgent` wraps the connector lifecycle and default
+result mapping. Existing Agent code only needs to implement a minimal text
+runner:
+
+```go
+type MyAgent struct{}
+
+func (MyAgent) Run(ctx context.Context, input string) (string, error) {
+	return "hello " + input, nil
+}
+
+err := openlinker.WithAgent(MyAgent{}).Run(context.Background())
+```
+
+Use `Native` when you need full control over assignment handling and custom
+result mapping. By default both runners read `OPENLINKER_API_BASE`,
+`OPENLINKER_AGENT_TOKEN` or legacy `OPENLINKER_RUNTIME_TOKEN`, `OPENLINKER_WORKER_CONNECTOR`,
+`OPENLINKER_WORKER_PULL_WAIT`, and `OPENLINKER_WORKER_MAX_RUNS`.
 
 It does not include command, Codex, OpenClaw, or local HTTP backend adapters.
 Use `openlinker-agent-node` for those process-level integrations.
@@ -156,6 +211,7 @@ defer a2a.Close()
 
 gRPC is an A2A transport binding. It does not replace Agent Node's internal
 `runtime_ws` or `runtime_pull` channels.
+
 
 ## Core Surface
 
@@ -189,8 +245,9 @@ go test ./...
 ## Security
 
 Keep user tokens, agent tokens, callback secrets, and push credentials out of
-logs and public issue reports. Verify webhook signatures before trusting
-callback bodies. Report vulnerabilities through [SECURITY.md](./SECURITY.md).
+logs and public issue reports. Use `OPENLINKER_USER_TOKEN` with `NewClient` and
+`OPENLINKER_AGENT_TOKEN` with `NewRuntime`. Verify webhook signatures before
+trusting callback bodies. Report vulnerabilities through [SECURITY.md](./SECURITY.md).
 
 ## Contributing
 

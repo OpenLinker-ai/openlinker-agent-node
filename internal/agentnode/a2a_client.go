@@ -23,7 +23,7 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 	if targetAgentID == "" {
 		return nil, fmt.Errorf("targetAgentID is required")
 	}
-	client, err := openlinker.NewClient(
+	runtime, err := openlinker.NewRuntime(
 		c.APIBase,
 		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
@@ -31,7 +31,7 @@ func (c AgentA2AClient) CallAgent(ctx context.Context, currentRunID, targetAgent
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.CallAgentAt(ctx, options.Endpoint, openlinker.CallAgentRequest{
+	resp, err := runtime.CallAgentAt(ctx, options.Endpoint, openlinker.CallAgentRequest{
 		CurrentRunID:     currentRunID,
 		TargetAgentID:    targetAgentID,
 		Reason:           options.Reason,
