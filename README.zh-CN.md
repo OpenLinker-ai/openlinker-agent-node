@@ -1,9 +1,9 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node 是面向自托管、本地、私有网络和 NAT 后 AI Agent 的开源 runtime
-连接器。它通过 `runtime_ws` 或 `runtime_pull` 把 Agent 接入 OpenLinker AI Agent
-注册中心和运行时网关，调用本地 HTTP / command / A2A / Codex adapter，回传 run 事件
-和结果，并支持 Agent-to-Agent delegation，同时不把真实 runtime token 暴露给后端子进程。
+OpenLinker Agent Node 把本地、内网和 NAT 后的 Agent 连接到 OpenLinker Core。它通过
+`runtime_ws` 或 `runtime_pull` 保持出站连接，调用本地 HTTP、命令、A2A 或 Codex
+适配器，再回传运行事件和结果。后端子进程只会拿到本次运行的短期 helper，不会接触
+Agent Token。
 
 English documentation: [README.md](./README.md)
 
@@ -27,7 +27,7 @@ CLI 行为仍可能变化。
 ## 开源架构图
 
 Agent Node 位于 Core 的被调用方侧。它不接收调用方用户 session；后端子进程只应看到
-per-run helper envelope，不应拿到真实 Agent runtime token。
+per-run helper envelope，不应拿到 Agent Token。
 
 ```mermaid
 flowchart LR
@@ -53,7 +53,7 @@ flowchart LR
 
 - Go 1.25 或更高版本
 - 已在 OpenLinker Core 注册的 Agent
-- Agent runtime token
+- Agent Token（`ol_agent_...`）
 - 本地后端进程、命令、Codex workspace 或上游 A2A endpoint
 
 构建和测试：
@@ -96,7 +96,7 @@ go run ./cmd/openlinker-agent-node
 ```
 
 helper endpoint 是本地且按 run 作用域限制的。后端应使用 helper 做 delegation 和进度事件，
-不要接收真实 Agent runtime token。
+不要接收 Agent Token。
 
 ## Adapter 模式
 
@@ -197,10 +197,10 @@ go build ./cmd/openlinker-agent-node
 
 ## 安全
 
-- runtime token 必须视为 secret。
-- 不要把 runtime token 传给后端子进程。
+- Agent Token 必须视为密钥。
+- 不要把 Agent Token 传给后端子进程。
 - `codex` adapter 使用隔离 workspace。
-- 公开 Issue 前删除 runtime token、helper token、私有 URL 和本地日志。
+- 公开 Issue 前删除 Agent Token、helper token、私有 URL 和本地日志。
 
 漏洞请通过 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md) 报告。
 
@@ -208,7 +208,7 @@ go build ./cmd/openlinker-agent-node
 
 提交 PR 前请阅读 [CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)。协议连接、adapter
 执行、本地 helper 和最终结果提交是本仓库核心边界，不要让后端子进程直接接触真实
-runtime token。
+Agent Token。
 
 ## 支持和发布
 
