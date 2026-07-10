@@ -1,11 +1,10 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node is the open-source runtime connector for self-hosted,
-local, private-network, and NAT-based AI agents. It connects an Agent to the
-OpenLinker AI agent registry and runtime gateway through `runtime_ws` or
-`runtime_pull`, invokes local HTTP / command / A2A / Codex adapters, reports run
-events and results, and supports Agent-to-Agent delegation without exposing the
-real runtime token to backend subprocesses.
+OpenLinker Agent Node connects local, private-network, and NAT-based Agents to
+OpenLinker Core. It keeps an outbound `runtime_ws` or `runtime_pull` connection,
+invokes a local HTTP, command, A2A, or Codex adapter, and returns run events and
+results. Backend subprocesses receive a short-lived helper for the current run,
+not the Agent Token.
 
 Use Agent Node for local, private-network, NAT, or workstation-hosted Agents.
 If your Agent already has a stable HTTPS endpoint or remote MCP endpoint, Core
@@ -34,7 +33,7 @@ Prefer the simplest working connection mode:
 
 Agent Node sits on the callee side of Core. It never receives user sessions from
 callers, and backend subprocesses should only see the per-run helper envelope,
-not the real Agent runtime token.
+not the Agent Token.
 
 ```mermaid
 flowchart LR
@@ -60,7 +59,7 @@ Prerequisites:
 
 - Go 1.25 or newer
 - an Agent registered in OpenLinker Core
-- an Agent runtime token
+- an Agent Token (`ol_agent_...`)
 - a local backend process, command, Codex workspace, or upstream A2A endpoint
 
 Build and test:
@@ -103,8 +102,7 @@ The local HTTP backend receives a JSON envelope:
 ```
 
 The helper endpoint is local and run-scoped. Backend processes should use the
-helper for delegation and progress events instead of receiving the real Agent
-runtime token.
+helper for delegation and progress events instead of receiving the Agent Token.
 
 ## Adapter Modes
 
@@ -230,10 +228,10 @@ go build ./cmd/openlinker-agent-node
 
 ## Security
 
-- Treat runtime tokens as secrets.
-- Do not pass runtime tokens to backend subprocesses.
+- Treat Agent Tokens as secrets.
+- Do not pass Agent Tokens to backend subprocesses.
 - Isolate workspaces used by the `codex` adapter.
-- Redact runtime tokens, helper tokens, private URLs, and local logs before
+- Redact Agent Tokens, helper tokens, private URLs, and local logs before
   filing public issues.
 
 Report vulnerabilities through [SECURITY.md](./SECURITY.md).
