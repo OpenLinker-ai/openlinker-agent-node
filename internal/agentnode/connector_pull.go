@@ -35,11 +35,11 @@ func (c *RuntimePullConnector) Start(ctx context.Context, handlers ConnectorHand
 	if c.AgentToken == "" {
 		return fmt.Errorf("agent token is required")
 	}
-	client, err := c.sdkClient()
+	runtime, err := c.sdkRuntime()
 	if err != nil {
 		return err
 	}
-	connector := openlinker.NewRuntimePullConnector(client)
+	connector := openlinker.NewRuntimePullConnector(runtime)
 	c.applyDefaults()
 	connector.Wait = c.Wait
 	connector.Heartbeat = c.Heartbeat
@@ -74,8 +74,8 @@ func (c *RuntimePullConnector) CompleteRun(ctx context.Context, runID string, re
 	return connector.CompleteRun(ctx, runID, sdkRunResult(result))
 }
 
-func (c *RuntimePullConnector) sdkClient() (*openlinker.Client, error) {
-	return openlinker.NewClient(
+func (c *RuntimePullConnector) sdkRuntime() (*openlinker.Runtime, error) {
+	return openlinker.NewRuntime(
 		c.APIBase,
 		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),

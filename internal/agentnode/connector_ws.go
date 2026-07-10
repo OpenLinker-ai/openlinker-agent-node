@@ -35,7 +35,7 @@ func (c *RuntimeWSConnector) Start(ctx context.Context, handlers ConnectorHandle
 	if c.AgentToken == "" {
 		return fmt.Errorf("agent token is required")
 	}
-	client, err := openlinker.NewClient(
+	runtime, err := openlinker.NewRuntime(
 		c.APIBase,
 		openlinker.WithAgentToken(c.AgentToken),
 		openlinker.WithHTTPClient(c.HTTPClient),
@@ -43,7 +43,7 @@ func (c *RuntimeWSConnector) Start(ctx context.Context, handlers ConnectorHandle
 	if err != nil {
 		return err
 	}
-	connector := openlinker.NewRuntimeWSConnector(client)
+	connector := openlinker.NewRuntimeWSConnector(runtime)
 	connector.Reconnect = c.Reconnect
 	connector.ReconnectMin = c.ReconnectMin
 	connector.ReconnectMax = c.ReconnectMax
