@@ -15,30 +15,28 @@ import (
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
+func TestNewFromEnvMapOpenClawRuntimeV2HTTP(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_ROOT":                "https://example.test/api/v1",
-		"OPENLINKER_AGENT_TOKEN":             "ol_agent_env",
-		"OPENLINKER_AGENT_NODE_ADAPTER":      "openclaw",
-		"OPENLINKER_AGENT_NODE_HTTP_URL":     "http://127.0.0.1:18080/run",
-		"OPENLINKER_AGENT_NODE_HTTP_HEADERS": `{"x-openlinker-agent":"node"}`,
-		"OPENLINKER_AGENT_NODE_RECONNECT":    "false",
+		"OPENLINKER_CORE_V2_URL":               "https://example.test/api/v1",
+		"OPENLINKER_NODE_ID":                   "11111111-1111-4111-8111-111111111111",
+		"OPENLINKER_AGENT_ID":                  "22222222-2222-4222-8222-222222222222",
+		"OPENLINKER_AGENT_TOKEN":               "ol_agent_env",
+		"OPENLINKER_AGENT_NODE_DATA_DIR":       "/var/lib/openlinker-agent-node",
+		"OPENLINKER_AGENT_NODE_MTLS_CERT_FILE": "/run/openlinker/client.crt",
+		"OPENLINKER_AGENT_NODE_MTLS_KEY_FILE":  "/run/openlinker/client.key",
+		"OPENLINKER_AGENT_NODE_MTLS_CA_FILE":   "/run/openlinker/ca.crt",
+		"OPENLINKER_AGENT_NODE_ADAPTER":        "openclaw",
+		"OPENLINKER_AGENT_NODE_HTTP_URL":       "http://127.0.0.1:18080/run",
+		"OPENLINKER_AGENT_NODE_HTTP_HEADERS":   `{"x-openlinker-agent":"node"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.APIBase != "https://example.test" || node.AgentToken != "ol_agent_env" {
+	if node.CoreURL != "https://example.test/api/v1" || node.AgentToken != "ol_agent_env" || node.DataDir != "/var/lib/openlinker-agent-node" {
 		t.Fatalf("node config = %#v", node)
 	}
-	ws, ok := node.Connector.(*RuntimeWSConnector)
-	if !ok {
-		t.Fatalf("connector = %T", node.Connector)
-	}
-	if ws.Reconnect {
-		t.Fatal("expected reconnect=false")
-	}
-	if ws.Heartbeat != time.Minute {
-		t.Fatalf("ws heartbeat = %s", ws.Heartbeat)
+	if node.Capacity != 1 || node.ClaimWait != 25*time.Second || node.HeartbeatInterval != 5*time.Second {
+		t.Fatalf("runtime v2 timing/capacity = %#v", node)
 	}
 	adapter, ok := node.Adapter.(HTTPAdapter)
 	if !ok {
@@ -52,31 +50,26 @@ func TestNewFromEnvMapOpenClawRuntimeWS(t *testing.T) {
 	}
 }
 
-func TestNewFromEnvMapRuntimePullCommand(t *testing.T) {
+func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                     "https://api.example.test",
-		"OPENLINKER_AGENT_TOKEN":                  "ol_agent_pull",
-		"OPENLINKER_AGENT_NODE_CONNECTOR":         "runtime_pull",
-		"OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS": "2",
-		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS": "3",
-		"OPENLINKER_AGENT_NODE_MAX_RUNS":          "4",
-		"OPENLINKER_AGENT_NODE_STOP_ON_EMPTY":     "true",
-		"OPENLINKER_AGENT_NODE_ADAPTER":           "command",
-		"OPENLINKER_AGENT_NODE_COMMAND":           "/usr/local/bin/openclaw",
-		"OPENLINKER_AGENT_NODE_ARGS":              `["run","--json"]`,
-		"OPENLINKER_AGENT_NODE_CWD":               "/tmp",
-		"OPENLINKER_AGENT_NODE_ENV_ALLOWLIST":     "CUSTOM_PATH, OPENCLAW_MODE",
-		"OPENLINKER_AGENT_NODE_HELPER":            "false",
+		"OPENLINKER_CORE_V2_URL":                     "https://api.example.test",
+		"OPENLINKER_AGENT_TOKEN":                     "ol_agent_v2",
+		"OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS":   "2",
+		"OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS": "4",
+		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS":    "3",
+		"OPENLINKER_AGENT_NODE_CAPACITY":             "4",
+		"OPENLINKER_AGENT_NODE_ADAPTER":              "command",
+		"OPENLINKER_AGENT_NODE_COMMAND":              "/usr/local/bin/openclaw",
+		"OPENLINKER_AGENT_NODE_ARGS":                 `["run","--json"]`,
+		"OPENLINKER_AGENT_NODE_CWD":                  "/tmp",
+		"OPENLINKER_AGENT_NODE_ENV_ALLOWLIST":        "CUSTOM_PATH, OPENCLAW_MODE",
+		"OPENLINKER_AGENT_NODE_HELPER":               "false",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pull, ok := node.Connector.(*RuntimePullConnector)
-	if !ok {
-		t.Fatalf("connector = %T", node.Connector)
-	}
-	if pull.Wait != 2*time.Second || pull.Heartbeat != 3*time.Second || pull.MaxRuns != 4 || !pull.StopOnEmpty {
-		t.Fatalf("pull connector = %#v", pull)
+	if node.ClaimWait != 2*time.Second || node.CommandWait != 4*time.Second || node.HeartbeatInterval != 3*time.Second || node.Capacity != 4 {
+		t.Fatalf("runtime v2 config = %#v", node)
 	}
 	adapter, ok := node.Adapter.(CommandAdapter)
 	if !ok {
@@ -94,9 +87,14 @@ func TestNewFromEnvMapRuntimePullCommand(t *testing.T) {
 }
 
 func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
-	t.Setenv("OPENLINKER_API_BASE", "https://env.example.test")
+	t.Setenv("OPENLINKER_CORE_V2_URL", "https://env.example.test")
 	t.Setenv("OPENLINKER_AGENT_TOKEN", "ol_agent_env_process")
-	t.Setenv("OPENLINKER_AGENT_NODE_CONNECTOR", "runtime_pull")
+	t.Setenv("OPENLINKER_NODE_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("OPENLINKER_AGENT_ID", "22222222-2222-4222-8222-222222222222")
+	t.Setenv("OPENLINKER_AGENT_NODE_DATA_DIR", t.TempDir())
+	t.Setenv("OPENLINKER_AGENT_NODE_MTLS_CERT_FILE", "/tmp/client.crt")
+	t.Setenv("OPENLINKER_AGENT_NODE_MTLS_KEY_FILE", "/tmp/client.key")
+	t.Setenv("OPENLINKER_AGENT_NODE_MTLS_CA_FILE", "/tmp/ca.crt")
 	t.Setenv("OPENLINKER_AGENT_NODE_ADAPTER", "command")
 	t.Setenv("OPENLINKER_AGENT_NODE_COMMAND", "/bin/echo")
 	t.Setenv("OPENLINKER_AGENT_NODE_ARGS", `["hello"]`)
@@ -107,11 +105,8 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.APIBase != "https://env.example.test" || node.AgentToken != "ol_agent_env_process" {
+	if node.CoreURL != "https://env.example.test" || node.AgentToken != "ol_agent_env_process" {
 		t.Fatalf("node from env = %#v", node)
-	}
-	if _, ok := node.Connector.(*RuntimePullConnector); !ok {
-		t.Fatalf("connector = %T", node.Connector)
 	}
 	adapter, ok := node.Adapter.(CommandAdapter)
 	if !ok || adapter.Command != "/bin/echo" || strings.Join(adapter.Args, " ") != "hello" {
@@ -121,7 +116,7 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 
 func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                       "https://api.example.test",
+		"OPENLINKER_CORE_V2_URL":                    "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                    "ol_agent_codex",
 		"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":     "/workspace",
 		"OPENLINKER_AGENT_NODE_CODEX_SANDBOX":       "workspace-write",
@@ -149,18 +144,17 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	}
 
 	if _, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":           "https://api.example.test",
+		"OPENLINKER_CORE_V2_URL":        "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":        "ol_agent_bad",
 		"OPENLINKER_AGENT_NODE_ADAPTER": "module",
 	}); err == nil || !strings.Contains(err.Error(), "module adapter is not supported") {
 		t.Fatalf("module adapter error = %v", err)
 	}
 	if _, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":             "https://api.example.test",
-		"OPENLINKER_AGENT_TOKEN":          "ol_agent_bad",
-		"OPENLINKER_AGENT_NODE_CONNECTOR": "runtime_pull",
-		"OPENLINKER_AGENT_NODE_ARGS":      "not-json",
-		"OPENLINKER_AGENT_NODE_COMMAND":   "openclaw",
+		"OPENLINKER_CORE_V2_URL":        "https://api.example.test",
+		"OPENLINKER_AGENT_TOKEN":        "ol_agent_bad",
+		"OPENLINKER_AGENT_NODE_ARGS":    "not-json",
+		"OPENLINKER_AGENT_NODE_COMMAND": "openclaw",
 	}); err == nil || !strings.Contains(err.Error(), "JSON string array") {
 		t.Fatalf("args parse error = %v", err)
 	}
@@ -168,7 +162,7 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 
 func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                             "https://api.example.test",
+		"OPENLINKER_CORE_V2_URL":                          "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                          "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL":              "http://127.0.0.1:9001/",
 		"OPENLINKER_UPSTREAM_A2A_TOKEN":                   "a2a-token",
@@ -198,7 +192,7 @@ func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 
 func TestNewFromEnvMapA2AAdapterLegacyDialect(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                "https://api.example.test",
+		"OPENLINKER_CORE_V2_URL":             "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":             "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL": "http://127.0.0.1:9001/",
 		"OPENLINKER_AGENT_NODE_A2A_DIALECT":  "legacy",
@@ -244,27 +238,6 @@ func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	}
 	if got := joinAPIPath("https://example.test/api/v1", "https://other.test/run"); got != "https://other.test/run" {
 		t.Fatalf("joinAPIPath absolute = %q", got)
-	}
-	wsURL, err := websocketURL("https://example.test/api/v1/", "/agent-runtime/ws")
-	if err != nil || wsURL != "wss://example.test/api/v1/agent-runtime/ws" {
-		t.Fatalf("websocketURL = %q, %v", wsURL, err)
-	}
-	wsURL, err = websocketURL("http://example.test/api/v1", "agent-runtime/ws")
-	if err != nil || wsURL != "ws://example.test/api/v1/agent-runtime/ws" {
-		t.Fatalf("websocketURL http = %q, %v", wsURL, err)
-	}
-	res := &http.Response{Header: http.Header{"Retry-After": []string{"3"}}}
-	if retryAfterDuration(res, time.Second) != 3*time.Second {
-		t.Fatal("retryAfterDuration did not parse seconds")
-	}
-	if retryAfterDuration(nil, 2*time.Second) != 2*time.Second {
-		t.Fatal("retryAfterDuration nil response should use fallback")
-	}
-	if retryAfterDuration(&http.Response{Header: http.Header{}}, time.Second) != time.Second {
-		t.Fatal("retryAfterDuration empty header should use fallback")
-	}
-	if retryAfterDuration(&http.Response{Header: http.Header{"Retry-After": []string{"bad"}}}, time.Second) != time.Second {
-		t.Fatal("retryAfterDuration should fall back on invalid values")
 	}
 	if stringFromMap(JSONMap{"answer": 123}, "answer") != "123" {
 		t.Fatal("stringFromMap should stringify values")
@@ -346,7 +319,7 @@ func TestNormalizeAdapterResultBranches(t *testing.T) {
 	}
 }
 
-func TestSmallAdapterAndConnectorBranches(t *testing.T) {
+func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
 	if modelLabel("") != "default" || modelLabel("gpt-5") != "gpt-5" {
 		t.Fatal("modelLabel returned an unexpected value")
 	}
@@ -366,43 +339,8 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 	if got, err := parseCommandOutput(`{"answer":"ok"}`, ""); err != nil || got.(map[string]any)["answer"] != "ok" {
 		t.Fatalf("parseCommandOutput json = %#v, %v", got, err)
 	}
-	if err := (&RuntimePullConnector{}).SendRunEvent(context.Background(), "run-id", RunEvent{EventType: "noop"}); err != nil {
-		t.Fatalf("SendRunEvent = %v", err)
-	}
-	if err := (&RuntimePullConnector{}).CompleteRun(context.Background(), "run-id", RunResult{Status: "success"}); err == nil {
-		t.Fatal("CompleteRun should fail before the pull connector is started")
-	}
-	if err := (&RuntimePullConnector{}).Stop(context.Background()); err != nil {
-		t.Fatalf("Stop without start = %v", err)
-	}
-	if err := (&RuntimePullConnector{}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("Start should require API base")
-	}
-	if err := (&RuntimePullConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("Start should require agent token")
-	}
-	if err := (&RuntimeWSConnector{}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("RuntimeWSConnector Start should require API base")
-	}
-	if err := (&RuntimeWSConnector{APIBase: "https://example.test"}).Start(context.Background(), ConnectorHandlers{}); err == nil {
-		t.Fatal("RuntimeWSConnector Start should require agent token")
-	}
-	if err := (&RuntimeWSConnector{}).SendRunEvent(context.Background(), "run-id", RunEvent{EventType: "noop"}); err == nil {
-		t.Fatal("RuntimeWSConnector SendRunEvent should require Start")
-	}
-	if err := (&RuntimeWSConnector{}).CompleteRun(context.Background(), "run-id", RunResult{Status: "success"}); err == nil {
-		t.Fatal("RuntimeWSConnector CompleteRun should require Start")
-	}
-	if err := (&RuntimeWSConnector{}).Stop(context.Background()); err != nil {
-		t.Fatalf("RuntimeWSConnector Stop without start = %v", err)
-	}
-	if _, err := connectorFromEnv(func(key string) string {
-		if key == "OPENLINKER_AGENT_NODE_CONNECTOR" {
-			return "bad"
-		}
-		return ""
-	}, "https://example.test", "ol_agent"); err == nil || !strings.Contains(err.Error(), "unsupported") {
-		t.Fatalf("unsupported connector error = %v", err)
+	if err := (&Node{}).applyDefaultsAndValidate(); err == nil || !strings.Contains(err.Error(), "Core v2 URL") {
+		t.Fatalf("missing Core v2 URL error = %v", err)
 	}
 	if _, err := adapterFromEnv(func(string) string { return "" }, "module"); err == nil || !strings.Contains(err.Error(), "module adapter") {
 		t.Fatalf("module adapter error = %v", err)
@@ -433,16 +371,6 @@ func TestSmallAdapterAndConnectorBranches(t *testing.T) {
 		return ""
 	}, "http"); err == nil || !strings.Contains(err.Error(), "OPENLINKER_AGENT_NODE_HELPER_PORT") {
 		t.Fatalf("invalid helper port error = %v", err)
-	}
-	defaultPull := &RuntimePullConnector{}
-	defaultPull.applyDefaults()
-	if defaultPull.Wait != 25*time.Second || defaultPull.Heartbeat != time.Minute || defaultPull.EmptyRetry != 5*time.Second {
-		t.Fatalf("runtime pull defaults = wait %s heartbeat %s empty %s", defaultPull.Wait, defaultPull.Heartbeat, defaultPull.EmptyRetry)
-	}
-	customPull := &RuntimePullConnector{Wait: time.Millisecond, Heartbeat: 2 * time.Millisecond, EmptyRetry: 3 * time.Millisecond}
-	customPull.applyDefaults()
-	if customPull.Wait != time.Millisecond || customPull.Heartbeat != 2*time.Millisecond || customPull.EmptyRetry != 3*time.Millisecond {
-		t.Fatalf("runtime pull custom timings were overwritten: %#v", customPull)
 	}
 	if err := sleepContext(context.Background(), time.Nanosecond); err != nil {
 		t.Fatalf("sleepContext short duration = %v", err)
@@ -549,24 +477,31 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, "not-json", http.StatusBadRequest)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{}, http.StatusBadRequest)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
+		"target_agent_id": "agent-child",
+	}, http.StatusBadRequest)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
+		"target_agent_id": "agent-child",
+		"idempotency_key": " normalized ",
+	}, http.StatusBadRequest)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
+		"target_agent_id": "agent-child",
+		"idempotency_key": "unknown-field",
+		"endpoint":        "/legacy/endpoint",
+	}, http.StatusBadRequest)
+	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"run_id":          "other-run",
 		"target_agent_id": "agent-child",
 	}, http.StatusConflict)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"target_agent_id": "agent-child",
+		"idempotency_key": "helper-chain-1",
 		"input":           JSONMap{"q": "hello"},
 		"reason":          "chain",
 		"metadata":        JSONMap{"trace": "helper"},
-		"endpoint":        "/custom/a2a/call",
-		"task_callback": JSONMap{
-			"url":         "https://caller.example.com/a2a/events",
-			"token":       "caller-token",
-			"secret":      "caller-secret",
-			"event_types": []string{"run.completed"},
-		},
 	}, http.StatusOK)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"target_agent_id": "agent-fail",
+		"idempotency_key": "helper-fail-1",
 	}, http.StatusBadGateway)
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.Events, session.Info.Token, JSONMap{
 		"event_type": "run.message.delta",
@@ -575,22 +510,18 @@ func TestLocalHelperServerRejectsBadRequests(t *testing.T) {
 	if emitted != 1 {
 		t.Fatalf("emitted = %d", emitted)
 	}
-	if delegated.Reason != "chain" || delegated.Endpoint != "/custom/a2a/call" || delegated.Metadata.(map[string]any)["trace"] != "helper" {
+	if delegated.IdempotencyKey != "helper-chain-1" || delegated.Reason != "chain" || delegated.Metadata.(map[string]any)["trace"] != "helper" {
 		t.Fatalf("delegated options = %#v", delegated)
-	}
-	if delegated.TaskCallback == nil || delegated.TaskCallback.URL != "https://caller.example.com/a2a/events" || delegated.TaskCallback.Token != "caller-token" || delegated.TaskCallback.Secret != "caller-secret" {
-		t.Fatalf("delegated task callback = %#v", delegated.TaskCallback)
 	}
 	assertHelperStatus(t, http.MethodPost, session.Info.Endpoints.CallAgent, session.Info.Token, JSONMap{
 		"target_agent_id": "agent-child",
-		"pushNotificationConfig": JSONMap{
-			"url":    "https://caller.example.com/a2a/protocol-events",
-			"token":  "protocol-token",
-			"secret": "protocol-secret",
-		},
+		"idempotency_key": "helper-chain-2",
+		"input":           JSONMap{"q": "hello"},
+		"reason":          "chain",
+		"metadata":        JSONMap{"trace": "helper"},
 	}, http.StatusOK)
-	if delegated.TaskCallback == nil || delegated.TaskCallback.URL != "https://caller.example.com/a2a/protocol-events" || delegated.TaskCallback.Token != "protocol-token" || delegated.TaskCallback.Secret != "protocol-secret" {
-		t.Fatalf("delegated pushNotificationConfig callback = %#v", delegated.TaskCallback)
+	if delegated.IdempotencyKey != "helper-chain-2" {
+		t.Fatalf("second helper intent key = %#v", delegated)
 	}
 }
 

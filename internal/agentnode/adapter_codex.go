@@ -49,7 +49,9 @@ type CodexAdapter struct {
 }
 
 func (a CodexAdapter) Run(ctx context.Context, input any, runCtx RunContext) (any, error) {
-	runCtx.Emit("run.message.delta", JSONMap{"text": "Codex is processing the task."})
+	if runCtx.Emit != nil {
+		runCtx.Emit("run.message.delta", JSONMap{"text": "Codex is processing the task."})
+	}
 	if a.MockResponse != "" {
 		output := JSONMap{
 			"handled_by": "codex",
@@ -129,6 +131,7 @@ func (a CodexAdapter) Run(ctx context.Context, input any, runCtx RunContext) (an
 
 	// #nosec G204 -- Codex adapter intentionally executes an operator-configured Codex CLI without a shell.
 	cmd := exec.CommandContext(reqCtx, bin, args...)
+	configureRuntimeProcess(cmd)
 	cmd.Dir = workspace
 	baseEnv := a.Env
 	if baseEnv == nil {

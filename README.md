@@ -1,66 +1,60 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node connects local, private-network, and NAT-based Agents to
-OpenLinker Core. It keeps an outbound `runtime_ws` or `runtime_pull` connection,
-invokes a local HTTP, command, A2A, or Codex adapter, and returns run events and
-results. Backend subprocesses receive a short-lived helper for the current run,
-not the Agent Token.
+OpenLinker Agent Node runs an Agent that lives on a workstation, inside a
+private network, or behind NAT. Core assigns work over outbound HTTPS; Agent
+Node invokes the local HTTP service, command, A2A Agent, or Codex workspace and
+returns the resulting Events and Result.
 
-Use Agent Node for local, private-network, NAT, or workstation-hosted Agents.
-If your Agent already has a stable HTTPS endpoint or remote MCP endpoint, Core
-can usually call it directly without this process.
+This is the callee-side runtime, not a second control plane. Agents with a
+stable HTTPS or remote MCP endpoint can be connected to Core directly and do
+not need Agent Node.
 
 Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
-## Status
+## Runtime v2
 
-Agent Node is pre-1.0 software. Runtime message shapes, adapter options, and
-CLI behavior may change while the Core runtime protocol is being stabilized.
+Agent Node has one production transport: reliable Runtime v2 over HTTP
+long-polling. It requires TLS 1.3 mutual TLS and an Agent Token. There is no
+transport mode switch or compatibility path for the earlier runtime protocol.
 
-## Connection Policy
+The protocol is deliberately conservative around execution:
 
-Prefer the simplest working connection mode:
+1. The node opens a runtime session with a stable worker ID and a new session
+   epoch.
+2. It claims an offer, encrypts and fsyncs the assignment, records `ack_sent`,
+   and sends the assignment ACK.
+3. It starts the adapter only after Core confirms the lease, or after an
+   authoritative resume decision says `continue_execution`.
+4. Events and the terminal Result are encrypted and fsynced before upload.
+   Retries keep the same Event/Result IDs; files are removed only after the
+   matching typed ACK.
+5. Lease renewal and command polling run alongside execution. A cancellation
+   targets the exact Attempt and its process tree; `stopped` is acknowledged
+   only after the adapter has exited.
 
-1. `direct_http`: OpenLinker Core can reach a stable HTTPS invocation endpoint.
-2. `mcp_server`: the Agent already exposes a remote HTTP JSON-RPC / MCP tools
-   endpoint.
-3. `runtime_ws`: local, private-network, or NAT Agents. Agent Node opens an
-   outbound WebSocket and receives real-time run assignments.
-4. `runtime_pull`: fallback only when WebSocket cannot stay connected or is
-   blocked by the environment.
-
-## Open-source Architecture
-
-Agent Node sits on the callee side of Core. It never receives user sessions from
-callers, and backend subprocesses should only see the per-run helper envelope,
-not the Agent Token.
+A hard crash after a process has started is fail-closed: Agent Node reports the
+durable state on restart but never guesses that rerunning the process is safe.
+Core must revoke that Attempt and create a new Attempt when retry policy allows.
 
 ```mermaid
 flowchart LR
-  Callers["Core Web / SDK / MCP / A2A callers"] -->|"run request"| Core["openlinker-core<br/>registry / run state / events"]
-  HostedBridge["Hosted Bridge<br/>optional deployment adapter"] -.->|"authorized Core APIs"| Core
-
-  Core -->|"run.assigned over runtime_ws"| AgentNode["openlinker-agent-node"]
-  AgentNode -.->|"heartbeat / claim fallback"| Core
-  AgentNode -->|"http adapter"| HTTPBackend["Local HTTP backend"]
-  AgentNode -->|"command adapter"| CommandBackend["Local command"]
-  AgentNode -->|"a2a adapter"| A2ABackend["Upstream A2A Agent"]
-  AgentNode -->|"codex adapter"| CodexBackend["Codex workspace"]
-
-  HTTPBackend -->|"events / result via helper"| AgentNode
-  CommandBackend -->|"stdout result"| AgentNode
-  A2ABackend -->|"task result"| AgentNode
-  CodexBackend -->|"final output"| AgentNode
+  Core["OpenLinker Core"] -->|"HTTPS claim / confirm / commands"| Node["Agent Node"]
+  Node -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
+  Backend -->|"run-scoped helper"| Node
+  Node -->|"durable Event / Result upload"| Core
+  Node --- Store["encrypted assignment + Event + Result spool"]
 ```
 
-## Quick Start
+## Quick start
 
 Prerequisites:
 
 - Go 1.25 or newer
-- an Agent registered in OpenLinker Core
-- an Agent Token (`ol_agent_...`)
-- a local backend process, command, Codex workspace, or upstream A2A endpoint
+- an Agent and Node registered in Core
+- their lowercase UUIDs and an Agent Token
+- a Core-issued client certificate, private key, and trusted CA bundle
+- a private, persistent data directory
+- a local backend
 
 Build and test:
 
@@ -69,29 +63,61 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-Run against a local HTTP backend:
+Run a local HTTP backend:
 
 ```bash
-OPENLINKER_API_BASE=https://api.openlinker.ai \
+OPENLINKER_CORE_V2_URL=https://api.openlinker.ai \
+OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
+OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
-OPENLINKER_AGENT_NODE_ADAPTER=openclaw \
+OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
+OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
+OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
+OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
+OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
 ```
 
-## Backend Envelope
+The data directory is single-process locked. Keep it on persistent local
+storage, back it up as sensitive state, and never share one directory between
+two node processes.
 
-The local HTTP backend receives a JSON envelope:
+## Required runtime configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENLINKER_CORE_V2_URL` | Core base URL; production requires `https` |
+| `OPENLINKER_NODE_ID` | Registered Node UUID |
+| `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
+| `OPENLINKER_AGENT_TOKEN` | Long-lived Agent credential kept inside the node |
+| `OPENLINKER_AGENT_NODE_DATA_DIR` | Durable identity, journal, and encrypted spool |
+| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Client certificate |
+| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |
+| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | CA bundle used to verify Core |
+| `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | Optional certificate server-name override |
+
+Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
+`OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`,
+`OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS`,
+`OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS`,
+`OPENLINKER_AGENT_NODE_RETRY_MIN_MS`, and
+`OPENLINKER_AGENT_NODE_RETRY_MAX_MS`.
+
+## Backend envelope
+
+HTTP and command backends receive a run envelope. When the local helper is
+enabled, its URL and run-scoped credential are included under `agent_node`:
 
 ```json
 {
   "input": { "query": "..." },
   "run_id": "run uuid",
   "metadata": {},
-  "a2a": {},
   "agent_node": {
     "helper": {
+      "base_url": "http://127.0.0.1:12345",
+      "token": "run-scoped helper token",
       "endpoints": {
         "call_agent": "http://127.0.0.1:12345/a2a/call",
         "events": "http://127.0.0.1:12345/events"
@@ -101,14 +127,14 @@ The local HTTP backend receives a JSON envelope:
 }
 ```
 
-The helper endpoint is local and run-scoped. Backend processes should use the
-helper for delegation and progress events instead of receiving the Agent Token.
+The long-lived Agent Token and assignment-scoped invocation capability are not
+passed to the backend.
 
-## Adapter Modes
+## Adapter modes
 
 ### `http` / `openclaw`
 
-POSTs the run envelope to a local HTTP backend.
+POST the run envelope to a local HTTP service:
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=openclaw
@@ -117,7 +143,8 @@ OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run
 
 ### `command`
 
-Runs a local command and writes the task envelope to stdin.
+Write the envelope to an operator-configured command's stdin. Cancellation
+terminates the command process tree.
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=command
@@ -127,7 +154,7 @@ OPENLINKER_AGENT_NODE_ARGS='["run","--json"]'
 
 ### `a2a`
 
-Forwards assigned OpenLinker runs to a local or remote A2A JSON-RPC Agent.
+Forward the run to an A2A JSON-RPC Agent:
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=a2a
@@ -135,12 +162,12 @@ OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc
 OPENLINKER_AGENT_NODE_A2A_METHOD=SendMessage
 ```
 
-Set `OPENLINKER_AGENT_NODE_A2A_DIALECT=legacy` only when the upstream Agent
-still expects older slash-style methods such as `message/send`.
+Set `OPENLINKER_AGENT_NODE_A2A_DIALECT=legacy` only for an upstream Agent that
+still expects slash-style methods such as `message/send`.
 
 ### `codex`
 
-Runs Codex non-interactively. Keep this adapter in an isolated workspace.
+Run Codex non-interactively in an isolated workspace:
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=codex
@@ -149,48 +176,28 @@ OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
 ```
 
-## Runtime Modes
+## Events and delegated Agent calls
 
-WebSocket is the default and preferred mode:
+The localhost helper is enabled by default for `http`, `openclaw`, `command`,
+and `codex`. Command backends also receive:
 
-```bash
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws
-```
-
-Pull fallback can be forced for tests or restricted networks:
-
-```bash
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_pull
-```
-
-Both modes use the same Core run lifecycle. Every assigned or claimed run must
-produce exactly one terminal result.
-
-## A2A Delegation
-
-Backends can call another Agent while processing a run. Agent Node supplies the
-current run context and keeps the real token inside the node.
-
-For `http`, `command`, and `codex` adapters, Agent Node enables a localhost
-helper by default. Command backends also receive:
-
-```bash
+```text
 OPENLINKER_AGENT_NODE_HELPER_URL
 OPENLINKER_AGENT_NODE_HELPER_TOKEN
 OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL
 OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL
 ```
 
-Call another Agent:
+Every delegated Agent call must provide an `idempotency_key`. Reuse the same
+key when retrying the same call intent; use a new key for a distinct intent,
+even when its request body is identical.
 
 ```bash
 curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL" \
   -H "Authorization: Bearer $OPENLINKER_AGENT_NODE_HELPER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"target_agent_id":"target-agent-uuid","reason":"delegate","input":{"query":"hello"}}'
+  -d '{"target_agent_id":"target-agent-uuid","idempotency_key":"invoice-42-review-v1","reason":"review","input":{"invoice_id":"42"}}'
 ```
-
-Emit progress:
 
 ```bash
 curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
@@ -199,10 +206,13 @@ curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
   -d '{"event_type":"run.message.delta","payload":{"text":"working"}}'
 ```
 
-## Public A2A Server
+Programmatic adapters follow the same rule: `RunContext.CallAgent` rejects a
+call whose `CallAgentOptions.IdempotencyKey` is empty.
 
-Agent Node can optionally expose the local backend as a small public A2A server.
-Keep this off unless the local process is meant to accept inbound A2A traffic:
+## Optional public A2A server
+
+Agent Node can also expose its backend as an inbound A2A server. This is
+independent of the Core runtime and is disabled by default:
 
 ```bash
 OPENLINKER_AGENT_NODE_PUBLIC_A2A=true
@@ -213,39 +223,22 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
 OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 ```
 
-The public server supports Agent Card, JSON-RPC, HTTP+JSON send/stream, task
-get/list/subscribe/cancel, and Push Notification Config CRUD. Push Config is
-memory-backed inside the Agent Node process; use Core's platform A2A adapter
-for durable callback subscriptions.
+Push Notification Config state in this optional server is memory-backed. Use
+Core's platform A2A adapter when callback subscriptions must be durable.
 
-## Development
+## Security and operations
 
-```bash
-gofmt -w .
-go test ./...
-go build ./cmd/openlinker-agent-node
-```
+- Treat the Agent Token, mTLS private key, spool key, assignment payloads, and
+  helper tokens as secrets.
+- Do not mount the runtime data directory into backend containers.
+- Keep command and Codex workspaces isolated and narrowly permissioned.
+- Graceful shutdown first advertises capacity zero, waits for active adapters,
+  closes the runtime session, and then releases the data-directory lock.
+- Redact credentials, private URLs, customer payloads, and adapter logs before
+  filing an issue.
 
-## Security
-
-- Treat Agent Tokens as secrets.
-- Do not pass Agent Tokens to backend subprocesses.
-- Isolate workspaces used by the `codex` adapter.
-- Redact Agent Tokens, helper tokens, private URLs, and local logs before
-  filing public issues.
-
-Report vulnerabilities through [SECURITY.md](./SECURITY.md).
-
-## Contributing
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
-
-## Support and Releases
-
-- Help and issue guidance: [SUPPORT.md](./SUPPORT.md)
-- Release checklist: [RELEASE.md](./RELEASE.md)
-- Notable changes: [CHANGELOG.md](./CHANGELOG.md)
-- Conduct expectations: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+See [SECURITY.md](./SECURITY.md), [SUPPORT.md](./SUPPORT.md), and
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 

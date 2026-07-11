@@ -25,7 +25,33 @@ var (
 	ErrSpoolRecordNotFound       = errors.New("spool record not found")
 	ErrEventSequence             = errors.New("client event sequence is not monotonic")
 	ErrResultAlreadyExists       = errors.New("attempt already has a different durable result")
+	ErrRuntimeMessageTooLarge    = errors.New("runtime message exceeds 4 MiB")
+	ErrRuntimeProtocolMismatch   = errors.New("runtime v2 protocol response mismatch")
 )
+
+func durableRuntimeErrorIsFatal(err error) bool {
+	for _, target := range []error{
+		ErrRuntimeStoreClosed,
+		ErrRuntimeStorePoisoned,
+		ErrRuntimeRecordCorrupt,
+		ErrAssignmentNotFound,
+		ErrAssignmentAlreadyExists,
+		ErrAttemptAlreadyExists,
+		ErrAssignmentBranchConflict,
+		ErrAssignmentStateRegression,
+		ErrAssignmentTransition,
+		ErrAssignmentCleanup,
+		ErrSpoolRecordConflict,
+		ErrEventSequence,
+		ErrResultAlreadyExists,
+		ErrRuntimeProtocolMismatch,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
 
 // RuntimeRecordError deliberately reports only a record kind and a stable
 // reason. Event and result payloads, invocation tokens, and input are never

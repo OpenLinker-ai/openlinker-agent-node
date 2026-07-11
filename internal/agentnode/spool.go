@@ -368,6 +368,12 @@ func (store *RuntimeDurableStore) AckResult(attemptID, resultID string) error {
 	if !exists {
 		return ErrSpoolRecordNotFound
 	}
+	if entry.Record.State == AssignmentStateRevoked {
+		if record.ResultID != resultID || entry.Record.ResultID != resultID {
+			return ErrSpoolRecordConflict
+		}
+		return store.removeResultLocked(record)
+	}
 	if entry.Record.State != AssignmentStateFinished || record.ResultID != resultID || entry.Record.ResultID != resultID {
 		return ErrSpoolRecordConflict
 	}
@@ -390,7 +396,7 @@ func (store *RuntimeDurableStore) removeResultLocked(record ResultSpoolRecord) e
 }
 
 func (store *RuntimeDurableStore) loadSpool() error {
-	for _, directory := range []string{eventSpoolDirectory, resultSpoolDirectory} {
+	for _, directory := range []string{assignmentSpoolDirectory, eventSpoolDirectory, resultSpoolDirectory} {
 		path := filepath.Join(store.dataDir, directory)
 		created, err := ensurePrivateSpoolDirectory(path)
 		if err != nil {
@@ -404,6 +410,9 @@ func (store *RuntimeDurableStore) loadSpool() error {
 		if err := cleanupDurableTemps(path); err != nil {
 			return err
 		}
+	}
+	if err := store.loadAssignmentSpool(); err != nil {
+		return err
 	}
 	if err := store.loadEventSpool(); err != nil {
 		return err
@@ -503,6 +512,9 @@ func (store *RuntimeDurableStore) loadResultSpool() error {
 }
 
 func (store *RuntimeDurableStore) reconcileSpoolAndJournalLocked() error {
+	if err := store.reconcileAssignmentPayloadsLocked(); err != nil {
+		return err
+	}
 	for attemptID, bySequence := range cloneEventSequenceIndex(store.eventSeqs) {
 		entry, err := store.assignmentForAttemptLocked(attemptID)
 		if err != nil {
@@ -608,7 +620,9 @@ func (store *RuntimeDurableStore) validateEventCoverageLocked(record AssignmentJ
 func (store *RuntimeDurableStore) spoolRecordPath(kind, attemptID, messageID string) string {
 	hash := sha256.Sum256([]byte(kind + "\x00" + attemptID + "\x00" + messageID))
 	directory := eventSpoolDirectory
-	if kind == resultSpoolKind {
+	if kind == assignmentSpoolKind {
+		directory = assignmentSpoolDirectory
+	} else if kind == resultSpoolKind {
 		directory = resultSpoolDirectory
 	}
 	return filepath.Join(store.dataDir, directory, hex.EncodeToString(hash[:])+spoolRecordExtension)

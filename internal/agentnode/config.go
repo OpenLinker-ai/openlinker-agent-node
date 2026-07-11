@@ -23,15 +23,6 @@ func NewFromEnvMap(env Env) (*Node, error) {
 }
 
 func NewFromLookup(get EnvLookup) (*Node, error) {
-	apiBase := get("OPENLINKER_API_BASE")
-	if apiBase == "" {
-		apiBase = strings.TrimSuffix(get("OPENLINKER_API_ROOT"), "/api/v1")
-	}
-	agentToken := get("OPENLINKER_AGENT_TOKEN")
-	connector, err := connectorFromEnv(get, apiBase, agentToken)
-	if err != nil {
-		return nil, err
-	}
 	adapterMode := get("OPENLINKER_AGENT_NODE_ADAPTER")
 	if adapterMode == "" {
 		adapterMode = inferAdapterMode(get)
@@ -48,60 +39,50 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	capacity, err := numberOption(get("OPENLINKER_AGENT_NODE_CAPACITY"), int(DefaultCapacity), "OPENLINKER_AGENT_NODE_CAPACITY")
+	if err != nil {
+		return nil, err
+	}
+	claimWait, err := numberOption(get("OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS"), int(DefaultClaimWait/time.Second), "OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS")
+	if err != nil {
+		return nil, err
+	}
+	commandWait, err := numberOption(get("OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS"), int(DefaultCommandWait/time.Second), "OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS")
+	if err != nil {
+		return nil, err
+	}
+	heartbeat, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), int(DefaultHeartbeatInterval/time.Second), "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
+	if err != nil {
+		return nil, err
+	}
+	retryMinMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MIN_MS"), int(DefaultRetryMinimum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MIN_MS")
+	if err != nil {
+		return nil, err
+	}
+	retryMaxMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MAX_MS"), int(DefaultRetryMaximum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MAX_MS")
+	if err != nil {
+		return nil, err
+	}
 	return &Node{
-		APIBase:    apiBase,
-		AgentToken: agentToken,
-		Connector:  connector,
-		Adapter:    adapter,
-		Helper:     helper,
-		PublicA2A:  publicA2A,
+		CoreURL:           strings.TrimSpace(get("OPENLINKER_CORE_V2_URL")),
+		NodeID:            strings.TrimSpace(get("OPENLINKER_NODE_ID")),
+		AgentID:           strings.TrimSpace(get("OPENLINKER_AGENT_ID")),
+		AgentToken:        strings.TrimSpace(get("OPENLINKER_AGENT_TOKEN")),
+		DataDir:           strings.TrimSpace(get("OPENLINKER_AGENT_NODE_DATA_DIR")),
+		MTLSCertFile:      strings.TrimSpace(get("OPENLINKER_AGENT_NODE_MTLS_CERT_FILE")),
+		MTLSKeyFile:       strings.TrimSpace(get("OPENLINKER_AGENT_NODE_MTLS_KEY_FILE")),
+		MTLSCAFile:        strings.TrimSpace(get("OPENLINKER_AGENT_NODE_MTLS_CA_FILE")),
+		MTLSServerName:    strings.TrimSpace(get("OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME")),
+		Capacity:          int64(capacity),
+		ClaimWait:         time.Duration(claimWait) * time.Second,
+		CommandWait:       time.Duration(commandWait) * time.Second,
+		HeartbeatInterval: time.Duration(heartbeat) * time.Second,
+		RetryMinimum:      time.Duration(retryMinMS) * time.Millisecond,
+		RetryMaximum:      time.Duration(retryMaxMS) * time.Millisecond,
+		Adapter:           adapter,
+		Helper:            helper,
+		PublicA2A:         publicA2A,
 	}, nil
-}
-
-func connectorFromEnv(get EnvLookup, apiBase, agentToken string) (Connector, error) {
-	mode := get("OPENLINKER_AGENT_NODE_CONNECTOR")
-	if mode == "" {
-		mode = "runtime_ws"
-	}
-	switch mode {
-	case "runtime_pull":
-		waitSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS"), 25, "OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS")
-		if err != nil {
-			return nil, err
-		}
-		heartbeatSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), 60, "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
-		if err != nil {
-			return nil, err
-		}
-		maxRuns, err := numberOption(get("OPENLINKER_AGENT_NODE_MAX_RUNS"), 0, "OPENLINKER_AGENT_NODE_MAX_RUNS")
-		if err != nil {
-			return nil, err
-		}
-		return &RuntimePullConnector{
-			APIBase:     apiBase,
-			AgentToken:  agentToken,
-			Wait:        time.Duration(waitSeconds) * time.Second,
-			Heartbeat:   time.Duration(heartbeatSeconds) * time.Second,
-			MaxRuns:     maxRuns,
-			StopOnEmpty: boolOption(get("OPENLINKER_AGENT_NODE_STOP_ON_EMPTY"), false),
-			EmptyRetry:  5 * time.Second,
-		}, nil
-	case "runtime_ws":
-		heartbeatSeconds, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), 60, "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
-		if err != nil {
-			return nil, err
-		}
-		return &RuntimeWSConnector{
-			APIBase:      apiBase,
-			AgentToken:   agentToken,
-			Reconnect:    boolOption(get("OPENLINKER_AGENT_NODE_RECONNECT"), true),
-			ReconnectMin: 500 * time.Millisecond,
-			ReconnectMax: 10 * time.Second,
-			Heartbeat:    time.Duration(heartbeatSeconds) * time.Second,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_CONNECTOR=%s", mode)
-	}
 }
 
 func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {

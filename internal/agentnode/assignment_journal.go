@@ -133,6 +133,7 @@ type RuntimeDurableStore struct {
 	events    map[string]EventSpoolRecord
 	eventSeqs map[string]map[int64]string
 	results   map[string]ResultSpoolRecord
+	payloads  map[string]DurableAssignmentPayload
 
 	closed   bool
 	poisoned error
@@ -182,6 +183,7 @@ func OpenRuntimeDurableStore(dataDir string) (_ *RuntimeDurableStore, retErr err
 		events:    make(map[string]EventSpoolRecord),
 		eventSeqs: make(map[string]map[int64]string),
 		results:   make(map[string]ResultSpoolRecord),
+		payloads:  make(map[string]DurableAssignmentPayload),
 	}
 	defer func() {
 		if retErr != nil {
@@ -347,7 +349,13 @@ func (store *RuntimeDurableStore) DeleteAssignment(assignmentMessageID string) e
 	}
 	entry.Deleted = true
 	entry.Record.UpdatedAt = time.Now().UTC()
-	return store.appendJournalLocked(entry)
+	if err := store.appendJournalLocked(entry); err != nil {
+		return err
+	}
+	if payload, exists := store.payloads[attemptID]; exists {
+		return store.removeAssignmentPayloadLocked(payload)
+	}
+	return nil
 }
 
 func (store *RuntimeDurableStore) readyLocked() error {
@@ -767,7 +775,7 @@ func runtimeDurableRecordsExist(dataDir string) (bool, error) {
 			return false, err
 		}
 	}
-	for _, subdirectory := range []string{eventSpoolDirectory, resultSpoolDirectory} {
+	for _, subdirectory := range []string{assignmentSpoolDirectory, eventSpoolDirectory, resultSpoolDirectory} {
 		entries, err := os.ReadDir(filepath.Join(dataDir, subdirectory))
 		if errors.Is(err, os.ErrNotExist) {
 			continue

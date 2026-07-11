@@ -257,9 +257,8 @@ func TestPublicA2AServerPushConfig(t *testing.T) {
 
 func TestPublicA2AFromEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_API_BASE":                                    "https://api.example.test",
+		"OPENLINKER_CORE_V2_URL":                                 "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                                 "ol_agent_public",
-		"OPENLINKER_AGENT_NODE_CONNECTOR":                        "runtime_pull",
 		"OPENLINKER_AGENT_NODE_ADAPTER":                          "command",
 		"OPENLINKER_AGENT_NODE_COMMAND":                          "/bin/echo",
 		"OPENLINKER_AGENT_NODE_PUBLIC_A2A":                       "true",
@@ -269,9 +268,8 @@ func TestPublicA2AFromEnv(t *testing.T) {
 		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME":                  "Env Agent",
 		"OPENLINKER_PUBLIC_A2A_TOKEN":                            "env-token",
 		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS": "true",
-		"OPENLINKER_AGENT_NODE_PULL_WAIT_SECONDS":                "1",
+		"OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS":               "1",
 		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS":                "1",
-		"OPENLINKER_AGENT_NODE_STOP_ON_EMPTY":                    "true",
 		"OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION":           "Env description",
 	})
 	if err != nil {

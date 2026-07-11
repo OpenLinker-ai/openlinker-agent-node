@@ -9,20 +9,6 @@ const DefaultShutdownTimeout = 10 * time.Second
 
 type JSONMap map[string]any
 
-type Assignment struct {
-	Type           string               `json:"type,omitempty"`
-	RunID          string               `json:"run_id"`
-	AgentID        string               `json:"agent_id,omitempty"`
-	Input          any                  `json:"input,omitempty"`
-	Metadata       JSONMap              `json:"metadata,omitempty"`
-	Source         string               `json:"source,omitempty"`
-	ResultEndpoint string               `json:"result_endpoint,omitempty"`
-	ResultMethod   string               `json:"result_method,omitempty"`
-	ResultRequired bool                 `json:"result_required,omitempty"`
-	A2A            JSONMap              `json:"a2a,omitempty"`
-	Conversation   *ConversationContext `json:"conversation,omitempty"`
-}
-
 type RunEvent struct {
 	EventType string `json:"event_type"`
 	Payload   any    `json:"payload,omitempty"`
@@ -72,6 +58,8 @@ type RunContext struct {
 
 	Emit      func(eventType string, payload any)
 	CallAgent func(ctx context.Context, targetAgentID string, input any, options CallAgentOptions) (any, error)
+
+	emitChecked func(eventType string, payload any) error
 }
 
 type ConversationContext struct {
@@ -96,28 +84,9 @@ type ConversationMessage struct {
 }
 
 type CallAgentOptions struct {
-	CurrentRunID     string
-	Reason           string
-	Metadata         any
-	Endpoint         string
-	ContextID        string
-	TraceID          string
-	ReferenceTaskIDs []string
-	TaskCallback     *TaskCallbackConfig
-}
-
-type TaskCallbackAuthentication struct {
-	Scheme      string `json:"scheme,omitempty"`
-	Credentials string `json:"credentials,omitempty"`
-}
-
-type TaskCallbackConfig struct {
-	URL            string                      `json:"url,omitempty"`
-	Token          string                      `json:"token,omitempty"`
-	Secret         string                      `json:"secret,omitempty"`
-	Authentication *TaskCallbackAuthentication `json:"authentication,omitempty"`
-	Metadata       any                         `json:"metadata,omitempty"`
-	EventTypes     []string                    `json:"event_types,omitempty"`
+	IdempotencyKey string
+	Reason         string
+	Metadata       any
 }
 
 type Adapter interface {
@@ -128,18 +97,4 @@ type AdapterFunc func(ctx context.Context, input any, runCtx RunContext) (any, e
 
 func (f AdapterFunc) Run(ctx context.Context, input any, runCtx RunContext) (any, error) {
 	return f(ctx, input, runCtx)
-}
-
-type Connector interface {
-	Start(ctx context.Context, handlers ConnectorHandlers) error
-	Stop(ctx context.Context) error
-	SupportsLiveEvents() bool
-	SendRunEvent(ctx context.Context, runID string, event RunEvent) error
-	CompleteRun(ctx context.Context, runID string, result RunResult) error
-}
-
-type ConnectorHandlers struct {
-	OnReady    func(JSONMap)
-	OnAssigned func(Assignment)
-	OnError    func(error)
 }

@@ -113,9 +113,12 @@ type AgentCardResponse struct {
 }
 
 type RunAgentRequest struct {
-	AgentID                string              `json:"agent_id"`
-	Input                  any                 `json:"input"`
-	Metadata               any                 `json:"metadata,omitempty"`
+	AgentID  string `json:"agent_id"`
+	Input    any    `json:"input"`
+	Metadata any    `json:"metadata,omitempty"`
+	// IdempotencyKey identifies one run-creation intent across retries. When it
+	// is empty, the SDK generates a new key for this method invocation.
+	IdempotencyKey         string              `json:"-"`
 	A2AContext             *RunA2AContext      `json:"a2a_context,omitempty"`
 	TaskCallback           *TaskCallbackConfig `json:"task_callback,omitempty"`
 	PushNotification       *TaskCallbackConfig `json:"push_notification,omitempty"`
@@ -164,8 +167,11 @@ type TaskCallbackSubscription struct {
 }
 
 type RunResponse struct {
-	RunID               string                    `json:"run_id"`
-	Status              string                    `json:"status"`
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+	// Replayed is true when Core returned a run created by an earlier request
+	// with the same idempotency key and semantic input.
+	Replayed            bool                      `json:"replayed"`
 	Output              any                       `json:"output,omitempty"`
 	ErrorCode           string                    `json:"error_code,omitempty"`
 	ErrorMessage        string                    `json:"error_message,omitempty"`
@@ -188,7 +194,21 @@ type ListRunEventsParams struct {
 }
 
 type ListRunEventsResponse struct {
-	Events []RunEventResponse `json:"events"`
+	Items []RunEventResponse `json:"items"`
+	Meta  RunEventPageMeta   `json:"meta"`
+}
+
+// RunEventPageMeta describes the durable event-retention boundary for a page.
+// A nil available-sequence bound is encoded by Core as JSON null.
+type RunEventPageMeta struct {
+	RequestedAfterSequence    int32  `json:"requested_after_sequence"`
+	EffectiveAfterSequence    int32  `json:"effective_after_sequence"`
+	RetainedThroughSequence   int32  `json:"retained_through_sequence"`
+	EarliestAvailableSequence *int32 `json:"earliest_available_sequence"`
+	LatestAvailableSequence   *int32 `json:"latest_available_sequence"`
+	RetentionGap              bool   `json:"retention_gap"`
+	Terminal                  bool   `json:"terminal"`
+	StreamComplete            bool   `json:"stream_complete"`
 }
 
 type RunChildResponse struct {
@@ -238,141 +258,6 @@ type RunMessageResponse struct {
 
 type ListItemsResponse[T any] struct {
 	Items []T `json:"items"`
-}
-
-type AgentA2AContext struct {
-	CurrentRunID      string   `json:"current_run_id"`
-	ParentRunID       string   `json:"parent_run_id,omitempty"`
-	CallerAgentID     string   `json:"caller_agent_id,omitempty"`
-	ProtocolContextID string   `json:"protocol_context_id,omitempty"`
-	ProtocolTaskID    string   `json:"protocol_task_id,omitempty"`
-	RootContextID     string   `json:"root_context_id,omitempty"`
-	ParentContextID   string   `json:"parent_context_id,omitempty"`
-	ParentTaskID      string   `json:"parent_task_id,omitempty"`
-	TraceID           string   `json:"trace_id,omitempty"`
-	ReferenceTaskIDs  []string `json:"reference_task_ids,omitempty"`
-	CallAgentEndpoint string   `json:"call_agent_endpoint"`
-	CallAgentMethod   string   `json:"call_agent_method"`
-	AgentTokenType    string   `json:"agent_token_type"`
-	AgentScopes       []string `json:"agent_scopes"`
-}
-
-type ConversationContext struct {
-	ID                   string                `json:"id"`
-	SessionKey           string                `json:"session_key"`
-	ProtocolContextID    string                `json:"protocol_context_id,omitempty"`
-	RootContextID        string                `json:"root_context_id,omitempty"`
-	CurrentRunID         string                `json:"current_run_id"`
-	CurrentProtocolTask  string                `json:"current_protocol_task_id,omitempty"`
-	HistoryBeforeCurrent []ConversationMessage `json:"history_before_current,omitempty"`
-	Truncated            bool                  `json:"truncated"`
-	Source               string                `json:"source"`
-}
-
-type ConversationMessage struct {
-	RunID         string         `json:"run_id"`
-	EventSequence *int32         `json:"event_sequence,omitempty"`
-	Role          string         `json:"role"`
-	Content       string         `json:"content"`
-	Payload       map[string]any `json:"payload,omitempty"`
-	CreatedAt     string         `json:"created_at,omitempty"`
-}
-
-type AgentHeartbeatResponse struct {
-	AgentID                          string `json:"agent_id"`
-	AvailabilityStatus               string `json:"availability_status"`
-	LastCheckedAt                    string `json:"last_checked_at,omitempty"`
-	ConsecutiveFailures              int32  `json:"consecutive_failures"`
-	PendingRunCount                  int32  `json:"pending_run_count"`
-	ClaimNow                         bool   `json:"claim_now"`
-	NextClaimAfterSeconds            int32  `json:"next_claim_after_seconds"`
-	RecommendedHeartbeatAfterSeconds int32  `json:"recommended_heartbeat_after_seconds"`
-	MaxClaimWaitSeconds              int32  `json:"max_claim_wait_seconds"`
-}
-
-type ClaimRuntimeRunParams struct {
-	WaitSeconds int32
-}
-
-type RuntimePullRunResponse struct {
-	RunID          string               `json:"run_id"`
-	AgentID        string               `json:"agent_id"`
-	Input          any                  `json:"input"`
-	Metadata       any                  `json:"metadata,omitempty"`
-	Source         string               `json:"source"`
-	ResultEndpoint string               `json:"result_endpoint"`
-	ResultMethod   string               `json:"result_method"`
-	ResultRequired bool                 `json:"result_required"`
-	A2A            *AgentA2AContext     `json:"a2a,omitempty"`
-	Conversation   *ConversationContext `json:"conversation,omitempty"`
-}
-
-type AgentEvent struct {
-	EventType string `json:"event_type"`
-	Payload   any    `json:"payload,omitempty"`
-}
-
-type AgentError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type RuntimePullResultRequest struct {
-	Status     string       `json:"status"`
-	Output     any          `json:"output,omitempty"`
-	Events     []AgentEvent `json:"events,omitempty"`
-	Error      *AgentError  `json:"error,omitempty"`
-	DurationMS int32        `json:"duration_ms,omitempty"`
-}
-
-type CallAgentRequest struct {
-	ParentRunID            string              `json:"parent_run_id,omitempty"`
-	CurrentRunID           string              `json:"current_run_id,omitempty"`
-	TargetAgentID          string              `json:"target_agent_id"`
-	Reason                 string              `json:"reason,omitempty"`
-	Input                  any                 `json:"input"`
-	Metadata               any                 `json:"metadata,omitempty"`
-	ContextID              string              `json:"context_id,omitempty"`
-	TraceID                string              `json:"trace_id,omitempty"`
-	ReferenceTaskIDs       []string            `json:"reference_task_ids,omitempty"`
-	TaskCallback           *TaskCallbackConfig `json:"task_callback,omitempty"`
-	PushNotification       *TaskCallbackConfig `json:"push_notification,omitempty"`
-	PushNotificationAlias  *TaskCallbackConfig `json:"pushNotification,omitempty"`
-	PushNotificationConfig *TaskCallbackConfig `json:"pushNotificationConfig,omitempty"`
-}
-
-type RuntimeWSClientMessage struct {
-	Type       string       `json:"type"`
-	ID         string       `json:"id,omitempty"`
-	RunID      string       `json:"run_id,omitempty"`
-	EventType  string       `json:"event_type,omitempty"`
-	Payload    any          `json:"payload,omitempty"`
-	Status     string       `json:"status,omitempty"`
-	Output     any          `json:"output,omitempty"`
-	Events     []AgentEvent `json:"events,omitempty"`
-	Error      *AgentError  `json:"error,omitempty"`
-	DurationMS int32        `json:"duration_ms,omitempty"`
-}
-
-type RuntimeWSServerMessage struct {
-	Type              string                  `json:"type"`
-	ID                string                  `json:"id,omitempty"`
-	RunID             string                  `json:"run_id,omitempty"`
-	AgentID           string                  `json:"agent_id,omitempty"`
-	Input             any                     `json:"input,omitempty"`
-	Metadata          any                     `json:"metadata,omitempty"`
-	Source            string                  `json:"source,omitempty"`
-	ResultEndpoint    string                  `json:"result_endpoint,omitempty"`
-	ResultMethod      string                  `json:"result_method,omitempty"`
-	ResultRequired    bool                    `json:"result_required,omitempty"`
-	A2A               *AgentA2AContext        `json:"a2a,omitempty"`
-	Conversation      *ConversationContext    `json:"conversation,omitempty"`
-	Status            string                  `json:"status,omitempty"`
-	Result            *RunResponse            `json:"result,omitempty"`
-	Event             *RunEventResponse       `json:"event,omitempty"`
-	Heartbeat         *AgentHeartbeatResponse `json:"heartbeat,omitempty"`
-	Error             *AgentError             `json:"error,omitempty"`
-	RetryAfterSeconds int32                   `json:"retry_after_seconds,omitempty"`
 }
 
 type StreamRunEventsOptions struct {

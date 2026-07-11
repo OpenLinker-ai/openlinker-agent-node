@@ -1,9 +1,9 @@
 # openlinker-go
 
-`openlinker-go` 是 OpenLinker 的 Go SDK。OpenLinker 是 AI Agent 注册中心、Agent
-市场、A2A/MCP runtime 网关和自托管 Agent 平台。Go 服务使用 `NewClient` 查询
-Agent、运行 Agent、监听事件、验证 webhook，并调用 A2A JSON-RPC、HTTP+JSON/SSE 和
-gRPC transport。Agent runtime connector 使用 `NewRuntime`。
+`openlinker-go` 是 OpenLinker Core 的 Go SDK。Go 服务使用 `NewClient` 查找和调用 Agent、
+监听运行事件、验证 Webhook，并调用 A2A JSON-RPC、HTTP+JSON/SSE 和 gRPC；Agent
+Node 通过 `NewRuntime` 使用严格的 Runtime v2 协议原语。两者都适用于自托管 Core
+和基于其公开 API 构建的服务。
 
 English documentation: [README.md](./README.md)
 
@@ -14,7 +14,6 @@ commit，并阅读 [CHANGELOG.md](./CHANGELOG.md)。
 
 本 SDK 不包含钱包、扣费、Stripe、提现、商业 Dashboard 或具体本地 adapter 实现。
 默认 client 使用 `OPENLINKER_USER_TOKEN`，runtime 使用 `OPENLINKER_AGENT_TOKEN`。
-
 ## 开源架构图
 
 Go SDK 把调用方凭证和 Agent runtime 凭证分开。`NewClient` 封装 user-token 平台调用；
@@ -26,14 +25,14 @@ flowchart LR
   Service["Go service / CLI / backend"] --> ClientSDK["openlinker-go Client"]
   ClientSDK -->|"REST client with OPENLINKER_USER_TOKEN"| Core["openlinker-core<br/>registry / runs / events"]
   ClientSDK -->|"A2A JSON-RPC / HTTP+JSON / gRPC"| Core
-  Runtime["Agent runtime process"] --> RuntimeSDK["openlinker-go Runtime"]
-  RuntimeSDK -->|"heartbeat / claim / result with OPENLINKER_AGENT_TOKEN"| Core
+  AgentNode["openlinker-agent-node"] --> RuntimeSDK["openlinker-go Runtime v2"]
+  RuntimeSDK -->|"mTLS + Agent Token / session / lease / event / result"| Core
 
   HostedBridge["Hosted Bridge<br/>可选部署适配层"] -.->|"同一 Core API contract"| Core
 
   Core -->|"direct_http"| HTTPAgent["公网 HTTPS Agent"]
   Core -->|"mcp_server"| MCPAgent["远程 MCP / JSON-RPC server"]
-  Core -->|"runtime_ws / runtime_pull"| AgentNode["openlinker-agent-node"]
+  Core -->|"Runtime v2 分配与取消"| AgentNode
 ```
 
 ## 安装
@@ -85,55 +84,50 @@ func main() {
 启动 run 并读取结果：
 
 ```go
+runIntentID := "replace-with-an-application-generated-intent-id"
 result, err := client.RunAgent(context.Background(), openlinker.RunAgentRequest{
-	AgentID: agents.Items[0].ID,
-	Input:   openlinker.JSON{"query": "Summarize this dataset"},
+	AgentID:        agents.Items[0].ID,
+	Input:          openlinker.JSON{"query": "Summarize this dataset"},
+	IdempotencyKey: runIntentID, // 同一次运行意图重试时复用。
 })
 ```
+
+`RunAgent` 和 `StartAgentRun` 始终发送 `Idempotency-Key`。字段为空时，SDK
+会为本次方法调用生成密码学随机 key；如果重试可能跨方法调用或进程，请显式设置
+`IdempotencyKey`，并且只在同一运行意图中复用。`result.Replayed` 表示 Core
+返回的是已经存在的 Run。
 
 监听 run 事件：
 
 ```go
-err = client.StreamRunEvents(context.Background(), result.RunID, func(event openlinker.StreamRunEvent) error {
+err = client.StreamRunEvents(context.Background(), result.RunID, openlinker.StreamRunEventsOptions{}, func(event openlinker.StreamRunEvent) error {
 	fmt.Println(event.Event, string(event.Data))
 	return nil
 })
 ```
+
+读取已保留的事件历史时，`ListRunEvents` 返回 `Items` 和 `Meta`。元数据会明确给出
+请求游标、实际游标、保留缺口、可为空的可用序号边界、终态，以及本页是否已经覆盖
+完整事件流。
 
 ## Callback
 
 平台托管 callback 复用 Core run event stream，不需要公网 callback URL。外部 webhook
 callback 适合服务端集成。处理 webhook 时必须先校验原始请求体签名，再解析 payload。
 
-## Runtime Connector
+## Runtime v2
 
-Agent runtime 进程通过 `NewRuntime` 使用 `OPENLINKER_AGENT_TOKEN`：
+`NewRuntime` 只暴露严格的 Runtime v2 HTTP 原语。Runtime 流量必须访问 Core 独立的
+mTLS 地址，同时提供已登记的 Node 设备证书和绑定当前 Agent 的 Agent Token。
 
-```go
-runtime, err := openlinker.NewRuntime(
-	"https://core.example.com",
-	openlinker.WithAgentToken(os.Getenv("OPENLINKER_AGENT_TOKEN")),
-)
-if err != nil {
-	log.Fatal(err)
-}
+真实 worker 统一使用 `openlinker-agent-node`：它负责持久身份、分配 journal、加密的
+Event/Result spool、续租、resume、取消和优雅 drain。自研 Node 可以基于 SDK 的 Session、
+claim、显式 ACK/reject、renew、Event、Result、resume、command 与委派调用原语实现，
+但稳定 ID、持久化和恢复仍由 Node 自己负责。
 
-connector := openlinker.NewRuntimePullConnector(runtime)
-```
-
-SDK 在 `Runtime` 上包含基础 Agent runtime 集成层：
-
-- `HeartbeatAgent`
-- `ClaimRuntimeRun`
-- `ClaimRuntimeRunDetailed`
-- `CompleteRuntimeRun`
-- `CallAgent`
-- `CallAgentAt`
-- `RuntimePullConnector`
-- `RuntimeWSConnector`
-
-本包不包含 command、Codex、OpenClaw 或本地 HTTP 后端 adapter。进程级集成请使用
-`openlinker-agent-node`。
+通过 `WithHTTPClient` 传入已经配置 Node 客户端证书和 Runtime 服务端 CA 的
+`http.Client`。本 SDK 不再提供内存 pull/WS connector、Native runner，也不把 command、
+Codex、OpenClaw 或本地 HTTP adapter 塞进通用包。
 
 ## A2A Transport
 
@@ -141,7 +135,7 @@ SDK 支持 OpenLinker 托管的 A2A JSON-RPC、HTTP+JSON/SSE 和 gRPC。普通 H
 优先使用 JSON-RPC 或 HTTP+JSON；当 Agent Card 声明 `GRPC` 接口且调用方可以访问 HTTP/2
 gRPC endpoint 时使用 gRPC。
 
-gRPC 是 A2A transport binding，不替代 Agent Node 内部 `runtime_ws` / `runtime_pull`。
+gRPC 是 A2A transport binding，不替代 Agent Node 的 Runtime v2 传输。
 
 ## 开发
 
@@ -153,9 +147,9 @@ go test ./...
 ## 安全
 
 不要把 user token、agent token、callback secret 或 push credential 写入日志或公开 Issue。
-`OPENLINKER_USER_TOKEN` 用于 `NewClient`，`OPENLINKER_AGENT_TOKEN` 用于 `NewRuntime`。
-信任 webhook payload 前必须校验签名。漏洞请通过 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)
-报告。
+`OPENLINKER_USER_TOKEN` 用于 `NewClient`，`OPENLINKER_AGENT_TOKEN` 用于 `NewRuntime`；
+Node 客户端私钥与加密 spool key 必须分开保护。信任 webhook payload 前必须校验签名。
+漏洞请通过 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md) 报告。
 
 ## 贡献
 

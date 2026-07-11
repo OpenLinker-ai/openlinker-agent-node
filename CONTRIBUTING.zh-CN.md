@@ -12,14 +12,15 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-测试和文档只能使用占位 runtime token。不要提交真实 token、私有 endpoint、本地 `.env`、
-客户 payload 或包含敏感数据的 adapter 日志。
+测试和文档只能使用占位 Agent/helper token。不要提交真实 token、mTLS private key、
+invocation capability、私有 endpoint、本地 `.env`、客户 payload 或包含敏感数据的 adapter 日志。
 
 ## 范围边界
 
 可以放在这里：
 
-- `runtime_ws` 和 `runtime_pull` connector 行为
+- Runtime v2 HTTP long-poll、assignment confirmation、lease、command 和 resume 行为
+- assignment、Event 和 Result 的持久化 journal/spool 行为
 - 本地 HTTP、command、A2A、Codex 等 adapter 执行
 - delegation 和进度事件的 localhost helper 行为
 - Agent Node 暴露的 public A2A server 行为
@@ -33,16 +34,18 @@ go build ./cmd/openlinker-agent-node
 
 ## Runtime 规则
 
-- runtime token 是 secret。
-- 不要把 runtime token 传给后端子进程。
-- 优先使用 `runtime_ws`，`runtime_pull` 作为 fallback。
-- 每个 assigned / claimed run 必须收到一次终态结果。
+- Agent Token、mTLS key、invocation capability、spool key 和 helper token 都是 secret。
+- 不要把 Agent Token 或 invocation capability 传给后端子进程。
+- assignment 必须先持久化再 ACK，只有 Core confirmation 后才能执行。
+- Event/Result 在收到身份匹配的 typed ACK 前必须沿用稳定 ID。
+- 进程崩溃后，不得在缺少可持久化进程 checkpoint 的情况下重跑已经 started 的 Attempt。
+- Agent 子调用必须显式提供幂等 key：同一意图重试复用，新意图换 key。
 - adapter 尽量与协议内部实现隔离。
 - Codex adapter 必须使用隔离 workspace。
 
 ## PR 要求
 
-- connector、adapter、helper 或 public A2A 行为变化需要测试。
+- runtime transport、durability、adapter、helper 或 public A2A 行为变化需要测试。
 - 新增环境变量要写入 `README.md`。
 - 说明对已有 runtime 的兼容性影响。
 - 删除日志或 fixture 中的 token 和本地路径。

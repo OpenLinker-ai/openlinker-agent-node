@@ -19,23 +19,25 @@ release line.
 
 ## Security-Sensitive Areas
 
-- runtime token storage and transmission
+- Agent Token, mTLS private key, and encrypted spool-key handling
+- assignment-scoped invocation capability storage and transmission
 - localhost helper token scope
 - adapter command execution and environment handling
 - A2A delegation from active runs
 - public A2A server request handling
 - workspace isolation for the Codex adapter
-- runtime result submission and duplicate terminal-result prevention
+- durable assignment, Event, and Result recovery
+- lease fencing, cancellation, and duplicate execution prevention
 
 ## Reporting Guidance
 
 Please include:
 
 - the affected commit, tag, or binary version
-- connector mode (`runtime_ws` or `runtime_pull`)
+- runtime session ID (redacted), adapter mode, and whether recovery was involved
 - adapter mode (`http`, `command`, `a2a`, `codex`, or other)
 - a minimal reproduction and sanitized logs
-- whether the issue exposes a runtime token or helper token
+- whether the issue exposes an Agent Token, invocation capability, mTLS key, or helper token
 
 Never include real third-party secrets in public reports, tests, screenshots, or
 logs. If a token was exposed, rotate it before sharing details.

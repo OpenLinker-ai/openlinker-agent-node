@@ -1,11 +1,11 @@
 package agentnode
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -26,21 +26,6 @@ func joinAPIPath(apiBase, pathName string) string {
 	return base + "/" + pathName
 }
 
-func websocketURL(apiBase, pathName string) (string, error) {
-	joined := joinAPIPath(apiBase, pathName)
-	u, err := url.Parse(joined)
-	if err != nil {
-		return "", err
-	}
-	switch u.Scheme {
-	case "https":
-		u.Scheme = "wss"
-	case "http":
-		u.Scheme = "ws"
-	}
-	return u.String(), nil
-}
-
 func readJSONResponse(res *http.Response) (any, error) {
 	defer res.Body.Close()
 	var value any
@@ -55,21 +40,6 @@ func readJSONResponse(res *http.Response) (any, error) {
 		return JSONMap{}, nil
 	}
 	return value, nil
-}
-
-func retryAfterDuration(res *http.Response, fallback time.Duration) time.Duration {
-	if res == nil {
-		return fallback
-	}
-	raw := res.Header.Get("retry-after")
-	if raw == "" {
-		return fallback
-	}
-	seconds, err := strconv.Atoi(raw)
-	if err != nil || seconds <= 0 {
-		return fallback
-	}
-	return time.Duration(seconds) * time.Second
 }
 
 func boolOption(raw string, fallback bool) bool {
@@ -132,8 +102,36 @@ func normalizeMetadata(value any) JSONMap {
 	}
 }
 
-func normalizeA2A(value any) JSONMap {
-	return normalizeMetadata(value)
+func jsonMapFromAny(value any) JSONMap {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case JSONMap:
+		return typed
+	case map[string]any:
+		return JSONMap(typed)
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil
+		}
+		var mapped JSONMap
+		if err := json.Unmarshal(raw, &mapped); err != nil {
+			return nil
+		}
+		return mapped
+	}
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func stringFromMap(value JSONMap, key string) string {
@@ -142,44 +140,4 @@ func stringFromMap(value JSONMap, key string) string {
 		return ""
 	}
 	return fmt.Sprint(raw)
-}
-
-func stringSliceFromMap(value JSONMap, key string) []string {
-	raw, ok := value[key]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch typed := raw.(type) {
-	case []string:
-		return append([]string{}, typed...)
-	case []any:
-		out := make([]string, 0, len(typed))
-		for _, item := range typed {
-			text := fmt.Sprint(item)
-			if text != "" {
-				out = append(out, text)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstNonEmptyStrings(values ...[]string) []string {
-	for _, value := range values {
-		if len(value) > 0 {
-			return append([]string{}, value...)
-		}
-	}
-	return nil
 }

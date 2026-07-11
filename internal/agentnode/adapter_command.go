@@ -38,6 +38,7 @@ func (a CommandAdapter) Run(ctx context.Context, input any, runCtx RunContext) (
 	}
 	// #nosec G204 -- command adapter intentionally executes an operator-configured binary without a shell.
 	cmd := exec.CommandContext(reqCtx, a.Command, a.Args...)
+	configureRuntimeProcess(cmd)
 	if a.CWD != "" {
 		cmd.Dir = a.CWD
 	}

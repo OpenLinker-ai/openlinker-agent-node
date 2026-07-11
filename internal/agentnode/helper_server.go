@@ -150,7 +150,17 @@ func (s *LocalHelperServer) handleEvent(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_EVENT", "message": "event_type is required"}})
 		return
 	}
-	session.runCtx.Emit(body.EventType, body.Payload)
+	if session.runCtx.emitChecked != nil {
+		if err := session.runCtx.emitChecked(body.EventType, body.Payload); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, JSONMap{"error": JSONMap{"code": "EVENT_REJECTED", "message": scrubRuntimeError(err).Error()}})
+			return
+		}
+	} else if session.runCtx.Emit != nil {
+		session.runCtx.Emit(body.EventType, body.Payload)
+	} else {
+		writeJSON(w, http.StatusServiceUnavailable, JSONMap{"error": JSONMap{"code": "EVENT_UNAVAILABLE", "message": "event sink is unavailable"}})
+		return
+	}
 	writeJSON(w, http.StatusOK, JSONMap{"ok": true, "run_id": session.runID})
 }
 
@@ -165,22 +175,12 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
-		RunID                     string              `json:"run_id"`
-		TargetAgentID             string              `json:"target_agent_id"`
-		Reason                    string              `json:"reason"`
-		Input                     any                 `json:"input"`
-		Metadata                  any                 `json:"metadata"`
-		Endpoint                  string              `json:"endpoint"`
-		ContextID                 string              `json:"context_id"`
-		ContextIDAlias            string              `json:"contextId"`
-		TraceID                   string              `json:"trace_id"`
-		TraceIDAlias              string              `json:"traceId"`
-		ReferenceTaskIDs          []string            `json:"reference_task_ids"`
-		ReferenceTaskIDsAlias     []string            `json:"referenceTaskIds"`
-		TaskCallback              *TaskCallbackConfig `json:"task_callback"`
-		PushNotification          *TaskCallbackConfig `json:"push_notification"`
-		PushNotificationConfig    *TaskCallbackConfig `json:"pushNotificationConfig"`
-		PushNotificationShorthand *TaskCallbackConfig `json:"pushNotification"`
+		RunID          string `json:"run_id"`
+		TargetAgentID  string `json:"target_agent_id"`
+		IdempotencyKey string `json:"idempotency_key"`
+		Reason         string `json:"reason"`
+		Input          any    `json:"input"`
+		Metadata       any    `json:"metadata"`
 	}
 	if err := decodeHelperJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_JSON", "message": err.Error()}})
@@ -194,24 +194,14 @@ func (s *LocalHelperServer) handleCallAgent(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_TARGET_AGENT", "message": "target_agent_id is required"}})
 		return
 	}
-	taskCallback := body.TaskCallback
-	if taskCallback == nil {
-		taskCallback = body.PushNotification
-	}
-	if taskCallback == nil {
-		taskCallback = body.PushNotificationConfig
-	}
-	if taskCallback == nil {
-		taskCallback = body.PushNotificationShorthand
+	if err := validateDelegatedIdempotencyKey(body.IdempotencyKey); err != nil {
+		writeJSON(w, http.StatusBadRequest, JSONMap{"error": JSONMap{"code": "INVALID_IDEMPOTENCY_KEY", "message": err.Error()}})
+		return
 	}
 	result, err := session.runCtx.CallAgent(r.Context(), body.TargetAgentID, body.Input, CallAgentOptions{
-		Reason:           body.Reason,
-		Metadata:         body.Metadata,
-		Endpoint:         body.Endpoint,
-		ContextID:        firstNonEmpty(body.ContextID, body.ContextIDAlias),
-		TraceID:          firstNonEmpty(body.TraceID, body.TraceIDAlias),
-		ReferenceTaskIDs: firstNonEmptyStrings(body.ReferenceTaskIDs, body.ReferenceTaskIDsAlias),
-		TaskCallback:     taskCallback,
+		IdempotencyKey: body.IdempotencyKey,
+		Reason:         body.Reason,
+		Metadata:       body.Metadata,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, JSONMap{"error": JSONMap{"code": "A2A_CALL_FAILED", "message": err.Error()}})
@@ -239,8 +229,14 @@ func (s *LocalHelperServer) authenticate(r *http.Request) *helperSessionState {
 
 func decodeHelperJSON(r *http.Request, value any) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(io.LimitReader(r.Body, maxHelperBodyBytes))
-	return decoder.Decode(value)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxHelperBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxHelperBodyBytes {
+		return fmt.Errorf("request body exceeds %d bytes", maxHelperBodyBytes)
+	}
+	return decodeStrictJSON(raw, value)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

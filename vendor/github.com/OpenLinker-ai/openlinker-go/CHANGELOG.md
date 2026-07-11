@@ -7,6 +7,23 @@ runtime connector, callback, and A2A contracts are declared stable.
 
 ## Unreleased
 
+### Changed
+
+- Made Core run creation idempotent by sending `Idempotency-Key` from
+  `RunAgent` and `StartAgentRun`. The SDK generates a safe random key when the
+  caller does not provide one and exposes Core replay results through
+  `RunResponse.Replayed`.
+- Aligned `ListRunEvents` with Core's retained event-page contract. Responses
+  now expose `Items` and typed retention metadata; the legacy `Events` field
+  has been removed.
+
+### Removed
+
+- Breaking: removed the pre-v2 heartbeat, pull claim/result, unversioned
+  delegated-call API, in-memory pull/WebSocket connectors, Native runners,
+  Blades wrapper, and legacy runtime examples. `Runtime` now exposes strict v2
+  primitives only; reliable process execution belongs in Agent Node.
+
 ### Documentation
 
 - Split Chinese documentation into dedicated `*.zh-CN.md` files and kept the

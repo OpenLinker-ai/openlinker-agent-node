@@ -2,314 +2,380 @@ package agentnode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
+)
+
+const (
+	DefaultCapacity          int64 = 1
+	DefaultClaimWait               = 25 * time.Second
+	DefaultCommandWait             = 25 * time.Second
+	DefaultHeartbeatInterval       = 5 * time.Second
+	DefaultRetryMinimum            = 250 * time.Millisecond
+	DefaultRetryMaximum            = 15 * time.Second
 )
 
 type Node struct {
-	APIBase    string
+	CoreURL    string
+	NodeID     string
+	AgentID    string
 	AgentToken string
-	Connector  Connector
-	Adapter    Adapter
-	Helper     *LocalHelperServer
-	PublicA2A  *PublicA2AServer
-	Logger     *log.Logger
+	DataDir    string
 
-	ctx        context.Context
-	cancel     context.CancelFunc
-	queue      chan Assignment
-	workerDone chan struct{}
-	stopOnce   sync.Once
+	MTLSCertFile   string
+	MTLSKeyFile    string
+	MTLSCAFile     string
+	MTLSServerName string
+
+	Capacity          int64
+	ClaimWait         time.Duration
+	CommandWait       time.Duration
+	HeartbeatInterval time.Duration
+	RetryMinimum      time.Duration
+	RetryMaximum      time.Duration
+
+	Adapter   Adapter
+	Helper    *LocalHelperServer
+	PublicA2A *PublicA2AServer
+	Logger    *log.Logger
+
+	// RuntimeClient is an injection seam for deterministic tests. Production
+	// configuration leaves it nil and always builds a TLS 1.3 mTLS client.
+	RuntimeClient RuntimeV2Client
+
+	lifecycleMu sync.Mutex
+	started     bool
+	done        chan struct{}
+	runtimeCtx  context.Context
+	runtimeStop context.CancelFunc
+	httpClient  *http.Client
+	store       *RuntimeDurableStore
+	ready       *openlinker.RuntimeV2ReadyPayload
+
+	stateMu       sync.RWMutex
+	draining      bool
+	active        map[string]*activeRuntimeAttempt
+	cancellations map[string]struct{}
+	spoolAllowed  map[string]spoolPermission
+	wakeSpool     chan struct{}
+	fatal         chan error
+	stopRequest   chan struct{}
+	stopRequested bool
+	loops         sync.WaitGroup
+	executions    sync.WaitGroup
+
+	jitter func(time.Duration) time.Duration
 }
 
-func (n *Node) Start(parent context.Context) error {
-	if n.APIBase == "" {
-		return fmt.Errorf("api base is required")
-	}
-	if n.AgentToken == "" {
-		return fmt.Errorf("agent token is required")
-	}
-	if n.Connector == nil {
-		return fmt.Errorf("connector is required")
-	}
-	if n.Adapter == nil {
-		return fmt.Errorf("adapter is required")
-	}
+func (node *Node) Start(parent context.Context) (retErr error) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	n.ctx, n.cancel = context.WithCancel(parent)
-	n.queue = make(chan Assignment, 16)
-	n.workerDone = make(chan struct{})
-
-	if n.Helper != nil {
-		if err := n.Helper.Start(n.ctx); err != nil {
-			return err
-		}
+	if err := node.applyDefaultsAndValidate(); err != nil {
+		return err
 	}
-	if n.PublicA2A != nil {
-		if n.PublicA2A.Adapter == nil {
-			n.PublicA2A.Adapter = n.Adapter
-		}
-		if err := n.PublicA2A.Start(n.ctx); err != nil {
-			return err
-		}
+	if err := node.beginLifecycle(); err != nil {
+		return err
 	}
-
-	go n.worker()
-	return n.Connector.Start(n.ctx, ConnectorHandlers{
-		OnReady: func(message JSONMap) {
-			n.logf("agent node ready: %v", message["agent_id"])
-		},
-		OnAssigned: func(assignment Assignment) {
-			select {
-			case n.queue <- assignment:
-			case <-n.ctx.Done():
-			}
-		},
-		OnError: func(err error) {
-			n.logf("agent node connector error: %v", err)
-		},
-	})
-}
-
-func (n *Node) Stop(ctx context.Context) error {
-	var err error
-	n.stopOnce.Do(func() {
-		if n.cancel != nil {
-			n.cancel()
-		}
-		if n.Connector != nil {
-			err = n.Connector.Stop(ctx)
-		}
-		if n.workerDone != nil {
-			select {
-			case <-n.workerDone:
-			case <-ctx.Done():
-				err = ctx.Err()
-			}
-		}
-		if n.Helper != nil {
-			if helperErr := n.Helper.Stop(ctx); helperErr != nil && err == nil {
-				err = helperErr
-			}
-		}
-		if n.PublicA2A != nil {
-			if publicErr := n.PublicA2A.Stop(ctx); publicErr != nil && err == nil {
-				err = publicErr
-			}
-		}
-	})
-	return err
-}
-
-func (n *Node) worker() {
-	defer close(n.workerDone)
-	for {
-		select {
-		case <-n.ctx.Done():
-			return
-		case assignment := <-n.queue:
-			n.processAssignment(assignment)
-		}
-	}
-}
-
-func (n *Node) processAssignment(assignment Assignment) {
-	startedAt := time.Now()
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			result := RunResult{
-				Status:     "failed",
-				DurationMS: maxDurationMS(startedAt),
-				Error: &AgentError{
-					Code:    "ADAPTER_PANIC",
-					Message: fmt.Sprintf("%v", recovered),
-				},
-			}
-			if n.Connector != nil {
-				if err := n.Connector.CompleteRun(n.ctx, assignment.RunID, result); err != nil {
-					n.logf("agent node panic result failed: %v", err)
-				}
-			}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+		defer cancel()
+		shutdownErr := node.shutdown(shutdownCtx)
+		if retErr == nil && shutdownErr != nil {
+			retErr = shutdownErr
 		}
 	}()
-	var mu sync.Mutex
-	bufferedEvents := make([]RunEvent, 0)
-	a2aClient := AgentA2AClient{
-		APIBase:    n.APIBase,
-		AgentToken: n.AgentToken,
-	}
-	runCtx := RunContext{
-		RunID:        assignment.RunID,
-		AgentID:      assignment.AgentID,
-		Input:        assignment.Input,
-		Metadata:     normalizeMetadata(assignment.Metadata),
-		Source:       assignment.Source,
-		A2A:          normalizeA2A(assignment.A2A),
-		Conversation: assignment.Conversation,
-	}
-	runCtx.Emit = func(eventType string, payload any) {
-		event := RunEvent{EventType: eventType, Payload: payload}
-		mu.Lock()
-		bufferedEvents = append(bufferedEvents, event)
-		mu.Unlock()
-		if n.Connector.SupportsLiveEvents() {
-			if err := n.Connector.SendRunEvent(n.ctx, assignment.RunID, event); err != nil {
-				n.logf("agent node run.event failed: %v", err)
-			}
+	startupCtx, cancelStartup := context.WithCancel(parent)
+	defer cancelStartup()
+	go func() {
+		select {
+		case <-node.stopRequest:
+			cancelStartup()
+		case <-startupCtx.Done():
 		}
-	}
-	runCtx.CallAgent = func(ctx context.Context, targetAgentID string, input any, options CallAgentOptions) (any, error) {
-		currentRunID := options.CurrentRunID
-		if currentRunID == "" {
-			currentRunID = stringFromMap(runCtx.A2A, "current_run_id")
-		}
-		if currentRunID == "" {
-			currentRunID = assignment.RunID
-		}
-		if options.Endpoint == "" {
-			options.Endpoint = stringFromMap(runCtx.A2A, "call_agent_endpoint")
-		}
-		if options.ContextID == "" {
-			options.ContextID = stringFromMap(runCtx.A2A, "protocol_context_id")
-		}
-		if options.TraceID == "" {
-			options.TraceID = stringFromMap(runCtx.A2A, "trace_id")
-		}
-		if len(options.ReferenceTaskIDs) == 0 {
-			options.ReferenceTaskIDs = stringSliceFromMap(runCtx.A2A, "reference_task_ids")
-		}
-		return a2aClient.CallAgent(ctx, currentRunID, targetAgentID, input, options)
-	}
+	}()
 
-	var helperSession *LocalHelperSession
-	if n.Helper != nil {
-		helperSession = n.Helper.CreateSession(assignment.RunID, &runCtx)
-		runCtx.Helper = helperSession.Info
-	}
-	if helperSession != nil {
-		defer helperSession.Close()
-	}
-
-	result := RunResult{Status: "success", DurationMS: maxDurationMS(startedAt)}
-	raw, err := n.Adapter.Run(n.ctx, assignment.Input, runCtx)
+	store, err := OpenRuntimeDurableStore(node.DataDir)
 	if err != nil {
-		result.Status = "failed"
-		result.Error = normalizeAgentError(err)
-	} else {
-		normalized := normalizeAdapterResult(raw)
-		result.Status = normalized.Status
-		result.Output = normalized.Output
-		result.Error = normalized.Error
-		if n.Connector.SupportsLiveEvents() {
-			result.Events = normalized.Events
-		} else {
-			mu.Lock()
-			result.Events = append(append([]RunEvent{}, bufferedEvents...), normalized.Events...)
-			mu.Unlock()
+		return err
+	}
+	node.store = store
+
+	if node.RuntimeClient == nil {
+		runtimeClient, httpClient, err := newRuntimeV2Client(RuntimeMTLSConfig{
+			CoreURL:       node.CoreURL,
+			AgentToken:    node.AgentToken,
+			CertFile:      node.MTLSCertFile,
+			KeyFile:       node.MTLSKeyFile,
+			CAFile:        node.MTLSCAFile,
+			TLSServerName: node.MTLSServerName,
+		})
+		if err != nil {
+			return err
+		}
+		node.RuntimeClient = runtimeClient
+		node.httpClient = httpClient
+	}
+
+	if node.Helper != nil {
+		if err := node.Helper.Start(node.runtimeCtx); err != nil {
+			return err
 		}
 	}
-	result.DurationMS = maxDurationMS(startedAt)
-	if err := n.Connector.CompleteRun(n.ctx, assignment.RunID, result); err != nil {
-		n.logf("agent node run.result failed: %v", err)
+	if node.PublicA2A != nil {
+		if node.PublicA2A.Adapter == nil {
+			node.PublicA2A.Adapter = node.Adapter
+		}
+		if err := node.PublicA2A.Start(node.runtimeCtx); err != nil {
+			return err
+		}
+	}
+
+	ready, err := node.createSessionWithRetry(startupCtx)
+	if err != nil {
+		return err
+	}
+	node.stateMu.Lock()
+	node.ready = ready
+	node.stateMu.Unlock()
+	if err := node.resumeDurableState(startupCtx); err != nil {
+		return err
+	}
+
+	node.startRuntimeLoops()
+	select {
+	case <-parent.Done():
+		return nil
+	case <-node.stopRequest:
+		return nil
+	case err := <-node.fatal:
+		return err
 	}
 }
 
-func normalizeAdapterResult(raw any) AdapterResult {
-	switch typed := raw.(type) {
-	case AdapterResult:
-		return fillAdapterDefaults(typed)
-	case *AdapterResult:
-		if typed == nil {
-			return AdapterResult{Status: "success", Output: JSONMap{}}
-		}
-		return fillAdapterDefaults(*typed)
-	case map[string]any:
-		if _, hasStatus := typed["status"]; hasStatus {
-			return adapterResultFromMap(typed)
-		}
-		if _, hasOutput := typed["output"]; hasOutput {
-			return adapterResultFromMap(typed)
-		}
-		if _, hasEvents := typed["events"]; hasEvents {
-			return adapterResultFromMap(typed)
-		}
+func (node *Node) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return AdapterResult{Status: "success", Output: raw}
+	node.lifecycleMu.Lock()
+	if !node.started {
+		node.lifecycleMu.Unlock()
+		return nil
+	}
+	done := node.done
+	node.setDraining(true)
+	if !node.stopRequested {
+		close(node.stopRequest)
+		node.stopRequested = true
+	}
+	node.lifecycleMu.Unlock()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-func adapterResultFromMap(value map[string]any) AdapterResult {
-	result := AdapterResult{
-		Status: fmt.Sprint(value["status"]),
-		Output: value["output"],
-		Events: eventsFromAny(value["events"]),
+func (node *Node) beginLifecycle() error {
+	node.lifecycleMu.Lock()
+	defer node.lifecycleMu.Unlock()
+	if node.started {
+		return errors.New("agent node is already started")
 	}
-	if result.Status == "" || result.Status == "<nil>" {
-		result.Status = "success"
-	}
-	if result.Output == nil {
-		copy := JSONMap{}
-		for key, raw := range value {
-			if key != "status" && key != "output" && key != "events" && key != "error" {
-				copy[key] = raw
-			}
-		}
-		result.Output = copy
-	}
-	return result
+	node.started = true
+	node.done = make(chan struct{})
+	node.runtimeCtx, node.runtimeStop = context.WithCancel(context.Background())
+	node.active = make(map[string]*activeRuntimeAttempt)
+	node.cancellations = make(map[string]struct{})
+	node.spoolAllowed = make(map[string]spoolPermission)
+	node.wakeSpool = make(chan struct{}, 1)
+	node.fatal = make(chan error, 1)
+	node.stopRequest = make(chan struct{})
+	node.stopRequested = false
+	node.draining = false
+	node.ready = nil
+	return nil
 }
 
-func fillAdapterDefaults(result AdapterResult) AdapterResult {
-	if result.Status == "" {
-		result.Status = "success"
+func (node *Node) applyDefaultsAndValidate() error {
+	if node.CoreURL == "" {
+		return errors.New("Core v2 URL is required")
 	}
-	if result.Output == nil && result.Error == nil {
-		result.Output = JSONMap{}
+	if !validRuntimeUUID(node.NodeID) {
+		return errors.New("Node ID must be a non-zero lowercase UUID")
 	}
-	return result
+	if !validRuntimeUUID(node.AgentID) {
+		return errors.New("Agent ID must be a non-zero lowercase UUID")
+	}
+	if node.AgentToken == "" && node.RuntimeClient == nil {
+		return errors.New("Agent Token is required")
+	}
+	if node.DataDir == "" {
+		return errors.New("runtime data directory is required")
+	}
+	if node.Adapter == nil {
+		return errors.New("adapter is required")
+	}
+	if node.RuntimeClient == nil && (node.MTLSCertFile == "" || node.MTLSKeyFile == "" || node.MTLSCAFile == "") {
+		return errors.New("runtime mTLS cert, key, and CA files are required")
+	}
+	if node.Capacity == 0 {
+		node.Capacity = DefaultCapacity
+	}
+	if node.Capacity < 1 || node.Capacity > openlinker.RuntimeV2MaxNodeCapacity {
+		return fmt.Errorf("capacity must be between 1 and %d", openlinker.RuntimeV2MaxNodeCapacity)
+	}
+	if node.ClaimWait <= 0 {
+		node.ClaimWait = DefaultClaimWait
+	}
+	if node.CommandWait <= 0 {
+		node.CommandWait = DefaultCommandWait
+	}
+	if node.HeartbeatInterval <= 0 {
+		node.HeartbeatInterval = DefaultHeartbeatInterval
+	}
+	if node.RetryMinimum <= 0 {
+		node.RetryMinimum = DefaultRetryMinimum
+	}
+	if node.RetryMaximum <= 0 {
+		node.RetryMaximum = DefaultRetryMaximum
+	}
+	if node.RetryMaximum < node.RetryMinimum {
+		return errors.New("retry maximum must not be less than retry minimum")
+	}
+	return nil
 }
 
-func eventsFromAny(value any) []RunEvent {
-	switch typed := value.(type) {
-	case []RunEvent:
-		return typed
-	case []any:
-		events := make([]RunEvent, 0, len(typed))
-		for _, item := range typed {
-			if itemMap, ok := item.(map[string]any); ok {
-				events = append(events, RunEvent{
-					EventType: fmt.Sprint(itemMap["event_type"]),
-					Payload:   itemMap["payload"],
-				})
-			}
+func (node *Node) startRuntimeLoops() {
+	for _, loop := range []func(){node.claimLoop, node.commandLoop, node.heartbeatLoop, node.spoolLoop} {
+		node.loops.Add(1)
+		go func(run func()) {
+			defer node.loops.Done()
+			run()
+		}(loop)
+	}
+}
+
+func (node *Node) shutdown(ctx context.Context) error {
+	node.setDraining(true)
+	heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, 2*time.Second)
+	_ = node.heartbeatOnce(heartbeatCtx)
+	cancelHeartbeat()
+
+	executionsDone := make(chan struct{})
+	go func() {
+		node.executions.Wait()
+		close(executionsDone)
+	}()
+	select {
+	case <-executionsDone:
+	case <-ctx.Done():
+		node.cancelAllActive()
+		forceTimer := time.NewTimer(2 * time.Second)
+		select {
+		case <-executionsDone:
+			forceTimer.Stop()
+		case <-forceTimer.C:
 		}
-		return events
+	}
+
+	if node.store != nil && node.RuntimeClient != nil {
+		identity := node.store.Identity()
+		_ = node.RuntimeClient.CloseRuntimeV2Session(ctx, openlinker.RuntimeV2SessionCloseRequest{
+			NodeID:           node.NodeID,
+			AgentID:          node.AgentID,
+			WorkerID:         identity.WorkerID,
+			RuntimeSessionID: identity.RuntimeSessionID,
+			SessionEpoch:     identity.SessionEpoch,
+			Status:           "closed",
+			Reason:           "node_shutdown",
+		})
+	}
+	node.cancelAllActive()
+	if node.runtimeStop != nil {
+		node.runtimeStop()
+	}
+	node.loops.Wait()
+
+	var firstErr error
+	if node.Helper != nil {
+		firstErr = node.Helper.Stop(ctx)
+	}
+	if node.PublicA2A != nil {
+		if err := node.PublicA2A.Stop(ctx); firstErr == nil {
+			firstErr = err
+		}
+	}
+	if node.store != nil {
+		if err := node.store.Close(); firstErr == nil {
+			firstErr = err
+		}
+		node.store = nil
+	}
+	if node.httpClient != nil {
+		if transport, ok := node.httpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	}
+
+	node.lifecycleMu.Lock()
+	if node.started {
+		node.started = false
+		close(node.done)
+	}
+	node.lifecycleMu.Unlock()
+	return firstErr
+}
+
+func (node *Node) setDraining(value bool) {
+	node.stateMu.Lock()
+	node.draining = value
+	node.stateMu.Unlock()
+}
+
+func (node *Node) isDraining() bool {
+	node.stateMu.RLock()
+	defer node.stateMu.RUnlock()
+	return node.draining
+}
+
+func (node *Node) capacitySnapshot() (capacity, inflight int64) {
+	node.stateMu.RLock()
+	defer node.stateMu.RUnlock()
+	if !node.draining {
+		capacity = node.Capacity
+	}
+	return capacity, int64(len(node.active))
+}
+
+func (node *Node) signalSpool() {
+	select {
+	case node.wakeSpool <- struct{}{}:
 	default:
-		return nil
 	}
 }
 
-func normalizeAgentError(err error) *AgentError {
+func (node *Node) reportFatal(err error) {
 	if err == nil {
-		return nil
+		return
 	}
-	return &AgentError{Code: "AGENT_NODE_ERROR", Message: err.Error()}
+	select {
+	case node.fatal <- err:
+	default:
+	}
 }
 
-func maxDurationMS(startedAt time.Time) int64 {
-	ms := time.Since(startedAt).Milliseconds()
-	if ms < 1 {
-		return 1
-	}
-	return ms
-}
-
-func (n *Node) logf(format string, args ...any) {
-	if n.Logger != nil {
-		n.Logger.Printf(format, args...)
+func (node *Node) logf(format string, args ...any) {
+	if node.Logger != nil {
+		node.Logger.Printf(format, args...)
 		return
 	}
 	log.Printf(format, args...)

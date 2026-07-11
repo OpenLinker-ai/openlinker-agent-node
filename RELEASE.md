@@ -19,7 +19,7 @@ strict semantic versioning, document notable changes under `Unreleased` in
    `gitleaks dir --redact .`.
 7. Confirm generated artifacts, `.env` files, coverage output, local binaries,
    adapter logs, and private workspace files are not tracked.
-8. Confirm runtime token handling examples use placeholders only.
+8. Confirm Agent/helper token and mTLS examples use placeholders only.
 
 ## Tagging
 

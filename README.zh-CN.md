@@ -1,60 +1,52 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node 把本地、内网和 NAT 后的 Agent 连接到 OpenLinker Core。它通过
-`runtime_ws` 或 `runtime_pull` 保持出站连接，调用本地 HTTP、命令、A2A 或 Codex
-适配器，再回传运行事件和结果。后端子进程只会拿到本次运行的短期 helper，不会接触
-Agent Token。
+OpenLinker Agent Node 用来运行工作站、本地网络或 NAT 后面的 Agent。Core 通过出站
+HTTPS 分配任务；Agent Node 调用本地 HTTP 服务、命令、A2A Agent 或 Codex workspace，
+再把 Event 和最终 Result 送回 Core。
+
+它是被调用方运行时，不是第二套控制面。已有稳定 HTTPS endpoint 或远程 MCP endpoint
+的 Agent，可以让 Core 直接调用，通常不需要 Agent Node。
 
 English documentation: [README.md](./README.md)
 
-如果你的 Agent 已经有稳定 HTTPS endpoint 或远程 MCP endpoint，Core 通常可以直接调用，
-不一定需要 Agent Node。
+## Runtime v2
 
-## 状态
+Agent Node 只有一条生产链路：基于 HTTP long-poll 的 reliable Runtime v2。连接必须
+同时使用 TLS 1.3 mTLS 和 Agent Token；不再提供 transport 模式切换或旧协议兼容入口。
 
-Agent Node 目前是 pre-1.0。Core runtime 协议稳定前，runtime 消息结构、adapter 选项和
-CLI 行为仍可能变化。
+执行链路刻意采用偏保守的设计：
 
-## 连接策略
+1. 节点以稳定 worker ID 和新的 session epoch 建立 runtime session。
+2. claim 到 offer 后，先加密并 fsync assignment，再记录 `ack_sent`，最后发送 ACK。
+3. 只有收到 Core 的 lease confirmation，或恢复接口明确返回
+   `continue_execution`，才会启动 adapter。
+4. Event 和最终 Result 都先加密落盘再上传。重试沿用原 Event/Result ID；只有收到身份
+   完全匹配的 typed ACK 才删除本地记录。
+5. 执行期间持续续租并轮询命令。取消只作用于精确 Attempt 及其进程树；adapter 真正
+   退出后才回复 `stopped`。
 
-优先使用最简单可用的连接模式：
-
-1. `direct_http`：OpenLinker Core 可访问稳定 HTTPS 调用 endpoint。
-2. `mcp_server`：Agent 已暴露远程 HTTP JSON-RPC / MCP tools endpoint。
-3. `runtime_ws`：适合本地、内网或 NAT 后 Agent。Agent Node 主动建立 WebSocket 并实时接收 run。
-4. `runtime_pull`：只有 WebSocket 无法稳定连接或环境阻断时才作为 fallback。
-
-## 开源架构图
-
-Agent Node 位于 Core 的被调用方侧。它不接收调用方用户 session；后端子进程只应看到
-per-run helper envelope，不应拿到 Agent Token。
+如果进程在 adapter 已经启动后硬崩溃，Agent Node 会 fail closed：重启后上报持久化状态，
+但不会擅自把进程再跑一次。Core 应撤销旧 Attempt，并按重试策略创建新 Attempt。
 
 ```mermaid
 flowchart LR
-  Callers["Core Web / SDK / MCP / A2A 调用方"] -->|"run request"| Core["openlinker-core<br/>registry / run state / events"]
-  HostedBridge["Hosted Bridge<br/>可选部署适配层"] -.->|"授权后的 Core API"| Core
-
-  Core -->|"runtime_ws 下发 run.assigned"| AgentNode["openlinker-agent-node"]
-  AgentNode -.->|"heartbeat / claim fallback"| Core
-  AgentNode -->|"http adapter"| HTTPBackend["本地 HTTP backend"]
-  AgentNode -->|"command adapter"| CommandBackend["本地命令"]
-  AgentNode -->|"a2a adapter"| A2ABackend["上游 A2A Agent"]
-  AgentNode -->|"codex adapter"| CodexBackend["Codex workspace"]
-
-  HTTPBackend -->|"events / result via helper"| AgentNode
-  CommandBackend -->|"stdout result"| AgentNode
-  A2ABackend -->|"task result"| AgentNode
-  CodexBackend -->|"final output"| AgentNode
+  Core["OpenLinker Core"] -->|"HTTPS claim / confirm / commands"| Node["Agent Node"]
+  Node -->|"HTTP、command、A2A 或 Codex"| Backend["私有 Agent backend"]
+  Backend -->|"run-scoped helper"| Node
+  Node -->|"durable Event / Result upload"| Core
+  Node --- Store["加密 assignment + Event + Result spool"]
 ```
 
 ## 快速开始
 
-依赖：
+需要准备：
 
 - Go 1.25 或更高版本
-- 已在 OpenLinker Core 注册的 Agent
-- Agent Token（`ol_agent_...`）
-- 本地后端进程、命令、Codex workspace 或上游 A2A endpoint
+- 已在 Core 注册的 Agent 和 Node
+- 两者的小写 UUID 与 Agent Token
+- Core 签发的 client certificate、private key 和受信 CA bundle
+- 私有、可持久化的数据目录
+- 本地 backend
 
 构建和测试：
 
@@ -63,29 +55,60 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-对接本地 HTTP 后端：
+运行本地 HTTP backend：
 
 ```bash
-OPENLINKER_API_BASE=https://api.openlinker.ai \
+OPENLINKER_CORE_V2_URL=https://api.openlinker.ai \
+OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
+OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws \
-OPENLINKER_AGENT_NODE_ADAPTER=openclaw \
+OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
+OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
+OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
+OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
+OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
 ```
 
-## 后端请求 Envelope
+数据目录有进程级独占锁。请使用持久化本地存储，把它当作敏感数据备份；不要让两个
+Agent Node 进程共用同一个目录。
 
-本地 HTTP 后端会收到 JSON envelope：
+## 必需的 runtime 配置
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `OPENLINKER_CORE_V2_URL` | Core base URL；生产环境必须是 `https` |
+| `OPENLINKER_NODE_ID` | 已注册 Node 的 UUID |
+| `OPENLINKER_AGENT_ID` | 当前进程承载的 Agent UUID |
+| `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent 凭证 |
+| `OPENLINKER_AGENT_NODE_DATA_DIR` | 持久化身份、journal 和加密 spool |
+| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | client certificate |
+| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | client private key |
+| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | 用来校验 Core 的 CA bundle |
+| `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | 可选的证书 server name 覆盖值 |
+
+可调参数包括 `OPENLINKER_AGENT_NODE_CAPACITY`、
+`OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`、
+`OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS`、
+`OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS`、
+`OPENLINKER_AGENT_NODE_RETRY_MIN_MS` 和
+`OPENLINKER_AGENT_NODE_RETRY_MAX_MS`。
+
+## Backend envelope
+
+HTTP 和 command backend 会收到 run envelope。启用本地 helper 时，URL 和本次 run
+专用的凭证位于 `agent_node` 下：
 
 ```json
 {
   "input": { "query": "..." },
   "run_id": "run uuid",
   "metadata": {},
-  "a2a": {},
   "agent_node": {
     "helper": {
+      "base_url": "http://127.0.0.1:12345",
+      "token": "run-scoped helper token",
       "endpoints": {
         "call_agent": "http://127.0.0.1:12345/a2a/call",
         "events": "http://127.0.0.1:12345/events"
@@ -95,14 +118,13 @@ go run ./cmd/openlinker-agent-node
 }
 ```
 
-helper endpoint 是本地且按 run 作用域限制的。后端应使用 helper 做 delegation 和进度事件，
-不要接收 Agent Token。
+长效 Agent Token 和 assignment-scoped invocation capability 都不会传给 backend。
 
 ## Adapter 模式
 
 ### `http` / `openclaw`
 
-把 run envelope POST 到本地 HTTP 后端。
+把 run envelope POST 到本地 HTTP 服务：
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=openclaw
@@ -111,7 +133,7 @@ OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run
 
 ### `command`
 
-运行本地命令，并把任务 envelope 写入 stdin。
+把 envelope 写入运维方指定命令的 stdin。取消任务时会终止整个命令进程树。
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=command
@@ -121,7 +143,7 @@ OPENLINKER_AGENT_NODE_ARGS='["run","--json"]'
 
 ### `a2a`
 
-把 OpenLinker 分配的 run 转发给本地或远程 A2A JSON-RPC Agent。
+把 run 转给 A2A JSON-RPC Agent：
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=a2a
@@ -129,12 +151,12 @@ OPENLINKER_AGENT_NODE_A2A_BASE_URL=http://127.0.0.1:31225/rpc
 OPENLINKER_AGENT_NODE_A2A_METHOD=SendMessage
 ```
 
-只有当上游 Agent 仍使用旧 slash-style 方法（如 `message/send`）时，才设置
+只有上游 Agent 仍要求 `message/send` 一类 slash-style 方法时，才设置
 `OPENLINKER_AGENT_NODE_A2A_DIALECT=legacy`。
 
 ### `codex`
 
-非交互运行 Codex。请把该 adapter 放在隔离 workspace 中。
+在隔离 workspace 中非交互运行 Codex：
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=codex
@@ -143,40 +165,41 @@ OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
 ```
 
-## Runtime 模式
+## Event 与 Agent 子调用
 
-WebSocket 是默认且推荐模式：
+`http`、`openclaw`、`command` 和 `codex` 默认启用 localhost helper。command backend
+还会收到以下环境变量：
 
-```bash
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_ws
-```
-
-受限网络可强制使用 pull fallback：
-
-```bash
-OPENLINKER_AGENT_NODE_CONNECTOR=runtime_pull
-```
-
-两种模式使用同一套 Core run 生命周期。每个 assigned / claimed run 必须提交一次终态结果。
-
-## A2A Delegation
-
-后端可以在处理 run 时调用另一个 Agent。Agent Node 提供当前 run 上下文，并把真实 token
-保留在节点内部。
-
-`http`、`command` 和 `codex` adapter 默认启用 localhost helper。command 后端还会收到：
-
-```bash
+```text
 OPENLINKER_AGENT_NODE_HELPER_URL
 OPENLINKER_AGENT_NODE_HELPER_TOKEN
 OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL
 OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL
 ```
 
-## Public A2A Server
+每次 Agent 子调用都必须提供 `idempotency_key`。重试同一个调用意图时复用同一个 key；
+即使请求 body 完全相同，只要是另一个独立意图，就必须换一个 key。
 
-Agent Node 可选把本地后端暴露成一个小型 public A2A server。只有本地进程确实需要接收入站
-A2A 流量时才开启：
+```bash
+curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_CALL_AGENT_URL" \
+  -H "Authorization: Bearer $OPENLINKER_AGENT_NODE_HELPER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"target_agent_id":"target-agent-uuid","idempotency_key":"invoice-42-review-v1","reason":"review","input":{"invoice_id":"42"}}'
+```
+
+```bash
+curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
+  -H "Authorization: Bearer $OPENLINKER_AGENT_NODE_HELPER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"event_type":"run.message.delta","payload":{"text":"working"}}'
+```
+
+程序化 adapter 遵循同一规则：`CallAgentOptions.IdempotencyKey` 为空时，
+`RunContext.CallAgent` 会直接拒绝调用。
+
+## 可选 Public A2A Server
+
+Agent Node 也可以把 backend 暴露成入站 A2A server。这与 Core runtime 相互独立，默认关闭：
 
 ```bash
 OPENLINKER_AGENT_NODE_PUBLIC_A2A=true
@@ -187,35 +210,20 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
 OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 ```
 
-## 开发
+该可选 server 的 Push Notification Config 只保存在内存中。需要持久化 callback
+subscription 时，应使用 Core 的平台 A2A adapter。
 
-```bash
-gofmt -w .
-go test ./...
-go build ./cmd/openlinker-agent-node
-```
+## 安全与运维
 
-## 安全
+- Agent Token、mTLS private key、spool key、assignment payload 和 helper token 都是密钥。
+- 不要把 runtime 数据目录挂载进 backend container。
+- command 与 Codex workspace 应隔离，并只授予必要权限。
+- 优雅关闭会先上报 capacity 为 0，等待 active adapter，关闭 runtime session，再释放数据目录锁。
+- 提 Issue 前删除凭证、私有 URL、客户 payload 和 adapter 日志。
 
-- Agent Token 必须视为密钥。
-- 不要把 Agent Token 传给后端子进程。
-- `codex` adapter 使用隔离 workspace。
-- 公开 Issue 前删除 Agent Token、helper token、私有 URL 和本地日志。
-
-漏洞请通过 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md) 报告。
-
-## 贡献
-
-提交 PR 前请阅读 [CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)。协议连接、adapter
-执行、本地 helper 和最终结果提交是本仓库核心边界，不要让后端子进程直接接触真实
-Agent Token。
-
-## 支持和发布
-
-- 支持说明：[SUPPORT.zh-CN.md](./SUPPORT.zh-CN.md)
-- 发布清单：[RELEASE.zh-CN.md](./RELEASE.zh-CN.md)
-- 英文变更记录：[CHANGELOG.md](./CHANGELOG.md)
-- 行为准则：[CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)
+更多说明见 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)、
+[SUPPORT.zh-CN.md](./SUPPORT.zh-CN.md) 和
+[CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)。
 
 ## 许可证
 

@@ -154,11 +154,7 @@ func (c *Client) GetAgentCard(ctx context.Context, slug string, extended bool) (
 }
 
 func (c *Client) RunAgent(ctx context.Context, req RunAgentRequest) (*RunResponse, error) {
-	var out RunResponse
-	if err := c.do(ctx, http.MethodPost, "/run", nil, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return c.createRun(ctx, "/run", req)
 }
 
 func (c *Client) RunAgentWithCallbacks(ctx context.Context, req RunAgentRequest, opts PlatformCallbackOptions) (*RunResponse, error) {
@@ -169,13 +165,42 @@ func (c *Client) RunAgentWithCallbacks(ctx context.Context, req RunAgentRequest,
 	if _, err := c.streamPlatformCallbacks(ctx, started.RunID, opts, true); err != nil {
 		return nil, err
 	}
-	return c.GetRun(ctx, started.RunID)
+	result, err := c.GetRun(ctx, started.RunID)
+	if err != nil {
+		return nil, err
+	}
+	result.Replayed = result.Replayed || started.Replayed
+	return result, nil
 }
 
 func (c *Client) StartAgentRun(ctx context.Context, req RunAgentRequest) (*RunResponse, error) {
-	var out RunResponse
-	if err := c.do(ctx, http.MethodPost, "/runs", nil, req, &out); err != nil {
+	return c.createRun(ctx, "/runs", req)
+}
+
+func (c *Client) createRun(ctx context.Context, path string, req RunAgentRequest) (*RunResponse, error) {
+	key, err := resolveRunIdempotencyKey(req.IdempotencyKey)
+	if err != nil {
 		return nil, err
+	}
+	headers := make(http.Header)
+	headers.Set("Idempotency-Key", key)
+	resp, err := c.newRequestWithHeaders(ctx, http.MethodPost, path, nil, req, "application/json", headers)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, parseError(resp)
+	}
+
+	var out RunResponse
+	if resp.StatusCode != http.StatusNoContent {
+		if err := decodeJSONResponse(resp.Body, &out); err != nil {
+			return nil, fmt.Errorf("openlinker: decode response: %w", err)
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(resp.Header.Get("Idempotency-Replayed")), "true") {
+		out.Replayed = true
 	}
 	return &out, nil
 }
@@ -291,77 +316,6 @@ func (c *Client) streamPlatformCallbacks(ctx context.Context, runID string, opts
 	return terminal, nil
 }
 
-func (c *Client) HeartbeatAgent(ctx context.Context) (*AgentHeartbeatResponse, error) {
-	var out AgentHeartbeatResponse
-	if err := c.doRuntime(ctx, http.MethodPost, "/agent-runtime/heartbeat", nil, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *Client) ClaimRuntimeRun(ctx context.Context, params ClaimRuntimeRunParams) (*RuntimePullRunResponse, error) {
-	result, err := c.ClaimRuntimeRunDetailed(ctx, params)
-	if err != nil || result == nil {
-		return nil, err
-	}
-	return result.Run, nil
-}
-
-type ClaimRuntimeRunResult struct {
-	Run                 *RuntimePullRunResponse
-	RetryAfter          time.Duration
-	MaxClaimWaitSeconds int32
-}
-
-func (c *Client) ClaimRuntimeRunDetailed(ctx context.Context, params ClaimRuntimeRunParams) (*ClaimRuntimeRunResult, error) {
-	query := make(url.Values)
-	setQueryInt32(query, "wait", params.WaitSeconds)
-
-	resp, err := c.newRuntimeRequest(ctx, http.MethodGet, "/agent-runtime/runs/claim", query, nil, "application/json")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNoContent {
-		return &ClaimRuntimeRunResult{
-			RetryAfter:          retryAfter(resp.Header),
-			MaxClaimWaitSeconds: headerInt32(resp.Header, "X-OpenLinker-Max-Claim-Wait-Seconds"),
-		}, nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseError(resp)
-	}
-	var out RuntimePullRunResponse
-	if err := decodeJSONResponse(resp.Body, &out); err != nil {
-		return nil, fmt.Errorf("openlinker: decode response: %w", err)
-	}
-	return &ClaimRuntimeRunResult{Run: &out}, nil
-}
-
-func (c *Client) CompleteRuntimeRun(ctx context.Context, runID string, result RuntimePullResultRequest) (*RunResponse, error) {
-	var out RunResponse
-	path := "/agent-runtime/runs/" + url.PathEscape(runID) + "/result"
-	if err := c.doRuntime(ctx, http.MethodPost, path, nil, result, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *Client) CallAgent(ctx context.Context, req CallAgentRequest) (*RunResponse, error) {
-	return c.CallAgentAt(ctx, "", req)
-}
-
-func (c *Client) CallAgentAt(ctx context.Context, endpoint string, req CallAgentRequest) (*RunResponse, error) {
-	var out RunResponse
-	if strings.TrimSpace(endpoint) == "" {
-		endpoint = "/agent-runtime/call-agent"
-	}
-	if err := c.doRuntime(ctx, http.MethodPost, endpoint, nil, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body any, out any) error {
 	resp, err := c.newRequest(ctx, method, path, query, body, "application/json")
 	if err != nil {
@@ -380,26 +334,12 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return nil
 }
 
-func (c *Client) doRuntime(ctx context.Context, method, path string, query url.Values, body any, out any) error {
-	resp, err := c.newRuntimeRequest(ctx, method, path, query, body, "application/json")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return parseError(resp)
-	}
-	if resp.StatusCode == http.StatusNoContent || out == nil {
-		return nil
-	}
-	if err := decodeJSONResponse(resp.Body, out); err != nil {
-		return fmt.Errorf("openlinker: decode response: %w", err)
-	}
-	return nil
-}
-
 func (c *Client) newRequest(ctx context.Context, method, path string, query url.Values, body any, accept string) (*http.Response, error) {
 	return c.newRequestWithToken(ctx, method, path, query, body, accept, c.userToken)
+}
+
+func (c *Client) newRequestWithHeaders(ctx context.Context, method, path string, query url.Values, body any, accept string, headers http.Header) (*http.Response, error) {
+	return c.newRequestWithTokenAndHeaders(ctx, method, path, query, body, accept, c.userToken, headers)
 }
 
 func (c *Client) newRuntimeRequest(ctx context.Context, method, path string, query url.Values, body any, accept string) (*http.Response, error) {
@@ -423,15 +363,29 @@ func (c *Client) requireRuntime() error {
 }
 
 func (c *Client) newRequestWithToken(ctx context.Context, method, path string, query url.Values, body any, accept, token string) (*http.Response, error) {
-	var bodyReader io.Reader
+	return c.newRequestWithTokenAndHeaders(ctx, method, path, query, body, accept, token, nil)
+}
+
+func (c *Client) newRequestWithTokenAndHeaders(ctx context.Context, method, path string, query url.Values, body any, accept, token string, headers http.Header) (*http.Response, error) {
+	var raw []byte
 	if body != nil {
-		raw, err := json.Marshal(body)
+		var err error
+		raw, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("openlinker: encode request: %w", err)
 		}
-		bodyReader = bytes.NewReader(raw)
 	}
+	return c.newRequestWithTokenAndHeadersBytes(ctx, method, path, query, raw, accept, token, headers)
+}
 
+// newRequestWithTokenAndHeadersBytes sends body without re-encoding it. Runtime
+// v2 delegated calls use this to bind the invocation proof to the exact bytes
+// written on the wire.
+func (c *Client) newRequestWithTokenAndHeadersBytes(ctx context.Context, method, path string, query url.Values, body []byte, accept, token string, headers http.Header) (*http.Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.endpoint(path, query), bodyReader)
 	if err != nil {
 		return nil, err
@@ -445,6 +399,12 @@ func (c *Client) newRequestWithToken(ctx context.Context, method, path string, q
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	for key, values := range c.headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	for key, values := range headers {
+		req.Header.Del(key)
 		for _, value := range values {
 			req.Header.Add(key, value)
 		}
@@ -579,18 +539,6 @@ func retryAfter(headers http.Header) time.Duration {
 		}
 	}
 	return 0
-}
-
-func headerInt32(headers http.Header, name string) int32 {
-	value := headers.Get(name)
-	if value == "" {
-		return 0
-	}
-	parsed, err := strconv.ParseInt(value, 10, 32)
-	if err != nil || parsed <= 0 {
-		return 0
-	}
-	return int32(parsed)
 }
 
 func readSSE(reader io.Reader, handle func(StreamRunEvent) error) error {
