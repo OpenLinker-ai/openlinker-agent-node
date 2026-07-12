@@ -58,7 +58,7 @@ go build ./cmd/openlinker-agent-node
 运行本地 HTTP backend：
 
 ```bash
-OPENLINKER_CORE_V2_URL=https://api.openlinker.ai \
+OPENLINKER_CORE_V2_URL=https://runtime.example.com:8443 \
 OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
 OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
@@ -78,7 +78,7 @@ Agent Node 进程共用同一个目录。
 
 | 环境变量 | 用途 |
 | --- | --- |
-| `OPENLINKER_CORE_V2_URL` | Core base URL；生产环境必须是 `https` |
+| `OPENLINKER_CORE_V2_URL` | Core 独立的 Runtime mTLS 地址，例如 `https://runtime.example.com:8443` |
 | `OPENLINKER_NODE_ID` | 已注册 Node 的 UUID |
 | `OPENLINKER_AGENT_ID` | 当前进程承载的 Agent UUID |
 | `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent 凭证 |

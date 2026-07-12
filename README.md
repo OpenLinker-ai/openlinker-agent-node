@@ -66,7 +66,7 @@ go build ./cmd/openlinker-agent-node
 Run a local HTTP backend:
 
 ```bash
-OPENLINKER_CORE_V2_URL=https://api.openlinker.ai \
+OPENLINKER_CORE_V2_URL=https://runtime.example.com:8443 \
 OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
 OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
@@ -87,7 +87,7 @@ two node processes.
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENLINKER_CORE_V2_URL` | Core base URL; production requires `https` |
+| `OPENLINKER_CORE_V2_URL` | Dedicated Core Runtime mTLS origin, for example `https://runtime.example.com:8443` |
 | `OPENLINKER_NODE_ID` | Registered Node UUID |
 | `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent credential kept inside the node |
