@@ -11,26 +11,34 @@ English documentation: [README.md](./README.md)
 
 ## Runtime v2
 
-Agent Node 只有一条生产链路：基于 HTTP long-poll 的 reliable Runtime v2。连接必须
-同时使用 TLS 1.3 mTLS 和 Agent Token；不再提供 transport 模式切换或旧协议兼容入口。
+Agent Node 用两条传输承载同一份 reliable Runtime v2 契约。默认 `auto` 先建立低延迟
+v2 WebSocket；如果当前网络无法建立或稳定维持 WebSocket，节点会切到 v2 HTTP
+long-poll 继续服务，并按退避节奏探测，恢复后再切回 WebSocket。两条链路都必须同时
+使用 TLS 1.3 mTLS 和 Agent Token。删除的是 v1，不存在 v1 fallback。
 
 执行链路刻意采用偏保守的设计：
 
-1. 节点以稳定 worker ID 和新的 session epoch 建立 runtime session。
-2. claim 到 offer 后，先加密并 fsync assignment，再记录 `ack_sent`，最后发送 ACK。
+1. 节点以稳定 worker ID 和新的 session epoch 建立 runtime session。WebSocket 使用
+   `runtime.hello` / `runtime.ready`，Pull 使用语义一致的 HTTP Session endpoint。
+2. 收到或 claim 到 offer 后，先加密并 fsync assignment，再记录 `ack_sent`，最后发送 ACK。
 3. 只有收到 Core 的 lease confirmation，或恢复接口明确返回
    `continue_execution`，才会启动 adapter。
 4. Event 和最终 Result 都先加密落盘再上传。重试沿用原 Event/Result ID；只有收到身份
-   完全匹配的 typed ACK 才删除本地记录。
+   完全匹配的 typed ACK 才推进本地状态。已 ACK Event 会继续加密保留到 Result ACK；
+   如果 Core 返回 `EVENTS_MISSING`，节点会按指定区间重传 Event，再用同一 Result ID 重试。
 5. 执行期间持续续租并轮询命令。取消只作用于精确 Attempt 及其进程树；adapter 真正
    退出后才回复 `stopped`。
+6. 切换 transport 时，先取消并排空旧通道上的所有调用，再 detach、用同一持久身份
+   attach 新通道、按 journal 做 resume，完成后才重新开放 claim。两条通道不会并发
+   领取，已经进入 `started` 的 adapter 也不会重跑。
 
 如果进程在 adapter 已经启动后硬崩溃，Agent Node 会 fail closed：重启后上报持久化状态，
 但不会擅自把进程再跑一次。Core 应撤销旧 Attempt，并按重试策略创建新 Attempt。
 
 ```mermaid
 flowchart LR
-  Core["OpenLinker Core"] -->|"HTTPS claim / confirm / commands"| Node["Agent Node"]
+  Core["OpenLinker Core"] -->|"默认 v2 WebSocket"| Node["Agent Node"]
+  Core -->|"v2 HTTP Pull fallback"| Node
   Node -->|"HTTP、command、A2A 或 Codex"| Backend["私有 Agent backend"]
   Backend -->|"run-scoped helper"| Node
   Node -->|"durable Event / Result upload"| Core
@@ -66,6 +74,7 @@ OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
 OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
 OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
 OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
+OPENLINKER_AGENT_NODE_TRANSPORT=auto \
 OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
@@ -73,6 +82,12 @@ go run ./cmd/openlinker-agent-node
 
 数据目录有进程级独占锁。请使用持久化本地存储，把它当作敏感数据备份；不要让两个
 Agent Node 进程共用同一个目录。
+
+加密 spool 的上限是 512 MiB 和 10,000 条记录。使用量达到 80% 时，节点会把 capacity
+降为 0，停止接收新 Run，但现有 Attempt 的续租、取消、上传和清理仍可继续。数据记录
+不能占用逻辑上限或文件系统最后预留的 16 MiB，确保 journal 与控制流程仍有前进空间。
+记录损坏、认证失败、key 丢失或容量耗尽都会 fail closed；未 ACK Result 不会因 TTL
+自动删除。
 
 ## 必需的 runtime 配置
 
@@ -87,6 +102,7 @@ Agent Node 进程共用同一个目录。
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | client private key |
 | `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | 用来校验 Core 的 CA bundle |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | 可选的证书 server name 覆盖值 |
+| `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto`（默认）、`ws` 或 `pull`；三者都只使用 Runtime v2 |
 
 可调参数包括 `OPENLINKER_AGENT_NODE_CAPACITY`、
 `OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`、
@@ -94,6 +110,10 @@ Agent Node 进程共用同一个目录。
 `OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS`、
 `OPENLINKER_AGENT_NODE_RETRY_MIN_MS` 和
 `OPENLINKER_AGENT_NODE_RETRY_MAX_MS`。
+
+一般部署使用 `auto`。如果运维策略要求 WebSocket 断开后原地等待，而不通过 Pull 继续
+服务，可以使用 `ws`；只有明确知道网络不支持 WebSocket 时才固定为 `pull`。切换时会
+沿用当前 session identity、journal、加密 spool、lease 和逐 Run 的取消状态。
 
 ## Backend envelope
 
@@ -219,6 +239,7 @@ subscription 时，应使用 Core 的平台 A2A adapter。
 - 不要把 runtime 数据目录挂载进 backend container。
 - command 与 Codex workspace 应隔离，并只授予必要权限。
 - 优雅关闭会先上报 capacity 为 0，等待 active adapter，关闭 runtime session，再释放数据目录锁。
+- 请在 spool 达到 80% 前告警并释放容量或完成上传；不要手工删除 `.record`、journal、identity 或 key 文件。
 - 提 Issue 前删除凭证、私有 URL、客户 payload 和 adapter 日志。
 
 更多说明见 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)、

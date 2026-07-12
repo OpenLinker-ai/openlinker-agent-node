@@ -13,24 +13,33 @@ Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
 ## Runtime v2
 
-Agent Node has one production transport: reliable Runtime v2 over HTTP
-long-polling. It requires TLS 1.3 mutual TLS and an Agent Token. There is no
-transport mode switch or compatibility path for the earlier runtime protocol.
+Agent Node uses two transports for the same reliable Runtime v2 contract. The
+default `auto` mode opens a low-latency v2 WebSocket. If the network cannot
+establish or keep that socket alive, the node switches to v2 HTTP long-poll,
+keeps serving, and probes with backoff until WebSocket is available again.
+Both paths require TLS 1.3 mutual TLS and an Agent Token. Only v1 was removed;
+there is no v1 fallback.
 
 The protocol is deliberately conservative around execution:
 
 1. The node opens a runtime session with a stable worker ID and a new session
-   epoch.
-2. It claims an offer, encrypts and fsyncs the assignment, records `ack_sent`,
-   and sends the assignment ACK.
+   epoch. WebSocket uses `runtime.hello` / `runtime.ready`; Pull uses the
+   equivalent HTTP Session endpoint.
+2. It receives or claims an offer, encrypts and fsyncs the assignment, records
+   `ack_sent`, and sends the assignment ACK.
 3. It starts the adapter only after Core confirms the lease, or after an
    authoritative resume decision says `continue_execution`.
 4. Events and the terminal Result are encrypted and fsynced before upload.
-   Retries keep the same Event/Result IDs; files are removed only after the
-   matching typed ACK.
+   Retries keep the same Event/Result IDs. ACKed Events remain encrypted until
+   the Result ACK so an `EVENTS_MISSING` response can request exact ranges;
+   then the node replays those Events and retries the same Result ID.
 5. Lease renewal and command polling run alongside execution. A cancellation
    targets the exact Attempt and its process tree; `stopped` is acknowledged
    only after the adapter has exited.
+6. A transport change first cancels and drains every old transport call. The
+   node detaches, attaches the replacement with the same durable identity,
+   resumes the journal, and only then allows new claims. The two transports
+   never claim concurrently, and a `started` adapter is never rerun.
 
 A hard crash after a process has started is fail-closed: Agent Node reports the
 durable state on restart but never guesses that rerunning the process is safe.
@@ -38,7 +47,8 @@ Core must revoke that Attempt and create a new Attempt when retry policy allows.
 
 ```mermaid
 flowchart LR
-  Core["OpenLinker Core"] -->|"HTTPS claim / confirm / commands"| Node["Agent Node"]
+  Core["OpenLinker Core"] -->|"v2 WebSocket by default"| Node["Agent Node"]
+  Core -->|"v2 HTTP Pull fallback"| Node
   Node -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
   Backend -->|"run-scoped helper"| Node
   Node -->|"durable Event / Result upload"| Core
@@ -74,6 +84,7 @@ OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
 OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
 OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
 OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
+OPENLINKER_AGENT_NODE_TRANSPORT=auto \
 OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
@@ -82,6 +93,14 @@ go run ./cmd/openlinker-agent-node
 The data directory is single-process locked. Keep it on persistent local
 storage, back it up as sensitive state, and never share one directory between
 two node processes.
+
+The encrypted spool is bounded to 512 MiB and 10,000 records. At 80% usage the
+node advertises capacity zero and stops accepting new Runs while it continues
+renewal, cancellation, upload, and cleanup for existing Attempts. Data writes
+cannot consume the final 16 MiB of logical or filesystem capacity, leaving
+space for journal/control progress. Corruption, authentication failure, a
+missing key, or exhausted capacity fails closed; unacknowledged Results are
+never expired or deleted.
 
 ## Required runtime configuration
 
@@ -96,6 +115,7 @@ two node processes.
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |
 | `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | CA bundle used to verify Core |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | Optional certificate server-name override |
+| `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto` (default), `ws`, or `pull`; all are Runtime v2 |
 
 Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 `OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`,
@@ -103,6 +123,12 @@ Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 `OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS`,
 `OPENLINKER_AGENT_NODE_RETRY_MIN_MS`, and
 `OPENLINKER_AGENT_NODE_RETRY_MAX_MS`.
+
+Use `auto` for normal deployments. Use `ws` when operators prefer the node to
+wait for WebSocket recovery instead of serving through Pull. Use `pull` only
+for networks where WebSocket is known to be unavailable. Transport changes
+reuse the current session identity, journal, encrypted spool, leases, and
+per-Run cancellation state.
 
 ## Backend envelope
 
@@ -236,6 +262,8 @@ Core's platform A2A adapter when callback subscriptions must be durable.
   closes the runtime session, and then releases the data-directory lock.
 - Redact credentials, private URLs, customer payloads, and adapter logs before
   filing an issue.
+- Alert before spool usage reaches 80%. Free space or complete existing uploads;
+  never delete `.record`, journal, identity, or key files by hand.
 
 See [SECURITY.md](./SECURITY.md), [SUPPORT.md](./SUPPORT.md), and
 [CONTRIBUTING.md](./CONTRIBUTING.md).

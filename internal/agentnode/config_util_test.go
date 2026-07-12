@@ -35,6 +35,9 @@ func TestNewFromEnvMapOpenClawRuntimeV2HTTP(t *testing.T) {
 	if node.CoreURL != "https://example.test/api/v1" || node.AgentToken != "ol_agent_env" || node.DataDir != "/var/lib/openlinker-agent-node" {
 		t.Fatalf("node config = %#v", node)
 	}
+	if node.Transport != string(RuntimeTransportAuto) {
+		t.Fatalf("default transport = %q", node.Transport)
+	}
 	if node.Capacity != 1 || node.ClaimWait != 25*time.Second || node.HeartbeatInterval != 5*time.Second {
 		t.Fatalf("runtime v2 timing/capacity = %#v", node)
 	}
@@ -58,6 +61,7 @@ func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
 		"OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS": "4",
 		"OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS":    "3",
 		"OPENLINKER_AGENT_NODE_CAPACITY":             "4",
+		"OPENLINKER_AGENT_NODE_TRANSPORT":            "pull",
 		"OPENLINKER_AGENT_NODE_ADAPTER":              "command",
 		"OPENLINKER_AGENT_NODE_COMMAND":              "/usr/local/bin/openclaw",
 		"OPENLINKER_AGENT_NODE_ARGS":                 `["run","--json"]`,
@@ -70,6 +74,9 @@ func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
 	}
 	if node.ClaimWait != 2*time.Second || node.CommandWait != 4*time.Second || node.HeartbeatInterval != 3*time.Second || node.Capacity != 4 {
 		t.Fatalf("runtime v2 config = %#v", node)
+	}
+	if node.Transport != string(RuntimeTransportPull) {
+		t.Fatalf("transport = %q", node.Transport)
 	}
 	adapter, ok := node.Adapter.(CommandAdapter)
 	if !ok {

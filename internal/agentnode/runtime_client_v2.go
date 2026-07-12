@@ -42,7 +42,7 @@ type RuntimeMTLSConfig struct {
 	TLSServerName string
 }
 
-func newRuntimeV2Client(config RuntimeMTLSConfig) (RuntimeV2Client, *http.Client, error) {
+func newRuntimeV2Client(config RuntimeMTLSConfig) (*openlinker.Runtime, *http.Client, error) {
 	parsed, err := url.Parse(strings.TrimSpace(config.CoreURL))
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return nil, nil, errors.New("Core v2 URL must be an absolute https URL")

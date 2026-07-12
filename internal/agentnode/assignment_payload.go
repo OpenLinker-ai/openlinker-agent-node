@@ -84,7 +84,14 @@ func (store *RuntimeDurableStore) storeAssignmentPayloadLocked(payload DurableAs
 	if len(raw) > spoolDiskRecordMax {
 		return ErrRuntimeMessageTooLarge
 	}
+	if err := store.ensureSpoolWriteLocked(path, int64(len(raw))); err != nil {
+		return err
+	}
 	if err := atomicWriteDurable(path, raw, 0o600, store.hook); err != nil {
+		store.poisoned = err
+		return err
+	}
+	if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
 		store.poisoned = err
 		return err
 	}
@@ -133,6 +140,9 @@ func (store *RuntimeDurableStore) loadAssignmentSpool() error {
 		if _, exists := store.payloads[payload.Identity.AttemptID]; exists {
 			return &RuntimeRecordError{Kind: "assignment spool", Reason: ErrSpoolRecordConflict}
 		}
+		if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
+			return &RuntimeRecordError{Kind: "assignment spool", Reason: err}
+		}
 		store.payloads[payload.Identity.AttemptID] = cloneAssignmentPayload(payload)
 	}
 	return nil
@@ -160,7 +170,7 @@ func (store *RuntimeDurableStore) reconcileAssignmentPayloadsLocked() error {
 
 func (store *RuntimeDurableStore) removeAssignmentPayloadLocked(payload DurableAssignmentPayload) error {
 	path := store.assignmentPayloadPath(payload.Identity.AttemptID, payload.Identity.AssignmentMessageID)
-	if err := durableRemove(path); err != nil {
+	if err := store.removeSpoolFileLocked(path); err != nil {
 		return err
 	}
 	delete(store.payloads, payload.Identity.AttemptID)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ const (
 
 type Node struct {
 	CoreURL    string
+	Transport  string
 	NodeID     string
 	AgentID    string
 	AgentToken string
@@ -48,15 +50,18 @@ type Node struct {
 	// RuntimeClient is an injection seam for deterministic tests. Production
 	// configuration leaves it nil and always builds a TLS 1.3 mTLS client.
 	RuntimeClient RuntimeV2Client
+	RuntimeDialer RuntimeV2TransportDialer
 
-	lifecycleMu sync.Mutex
-	started     bool
-	done        chan struct{}
-	runtimeCtx  context.Context
-	runtimeStop context.CancelFunc
-	httpClient  *http.Client
-	store       *RuntimeDurableStore
-	ready       *openlinker.RuntimeV2ReadyPayload
+	lifecycleMu   sync.Mutex
+	started       bool
+	done          chan struct{}
+	runtimeCtx    context.Context
+	runtimeStop   context.CancelFunc
+	httpClient    *http.Client
+	transport     *switchingRuntimeV2Client
+	transportStop context.CancelFunc
+	store         *RuntimeDurableStore
+	ready         *openlinker.RuntimeV2ReadyPayload
 
 	stateMu       sync.RWMutex
 	draining      bool
@@ -120,7 +125,12 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 			return err
 		}
 		node.RuntimeClient = runtimeClient
+		node.RuntimeDialer = sdkRuntimeV2TransportDialer{runtime: runtimeClient}
 		node.httpClient = httpClient
+	}
+	if node.RuntimeDialer != nil {
+		node.transport = newSwitchingRuntimeV2Client(node.RuntimeClient)
+		node.RuntimeClient = node.transport
 	}
 
 	if node.Helper != nil {
@@ -137,7 +147,12 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		}
 	}
 
-	ready, err := node.createSessionWithRetry(startupCtx)
+	var ready *openlinker.RuntimeV2ReadyPayload
+	if node.transport != nil {
+		ready, err = node.startInitialRuntimeTransport(startupCtx)
+	} else {
+		ready, err = node.createSessionWithRetry(startupCtx)
+	}
 	if err != nil {
 		return err
 	}
@@ -148,6 +163,7 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		return err
 	}
 
+	node.startTransportSupervisor()
 	node.startRuntimeLoops()
 	select {
 	case <-parent.Done():
@@ -209,6 +225,15 @@ func (node *Node) applyDefaultsAndValidate() error {
 	if node.CoreURL == "" {
 		return errors.New("Core v2 URL is required")
 	}
+	if node.Transport == "" {
+		node.Transport = string(RuntimeTransportAuto)
+	}
+	switch RuntimeTransportMode(strings.ToLower(strings.TrimSpace(node.Transport))) {
+	case RuntimeTransportAuto, RuntimeTransportWebSocket, RuntimeTransportPull:
+		node.Transport = strings.ToLower(strings.TrimSpace(node.Transport))
+	default:
+		return errors.New("transport must be auto, ws, or pull")
+	}
 	if !validRuntimeUUID(node.NodeID) {
 		return errors.New("Node ID must be a non-zero lowercase UUID")
 	}
@@ -266,6 +291,9 @@ func (node *Node) startRuntimeLoops() {
 
 func (node *Node) shutdown(ctx context.Context) error {
 	node.setDraining(true)
+	if node.transportStop != nil {
+		node.transportStop()
+	}
 	heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, 2*time.Second)
 	_ = node.heartbeatOnce(heartbeatCtx)
 	cancelHeartbeat()
@@ -289,15 +317,21 @@ func (node *Node) shutdown(ctx context.Context) error {
 
 	if node.store != nil && node.RuntimeClient != nil {
 		identity := node.store.Identity()
-		_ = node.RuntimeClient.CloseRuntimeV2Session(ctx, openlinker.RuntimeV2SessionCloseRequest{
-			NodeID:           node.NodeID,
-			AgentID:          node.AgentID,
-			WorkerID:         identity.WorkerID,
-			RuntimeSessionID: identity.RuntimeSessionID,
-			SessionEpoch:     identity.SessionEpoch,
-			Status:           "closed",
-			Reason:           "node_shutdown",
-		})
+		closeClient := node.RuntimeClient
+		if node.transport != nil {
+			_, closeClient = node.transport.stop()
+		}
+		if closeClient != nil {
+			_ = closeClient.CloseRuntimeV2Session(ctx, openlinker.RuntimeV2SessionCloseRequest{
+				NodeID:           node.NodeID,
+				AgentID:          node.AgentID,
+				WorkerID:         identity.WorkerID,
+				RuntimeSessionID: identity.RuntimeSessionID,
+				SessionEpoch:     identity.SessionEpoch,
+				Status:           "closed",
+				Reason:           "node_shutdown",
+			})
+		}
 	}
 	node.cancelAllActive()
 	if node.runtimeStop != nil {
@@ -331,6 +365,8 @@ func (node *Node) shutdown(ctx context.Context) error {
 		node.started = false
 		close(node.done)
 	}
+	node.transport = nil
+	node.transportStop = nil
 	node.lifecycleMu.Unlock()
 	return firstErr
 }
@@ -349,11 +385,14 @@ func (node *Node) isDraining() bool {
 
 func (node *Node) capacitySnapshot() (capacity, inflight int64) {
 	node.stateMu.RLock()
-	defer node.stateMu.RUnlock()
-	if !node.draining {
+	draining := node.draining
+	inflight = int64(len(node.active))
+	node.stateMu.RUnlock()
+	accepting := node.store == nil || node.store.AcceptsNewRuns()
+	if !draining && accepting {
 		capacity = node.Capacity
 	}
-	return capacity, int64(len(node.active))
+	return capacity, inflight
 }
 
 func (node *Node) signalSpool() {

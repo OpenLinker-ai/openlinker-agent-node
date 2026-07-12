@@ -37,12 +37,16 @@ func (node *Node) runtimeHello() openlinker.RuntimeV2HelloPayload {
 }
 
 func (node *Node) createSessionWithRetry(parent context.Context) (*openlinker.RuntimeV2ReadyPayload, error) {
+	return node.createSessionWithRetryClient(parent, node.RuntimeClient)
+}
+
+func (node *Node) createSessionWithRetryClient(parent context.Context, client RuntimeV2Client) (*openlinker.RuntimeV2ReadyPayload, error) {
 	for attempt := 0; ; attempt++ {
 		if err := firstContextError(parent, node.runtimeCtx); err != nil {
 			return nil, err
 		}
 		callCtx, cancel := context.WithTimeout(parent, 20*time.Second)
-		ready, err := node.RuntimeClient.CreateRuntimeV2Session(callCtx, node.runtimeHello())
+		ready, err := client.CreateRuntimeV2Session(callCtx, node.runtimeHello())
 		cancel()
 		if err == nil {
 			if ready == nil {
@@ -213,6 +217,23 @@ func (node *Node) handleClaimedAssignment(assigned *openlinker.RuntimeV2RunAssig
 		node.allowSpool(localIdentity.AttemptID, spoolPermission{events: true, result: true})
 		return node.startConfirmedAttempt(record, payload, time.Time{})
 	}
+	if record.State == AssignmentStateStarted || record.State == AssignmentStateFinished {
+		// A transport replacement can replay the exact durable offer. Re-ACK it
+		// so the new socket/pull request is not left outstanding, but never call
+		// the adapter again for an Attempt that crossed the started boundary.
+		confirmed, err := node.ackAssignmentWithRetry(record.Identity)
+		if err != nil {
+			return err
+		}
+		if confirmed == nil || confirmed.AttemptIdentity != sdkAttemptIdentity(record.Identity) {
+			return fmt.Errorf("%w: duplicate assignment confirmation", ErrRuntimeProtocolMismatch)
+		}
+		node.allowSpool(localIdentity.AttemptID, spoolPermission{events: true, result: true})
+		if active := node.activeAttempt(localIdentity.AttemptID); active != nil {
+			active.setLeaseExpiry(confirmed.LeaseExpiresAt)
+		}
+		return nil
+	}
 	return nil
 }
 
@@ -266,6 +287,10 @@ func (node *Node) rejectAssignment(record AssignmentJournalRecord) error {
 }
 
 func (node *Node) resumeDurableState(parent context.Context) error {
+	return node.resumeDurableStateWithClient(parent, node.RuntimeClient, false)
+}
+
+func (node *Node) resumeDurableStateWithClient(parent context.Context, client RuntimeV2Client, reconnect bool) error {
 	records, err := node.store.Assignments()
 	if err != nil || len(records) == 0 {
 		return err
@@ -303,7 +328,7 @@ func (node *Node) resumeDurableState(parent context.Context) error {
 	var response *openlinker.RuntimeV2ResumeResponse
 	for attempt := 0; ; attempt++ {
 		callCtx, cancel := context.WithTimeout(parent, 20*time.Second)
-		response, err = node.RuntimeClient.ResumeRuntimeV2Runs(callCtx, request)
+		response, err = client.ResumeRuntimeV2Runs(callCtx, request)
 		cancel()
 		if err == nil {
 			break
@@ -325,6 +350,21 @@ func (node *Node) resumeDurableState(parent context.Context) error {
 		}
 		switch decision.Decision {
 		case openlinker.RuntimeV2ResumeContinue:
+			if reconnect && record.State == AssignmentStateStarted {
+				active := node.activeAttempt(record.Identity.AttemptID)
+				if active == nil {
+					return errors.New("unsafe reconnect refused: started Attempt has no live adapter")
+				}
+				node.allowSpool(record.Identity.AttemptID, spoolPermission{events: true, result: true})
+				if decision.LeaseExpiresAt != nil {
+					active.setLeaseExpiry(*decision.LeaseExpiresAt)
+				}
+				continue
+			}
+			if reconnect && record.State == AssignmentStateFinished {
+				node.allowSpool(record.Identity.AttemptID, spoolPermission{events: true, result: true})
+				continue
+			}
 			if record.State == AssignmentStateStarted || record.State == AssignmentStateFinished {
 				return errors.New("unsafe resume refused: a previous process had already started this Attempt")
 			}
@@ -350,6 +390,11 @@ func (node *Node) resumeDurableState(parent context.Context) error {
 				return err
 			}
 		case openlinker.RuntimeV2ResumeUploadSpool:
+			if reconnect {
+				if err := node.stopActiveAttemptForResume(parent, record.Identity.AttemptID); err != nil {
+					return err
+				}
+			}
 			permission := spoolPermission{}
 			for _, action := range decision.AllowedActions {
 				permission.events = permission.events || action == openlinker.RuntimeV2ActionUploadEvents
@@ -357,6 +402,11 @@ func (node *Node) resumeDurableState(parent context.Context) error {
 			}
 			node.allowSpool(record.Identity.AttemptID, permission)
 		case openlinker.RuntimeV2ResumeResultAcked, openlinker.RuntimeV2ResumeRevoked:
+			if reconnect {
+				if err := node.stopActiveAttemptForResume(parent, record.Identity.AttemptID); err != nil {
+					return err
+				}
+			}
 			if err := node.clearAttemptFromResume(record, decision.Decision); err != nil {
 				return err
 			}
@@ -366,7 +416,28 @@ func (node *Node) resumeDurableState(parent context.Context) error {
 	return nil
 }
 
+func (node *Node) stopActiveAttemptForResume(ctx context.Context, attemptID string) error {
+	active := node.activeAttempt(attemptID)
+	if active == nil {
+		return nil
+	}
+	active.canceled.Store(true)
+	active.cancel()
+	select {
+	case <-active.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (node *Node) clearAttemptFromResume(record AssignmentJournalRecord, decision openlinker.RuntimeV2ResumeDecision) error {
+	if decision == openlinker.RuntimeV2ResumeRevoked && record.State != AssignmentStateResultACKed && record.State != AssignmentStateRejected && record.State != AssignmentStateRevoked {
+		if _, err := node.store.AdvanceAssignment(record.Identity.AssignmentMessageID, AssignmentStateRevoked); err != nil {
+			return err
+		}
+		record, _ = node.store.Assignment(record.Identity.AssignmentMessageID)
+	}
 	events, err := node.store.PendingEvents(record.Identity.AttemptID)
 	if err != nil {
 		return err
@@ -384,8 +455,8 @@ func (node *Node) clearAttemptFromResume(record AssignmentJournalRecord, decisio
 	} else if !errors.Is(resultErr, ErrSpoolRecordNotFound) {
 		return resultErr
 	}
-	if decision == openlinker.RuntimeV2ResumeRevoked && record.State != AssignmentStateResultACKed && record.State != AssignmentStateRejected && record.State != AssignmentStateRevoked {
-		if _, err := node.store.AdvanceAssignment(record.Identity.AssignmentMessageID, AssignmentStateRevoked); err != nil {
+	if record.State == AssignmentStateRevoked || record.State == AssignmentStateResultACKed {
+		if err := node.store.ClearTerminalEvents(record.Identity.AttemptID); err != nil {
 			return err
 		}
 	}

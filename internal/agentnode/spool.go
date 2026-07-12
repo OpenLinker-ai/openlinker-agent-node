@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"sort"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 const (
@@ -134,7 +136,14 @@ func (store *RuntimeDurableStore) storeEventLocked(record EventSpoolRecord) erro
 	if len(raw) > spoolDiskRecordMax {
 		return fmt.Errorf("event durable record exceeds limit")
 	}
+	if err := store.ensureSpoolWriteLocked(path, int64(len(raw))); err != nil {
+		return err
+	}
 	if err := atomicWriteDurable(path, raw, 0o600, store.hook); err != nil {
+		store.poisoned = err
+		return err
+	}
+	if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
 		store.poisoned = err
 		return err
 	}
@@ -158,13 +167,17 @@ func (store *RuntimeDurableStore) PendingEvents(attemptID string) ([]EventSpoolR
 	if err := store.readyLocked(); err != nil {
 		return nil, err
 	}
-	if _, err := store.assignmentForAttemptLocked(attemptID); err != nil {
+	entry, err := store.assignmentForAttemptLocked(attemptID)
+	if err != nil {
 		return nil, err
 	}
 	bySequence := store.eventSeqs[attemptID]
 	records := make([]EventSpoolRecord, 0, len(bySequence))
 	for _, eventID := range bySequence {
-		records = append(records, cloneEventRecord(store.events[eventID]))
+		record := store.events[eventID]
+		if !eventSequenceACKed(entry.Record, record.ClientEventSeq) {
+			records = append(records, cloneEventRecord(record))
+		}
 	}
 	sort.Slice(records, func(left, right int) bool {
 		return records[left].ClientEventSeq < records[right].ClientEventSeq
@@ -172,9 +185,37 @@ func (store *RuntimeDurableStore) PendingEvents(attemptID string) ([]EventSpoolR
 	return records, nil
 }
 
-// AckEvent durably records the business ACK before removing the Event file.
-// A crash between those steps leaves a harmless stable replay which startup
-// recognizes and removes; it can never lose an unacknowledged Event.
+func (store *RuntimeDurableStore) EventsInRanges(attemptID string, ranges []openlinker.RuntimeV2EventRange) ([]EventSpoolRecord, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if err := store.readyLocked(); err != nil {
+		return nil, err
+	}
+	entry, err := store.assignmentForAttemptLocked(attemptID)
+	if err != nil {
+		return nil, err
+	}
+	bySequence := store.eventSeqs[attemptID]
+	records := make([]EventSpoolRecord, 0)
+	previous := int64(0)
+	for _, eventRange := range ranges {
+		if eventRange.Start < 1 || eventRange.End < eventRange.Start || eventRange.Start <= previous || eventRange.End > entry.Record.LastClientEventSeq {
+			return nil, ErrEventSequence
+		}
+		for sequence := eventRange.Start; sequence <= eventRange.End; sequence++ {
+			eventID, exists := bySequence[sequence]
+			if !exists {
+				return nil, ErrSpoolRecordNotFound
+			}
+			records = append(records, cloneEventRecord(store.events[eventID]))
+		}
+		previous = eventRange.End
+	}
+	return records, nil
+}
+
+// AckEvent durably records the business ACK. The encrypted Event remains until
+// the Result is ACKed so an EVENTS_MISSING response can request an exact replay.
 func (store *RuntimeDurableStore) AckEvent(attemptID, clientEventID string, clientEventSeq int64) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -193,7 +234,9 @@ func (store *RuntimeDurableStore) AckEvent(attemptID, clientEventID string, clie
 			if record.Identity.AttemptID != attemptID || record.ClientEventSeq != clientEventSeq {
 				return ErrSpoolRecordConflict
 			}
-			return store.removeEventLocked(record)
+			if entry.Record.State == AssignmentStateResultACKed || entry.Record.State == AssignmentStateRevoked {
+				return store.removeEventLocked(record)
+			}
 		}
 		return nil
 	}
@@ -210,12 +253,15 @@ func (store *RuntimeDurableStore) AckEvent(attemptID, clientEventID string, clie
 	if err := store.appendJournalLocked(assignmentJournalEntry{Record: nextRecord}); err != nil {
 		return err
 	}
-	return store.removeEventLocked(record)
+	if entry.Record.State == AssignmentStateResultACKed || entry.Record.State == AssignmentStateRevoked {
+		return store.removeEventLocked(record)
+	}
+	return nil
 }
 
 func (store *RuntimeDurableStore) removeEventLocked(record EventSpoolRecord) error {
 	path := store.spoolRecordPath(eventSpoolKind, record.Identity.AttemptID, record.ClientEventID)
-	if err := durableRemove(path); err != nil {
+	if err := store.removeSpoolFileLocked(path); err != nil {
 		return err
 	}
 	delete(store.events, record.ClientEventID)
@@ -313,7 +359,14 @@ func (store *RuntimeDurableStore) storeResultLocked(record ResultSpoolRecord) er
 	if len(raw) > spoolDiskRecordMax {
 		return fmt.Errorf("result durable record exceeds limit")
 	}
+	if err := store.ensureSpoolWriteLocked(path, int64(len(raw))); err != nil {
+		return err
+	}
 	if err := atomicWriteDurable(path, raw, 0o600, store.hook); err != nil {
+		store.poisoned = err
+		return err
+	}
+	if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
 		store.poisoned = err
 		return err
 	}
@@ -360,9 +413,11 @@ func (store *RuntimeDurableStore) AckResult(attemptID, resultID string) error {
 			return ErrSpoolRecordConflict
 		}
 		if existing, exists := store.results[attemptID]; exists {
-			return store.removeResultLocked(existing)
+			if err := store.removeResultLocked(existing); err != nil {
+				return err
+			}
 		}
-		return nil
+		return store.removeAttemptEventsLocked(attemptID)
 	}
 	record, exists := store.results[attemptID]
 	if !exists {
@@ -372,7 +427,10 @@ func (store *RuntimeDurableStore) AckResult(attemptID, resultID string) error {
 		if record.ResultID != resultID || entry.Record.ResultID != resultID {
 			return ErrSpoolRecordConflict
 		}
-		return store.removeResultLocked(record)
+		if err := store.removeResultLocked(record); err != nil {
+			return err
+		}
+		return store.removeAttemptEventsLocked(attemptID)
 	}
 	if entry.Record.State != AssignmentStateFinished || record.ResultID != resultID || entry.Record.ResultID != resultID {
 		return ErrSpoolRecordConflict
@@ -383,16 +441,51 @@ func (store *RuntimeDurableStore) AckResult(attemptID, resultID string) error {
 	if err := store.appendJournalLocked(assignmentJournalEntry{Record: nextRecord}); err != nil {
 		return err
 	}
-	return store.removeResultLocked(record)
+	if err := store.removeResultLocked(record); err != nil {
+		return err
+	}
+	return store.removeAttemptEventsLocked(attemptID)
 }
 
 func (store *RuntimeDurableStore) removeResultLocked(record ResultSpoolRecord) error {
 	path := store.spoolRecordPath(resultSpoolKind, record.Identity.AttemptID, record.ResultID)
-	if err := durableRemove(path); err != nil {
+	if err := store.removeSpoolFileLocked(path); err != nil {
 		return err
 	}
 	delete(store.results, record.Identity.AttemptID)
 	return nil
+}
+
+func (store *RuntimeDurableStore) removeAttemptEventsLocked(attemptID string) error {
+	bySequence := store.eventSeqs[attemptID]
+	sequences := make([]int64, 0, len(bySequence))
+	for sequence := range bySequence {
+		sequences = append(sequences, sequence)
+	}
+	sort.Slice(sequences, func(left, right int) bool { return sequences[left] < sequences[right] })
+	for _, sequence := range sequences {
+		eventID := bySequence[sequence]
+		if err := store.removeEventLocked(store.events[eventID]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (store *RuntimeDurableStore) ClearTerminalEvents(attemptID string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if err := store.readyLocked(); err != nil {
+		return err
+	}
+	entry, err := store.assignmentForAttemptLocked(attemptID)
+	if err != nil {
+		return err
+	}
+	if entry.Record.State != AssignmentStateResultACKed && entry.Record.State != AssignmentStateRevoked {
+		return ErrAssignmentCleanup
+	}
+	return store.removeAttemptEventsLocked(attemptID)
 }
 
 func (store *RuntimeDurableStore) loadSpool() error {
@@ -468,6 +561,9 @@ func (store *RuntimeDurableStore) loadEventSpool() error {
 		if _, exists := store.events[record.ClientEventID]; exists {
 			return &RuntimeRecordError{Kind: "event spool", Reason: ErrSpoolRecordConflict}
 		}
+		if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
+			return &RuntimeRecordError{Kind: "event spool", Reason: err}
+		}
 		if store.eventSeqs[record.Identity.AttemptID] == nil {
 			store.eventSeqs[record.Identity.AttemptID] = make(map[int64]string)
 		}
@@ -506,6 +602,9 @@ func (store *RuntimeDurableStore) loadResultSpool() error {
 		if _, exists := store.results[record.Identity.AttemptID]; exists {
 			return &RuntimeRecordError{Kind: "result spool", Reason: ErrResultAlreadyExists}
 		}
+		if err := store.trackSpoolFileLocked(path, int64(len(raw))); err != nil {
+			return &RuntimeRecordError{Kind: "result spool", Reason: err}
+		}
 		store.results[record.Identity.AttemptID] = cloneResultRecord(record)
 	}
 	return nil
@@ -525,7 +624,8 @@ func (store *RuntimeDurableStore) reconcileSpoolAndJournalLocked() error {
 			if record.Identity != entry.Record.Identity {
 				return &RuntimeRecordError{Kind: "event spool", Reason: ErrSpoolRecordConflict}
 			}
-			if eventSequenceACKed(entry.Record, sequence) {
+			if eventSequenceACKed(entry.Record, sequence) &&
+				(entry.Record.State == AssignmentStateResultACKed || entry.Record.State == AssignmentStateRevoked) {
 				if err := store.removeEventLocked(record); err != nil {
 					return err
 				}

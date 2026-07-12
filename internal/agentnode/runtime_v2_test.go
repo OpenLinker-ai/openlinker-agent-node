@@ -495,6 +495,48 @@ func TestRuntimeV2StaleLeaseCancelsExactAttempt(t *testing.T) {
 	stopRuntimeNodeForTest(t, node, errCh)
 }
 
+func TestRuntimeV2LeaseRevokeCancelsOnlyTargetAttempt(t *testing.T) {
+	store := openRuntimeStoreForTest(t, t.TempDir())
+	defer store.Close()
+	first := persistStartedAssignmentForTest(t, store, "cancel-a")
+	second := persistStartedAssignmentForTest(t, store, "cancel-b")
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	node := &Node{
+		store: store,
+		active: map[string]*activeRuntimeAttempt{
+			first.AttemptID:  {identity: first, ctx: firstCtx, cancel: cancelFirst},
+			second.AttemptID: {identity: second, ctx: secondCtx, cancel: cancelSecond},
+		},
+		spoolAllowed: make(map[string]spoolPermission),
+		fatal:        make(chan error, 1),
+		runtimeCtx:   context.Background(),
+	}
+	node.handleLeaseRevoke(openlinker.RuntimeV2RunLeaseRevokedPayload{
+		AttemptIdentity: sdkAttemptIdentity(first), ReasonCode: "LEASE_REVOKED",
+		DispatchState: openlinker.RuntimeV2DispatchPending, RunStatus: openlinker.RuntimeV2RunRunning,
+	})
+	select {
+	case <-firstCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("target Attempt was not canceled")
+	}
+	select {
+	case <-secondCtx.Done():
+		t.Fatal("canceling Attempt A canceled Attempt B")
+	default:
+	}
+	record, err := store.Assignment(first.AssignmentMessageID)
+	if err != nil || record.State != AssignmentStateRevoked {
+		t.Fatalf("target journal = %#v, %v", record, err)
+	}
+	record, err = store.Assignment(second.AssignmentMessageID)
+	if err != nil || record.State != AssignmentStateStarted {
+		t.Fatalf("unrelated journal = %#v, %v", record, err)
+	}
+}
+
 func TestDelegatedAgentCallRequiresExplicitIntentKey(t *testing.T) {
 	client := newFakeRuntimeV2Client()
 	var mu sync.Mutex
@@ -595,6 +637,95 @@ func TestRuntimeV2TypedACKMismatchNeverClearsSpool(t *testing.T) {
 	}
 	if _, err := store.PendingResult(identity.AttemptID); err != nil {
 		t.Fatalf("Result cleared by mismatched ACK: %v", err)
+	}
+}
+
+func TestRuntimeV2ResultEventsMissingReplaysRetainedRangeBeforeRetry(t *testing.T) {
+	store := openRuntimeStoreForTest(t, t.TempDir())
+	defer store.Close()
+	identity := persistStartedAssignmentForTest(t, store, "missing-events")
+	event, err := store.AppendEvent(identity, "run.message.delta", json.RawMessage(`{"text":"retained"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.AckEvent(identity.AttemptID, event.ClientEventID, event.ClientEventSeq); err != nil {
+		t.Fatal(err)
+	}
+	resultID, err := newRuntimeUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultPayload := openlinker.RuntimeV2RunResultPayload{
+		AttemptIdentity: sdkAttemptIdentity(identity), ResultID: resultID, Status: "success",
+		Output: map[string]any{"ok": true}, DurationMS: 1, FinalClientEventSeq: 1,
+	}
+	resultRaw, err := json.Marshal(resultPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.StoreResult(ResultSpoolRecord{
+		Identity: identity, ResultID: resultID, FinalClientEventSeq: 1,
+		Status: "success", Payload: resultRaw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	client := newFakeRuntimeV2Client()
+	var mu sync.Mutex
+	steps := make([]string, 0, 3)
+	client.eventFn = func(_ context.Context, request openlinker.RuntimeV2RunEventPayload) (*openlinker.RuntimeV2RunEventAckPayload, error) {
+		mu.Lock()
+		steps = append(steps, "event")
+		mu.Unlock()
+		if request.ClientEventID != event.ClientEventID || request.ClientEventSeq != 1 {
+			return nil, errors.New("missing Event replay identity changed")
+		}
+		return &openlinker.RuntimeV2RunEventAckPayload{
+			ClientEventID: request.ClientEventID, ClientEventSeq: request.ClientEventSeq,
+			Sequence: 91, Replayed: true,
+		}, nil
+	}
+	var resultCalls int
+	client.resultFn = func(_ context.Context, request openlinker.RuntimeV2RunResultPayload) (*openlinker.RuntimeV2RunResultAckPayload, error) {
+		mu.Lock()
+		steps = append(steps, "result")
+		resultCalls++
+		call := resultCalls
+		mu.Unlock()
+		if call == 1 {
+			return nil, &openlinker.Error{
+				Code: "EVENTS_MISSING", Message: "Event range is missing",
+				Details: openlinker.RuntimeV2ErrorBody{
+					Code: "EVENTS_MISSING", Message: "Event range is missing",
+					MissingEventRanges: []openlinker.RuntimeV2EventRange{{Start: 1, End: 1}},
+				},
+			}
+		}
+		return successfulResultACK(request.ResultID), nil
+	}
+	node := &Node{store: store, RuntimeClient: client, runtimeCtx: context.Background()}
+	record, err := store.Assignment(identity.AssignmentMessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = node.flushAttemptSpool(record, spoolPermission{events: true, result: true}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	got := strings.Join(steps, ",")
+	mu.Unlock()
+	if got != "result,event,result" {
+		t.Fatalf("missing Event repair order = %q", got)
+	}
+	usage, err := store.SpoolUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Records != 0 {
+		t.Fatalf("ACKed Event/Result remained after Result ACK: %#v", usage)
+	}
+	if records, recordsErr := store.Assignments(); recordsErr != nil || len(records) != 0 {
+		t.Fatalf("completed assignment remained: %#v, %v", records, recordsErr)
 	}
 }
 

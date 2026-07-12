@@ -23,6 +23,7 @@ const (
 	assignmentJournalFrameMax     = 4 << 20
 	assignmentJournalSnapshotKind = "assignment_journal_snapshot"
 	assignmentJournalEntryKind    = "assignment_journal_entry"
+	durableBeforeWALWrite         = "before_wal_write"
 )
 
 var assignmentJournalMagic = []byte{'O', 'L', 'J', 'R', 'N', '2', '\r', '\n'}
@@ -121,19 +122,26 @@ type assignmentJournalSnapshot struct {
 type RuntimeDurableStore struct {
 	mu sync.Mutex
 
-	dataDir   string
-	dataLock  *dataDirLock
-	key       []byte
-	workerID  string
-	identity  RuntimeIdentity
-	journal   *os.File
-	sequence  uint64
-	entries   map[string]assignmentJournalEntry
-	attempts  map[string]string
-	events    map[string]EventSpoolRecord
-	eventSeqs map[string]map[int64]string
-	results   map[string]ResultSpoolRecord
-	payloads  map[string]DurableAssignmentPayload
+	dataDir           string
+	dataLock          *dataDirLock
+	key               []byte
+	workerID          string
+	identity          RuntimeIdentity
+	journal           *os.File
+	sequence          uint64
+	entries           map[string]assignmentJournalEntry
+	attempts          map[string]string
+	events            map[string]EventSpoolRecord
+	eventSeqs         map[string]map[int64]string
+	results           map[string]ResultSpoolRecord
+	payloads          map[string]DurableAssignmentPayload
+	spoolSizes        map[string]int64
+	spoolBytes        int64
+	spoolRecords      int64
+	spoolMaxBytes     int64
+	spoolMaxRecords   int64
+	spoolReserveBytes int64
+	diskAvailable     func(string) (int64, error)
 
 	closed   bool
 	poisoned error
@@ -174,16 +182,21 @@ func OpenRuntimeDurableStore(dataDir string) (_ *RuntimeDurableStore, retErr err
 		return nil, err
 	}
 	store := &RuntimeDurableStore{
-		dataDir:   absDir,
-		dataLock:  lock,
-		key:       key,
-		workerID:  identityDisk.WorkerID,
-		entries:   make(map[string]assignmentJournalEntry),
-		attempts:  make(map[string]string),
-		events:    make(map[string]EventSpoolRecord),
-		eventSeqs: make(map[string]map[int64]string),
-		results:   make(map[string]ResultSpoolRecord),
-		payloads:  make(map[string]DurableAssignmentPayload),
+		dataDir:           absDir,
+		dataLock:          lock,
+		key:               key,
+		workerID:          identityDisk.WorkerID,
+		entries:           make(map[string]assignmentJournalEntry),
+		attempts:          make(map[string]string),
+		events:            make(map[string]EventSpoolRecord),
+		eventSeqs:         make(map[string]map[int64]string),
+		results:           make(map[string]ResultSpoolRecord),
+		payloads:          make(map[string]DurableAssignmentPayload),
+		spoolSizes:        make(map[string]int64),
+		spoolMaxBytes:     runtimeSpoolMaximumBytes,
+		spoolMaxRecords:   runtimeSpoolMaximumRecords,
+		spoolReserveBytes: runtimeSpoolControlReserveBytes,
+		diskAvailable:     runtimeDiskAvailableBytes,
 	}
 	defer func() {
 		if retErr != nil {
@@ -609,6 +622,12 @@ func (store *RuntimeDurableStore) appendJournalLocked(entry assignmentJournalEnt
 	copy(frame[4+len(encrypted):], checksum[:])
 	if _, err := store.journal.Seek(0, io.SeekEnd); err != nil {
 		return err
+	}
+	if store.hook != nil {
+		if err := store.hook(durableBeforeWALWrite, filepath.Join(store.dataDir, assignmentJournalWALFile)); err != nil {
+			store.poisoned = err
+			return err
+		}
 	}
 	if err := writeFull(store.journal, frame); err != nil {
 		store.poisoned = err

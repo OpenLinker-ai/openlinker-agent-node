@@ -11,6 +11,89 @@ import (
 	"testing"
 )
 
+func TestSpoolBackpressureRecordLimitAndUsageSurviveRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	store := openRuntimeStoreForTest(t, dataDir)
+	identity := persistStartedAssignmentForTest(t, store, "quota-records")
+	store.diskAvailable = func(string) (int64, error) { return 1 << 40, nil }
+	if err := store.setSpoolLimitsForTest(1<<30, 5, 16<<20); err != nil {
+		t.Fatal(err)
+	}
+	for index := 1; index <= 4; index++ {
+		if _, err := store.AppendEvent(identity, "run.progress", json.RawMessage(`{"step":`+jsonNumber(index)+`}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usage, err := store.SpoolUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Records != 4 || usage.AcceptingRuns || store.AcceptsNewRuns() {
+		t.Fatalf("80%% usage gate = %#v", usage)
+	}
+	if _, err = store.AppendEvent(identity, "run.progress", json.RawMessage(`{"step":5}`)); err != nil {
+		t.Fatalf("hard limit should still admit the fifth durable record: %v", err)
+	}
+	if _, err = store.AppendEvent(identity, "run.progress", json.RawMessage(`{"step":6}`)); !errors.Is(err, ErrRuntimeSpoolFull) {
+		t.Fatalf("sixth record error = %v", err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openRuntimeStoreForTest(t, dataDir)
+	defer store.Close()
+	usage, err = store.SpoolUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Records != 5 || usage.Bytes <= 0 {
+		t.Fatalf("reloaded spool usage = %#v", usage)
+	}
+}
+
+func TestSpoolPreservesControlReserveAndUnackedResultAtDiskLimit(t *testing.T) {
+	store := openRuntimeStoreForTest(t, t.TempDir())
+	defer store.Close()
+	identity := persistStartedAssignmentForTest(t, store, "quota-reserve")
+	store.diskAvailable = func(string) (int64, error) { return 1 << 40, nil }
+	event, err := store.AppendEvent(identity, "run.progress", json.RawMessage(`{"step":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := store.SpoolUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserve := int64(1024)
+	if err = store.setSpoolLimitsForTest(usage.Bytes+reserve+usage.Bytes/2, 100, reserve); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AppendEvent(identity, "run.progress", json.RawMessage(`{"step":2}`)); !errors.Is(err, ErrRuntimeSpoolFull) {
+		t.Fatalf("logical reserve error = %v", err)
+	}
+	if err = store.AckEvent(identity.AttemptID, event.ClientEventID, event.ClientEventSeq); err != nil {
+		t.Fatal(err)
+	}
+	store.spoolMaxBytes = 1 << 30
+	store.spoolReserveBytes = 16 << 20
+	result, err := store.AppendResult(identity, "success", json.RawMessage(`{"answer":42}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.diskAvailable = func(string) (int64, error) { return store.spoolReserveBytes, nil }
+	if store.AcceptsNewRuns() {
+		t.Fatal("disk reserve exhaustion must stop new Runs")
+	}
+	replayed, err := store.PendingResult(identity.AttemptID)
+	if err != nil || replayed.ResultID != result.ResultID {
+		t.Fatalf("unacknowledged Result was not preserved: %#v, %v", replayed, err)
+	}
+	if _, err = store.SpoolUsage(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEventSpoolKeepsStableIDsAndMonotonicSequenceAcrossRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	store := openRuntimeStoreForTest(t, dataDir)
@@ -196,6 +279,101 @@ func TestEventCrashBeforeRenameDoesNotCreateSendableRecord(t *testing.T) {
 	}
 	if record.LastClientEventSeq != 0 {
 		t.Fatalf("event counter advanced before rename: %d", record.LastClientEventSeq)
+	}
+}
+
+func TestEventCrashBeforeWriteDoesNotCreateDurableRecord(t *testing.T) {
+	dataDir := t.TempDir()
+	store := openRuntimeStoreForTest(t, dataDir)
+	identity := persistStartedAssignmentForTest(t, store, "event-before-write")
+	injected := errors.New("simulated crash before write")
+	store.setDurableHookForTest(func(point, path string) error {
+		if point == durableBeforeFileWrite && strings.HasSuffix(path, spoolRecordExtension) {
+			return injected
+		}
+		return nil
+	})
+	if _, err := store.AppendEvent(identity, "progress", json.RawMessage(`{"not_written":true}`)); !errors.Is(err, injected) {
+		t.Fatalf("append error = %v, want injected crash", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = openRuntimeStoreForTest(t, dataDir)
+	defer store.Close()
+	pending, err := store.PendingEvents(identity.AttemptID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pre-write record became durable: %#v, %v", pending, err)
+	}
+}
+
+func TestEventDirectorySyncCrashRecoversCommittedRecord(t *testing.T) {
+	dataDir := t.TempDir()
+	store := openRuntimeStoreForTest(t, dataDir)
+	identity := persistStartedAssignmentForTest(t, store, "event-dir-sync")
+	injected := errors.New("simulated crash after directory sync")
+	store.setDurableHookForTest(func(point, path string) error {
+		if point == durableAfterDirSync && strings.HasSuffix(path, spoolRecordExtension) {
+			return injected
+		}
+		return nil
+	})
+	written, err := store.AppendEvent(identity, "progress", json.RawMessage(`{"committed":true}`))
+	if !errors.Is(err, injected) {
+		t.Fatalf("append error = %v, want injected crash", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store = openRuntimeStoreForTest(t, dataDir)
+	defer store.Close()
+	pending, err := store.PendingEvents(identity.AttemptID)
+	if err != nil || len(pending) != 1 || pending[0].ClientEventID != written.ClientEventID {
+		t.Fatalf("directory-synced record was not recovered: %#v, %v", pending, err)
+	}
+}
+
+func TestStartedWALCrashBoundaryDistinguishesBeforeAndAfterCommit(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		point     string
+		wantState AssignmentState
+	}{
+		{name: "before_wal_write", point: durableBeforeWALWrite, wantState: AssignmentStateConfirmed},
+		{name: "after_wal_sync", point: durableAfterWALSync, wantState: AssignmentStateStarted},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			store := openRuntimeStoreForTest(t, dataDir)
+			identity := testAttemptIdentity(store.Identity(), testCase.name)
+			if err := store.CreateAssignment(testAssignmentRecord(identity)); err != nil {
+				t.Fatal(err)
+			}
+			for _, state := range []AssignmentState{AssignmentStateACKSent, AssignmentStateConfirmed} {
+				if _, err := store.AdvanceAssignment(identity.AssignmentMessageID, state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			injected := errors.New("simulated crash at started WAL boundary")
+			store.setDurableHookForTest(func(point, _ string) error {
+				if point == testCase.point {
+					return injected
+				}
+				return nil
+			})
+			if _, err := store.AdvanceAssignment(identity.AssignmentMessageID, AssignmentStateStarted); !errors.Is(err, injected) {
+				t.Fatalf("started transition error = %v", err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store = openRuntimeStoreForTest(t, dataDir)
+			defer store.Close()
+			record, err := store.Assignment(identity.AssignmentMessageID)
+			if err != nil || record.State != testCase.wantState {
+				t.Fatalf("recovered state = %s, want %s, err=%v", record.State, testCase.wantState, err)
+			}
+		})
 	}
 }
 

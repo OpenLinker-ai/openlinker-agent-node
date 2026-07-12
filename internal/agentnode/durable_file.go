@@ -16,10 +16,11 @@ import (
 type durableHook func(point, path string) error
 
 const (
-	durableAfterFileSync = "after_file_sync"
-	durableAfterRename   = "after_rename"
-	durableAfterDirSync  = "after_directory_sync"
-	durableAfterWALSync  = "after_wal_sync"
+	durableBeforeFileWrite = "before_file_write"
+	durableAfterFileSync   = "after_file_sync"
+	durableAfterRename     = "after_rename"
+	durableAfterDirSync    = "after_directory_sync"
+	durableAfterWALSync    = "after_wal_sync"
 )
 
 func ensurePrivateDataDir(path string) error {
@@ -67,6 +68,11 @@ func atomicWriteDurable(path string, value []byte, mode os.FileMode, hook durabl
 	}()
 	if err := tmp.Chmod(mode); err != nil {
 		return err
+	}
+	if hook != nil {
+		if err := hook(durableBeforeFileWrite, path); err != nil {
+			return err
+		}
 	}
 	if err := writeFull(tmp, value); err != nil {
 		return err

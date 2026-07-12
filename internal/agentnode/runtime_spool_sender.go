@@ -137,9 +137,22 @@ func (node *Node) flushAttemptSpool(record AssignmentJournalRecord, permission s
 	if err := enforceRuntimeMessageLimit(request); err != nil {
 		return err
 	}
-	ack, err := node.RuntimeClient.FinalizeRuntimeV2Result(node.runtimeCtx, request)
-	if err != nil {
-		return err
+	var ack *openlinker.RuntimeV2RunResultAckPayload
+	for repairs := 0; ; repairs++ {
+		ack, err = node.RuntimeClient.FinalizeRuntimeV2Result(node.runtimeCtx, request)
+		if err == nil {
+			break
+		}
+		ranges, missing := runtimeMissingEventRanges(err)
+		if !missing {
+			return err
+		}
+		if repairs >= 1 || len(ranges) == 0 {
+			return fmt.Errorf("%w: repeated or empty EVENTS_MISSING response", ErrRuntimeProtocolMismatch)
+		}
+		if err = node.replayMissingEvents(record, ranges); err != nil {
+			return err
+		}
 	}
 	if ack == nil || ack.ResultID != result.ResultID {
 		return fmt.Errorf("%w: Result ACK identity", ErrRuntimeProtocolMismatch)
@@ -154,6 +167,55 @@ func (node *Node) flushAttemptSpool(record AssignmentJournalRecord, permission s
 	delete(node.spoolAllowed, record.Identity.AttemptID)
 	node.stateMu.Unlock()
 	return nil
+}
+
+func (node *Node) replayMissingEvents(record AssignmentJournalRecord, ranges []openlinker.RuntimeV2EventRange) error {
+	events, err := node.store.EventsInRanges(record.Identity.AttemptID, ranges)
+	if err != nil {
+		return fmt.Errorf("%w: requested Event range is unavailable: %v", ErrRuntimeProtocolMismatch, err)
+	}
+	for _, event := range events {
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil || payload == nil {
+			return ErrRuntimeRecordCorrupt
+		}
+		request := openlinker.RuntimeV2RunEventPayload{
+			AttemptIdentity: sdkAttemptIdentity(event.Identity),
+			ClientEventID:   event.ClientEventID,
+			ClientEventSeq:  event.ClientEventSeq,
+			EventType:       event.EventType,
+			Payload:         payload,
+		}
+		ack, err := node.RuntimeClient.AppendRuntimeV2Event(node.runtimeCtx, request)
+		if err != nil {
+			return err
+		}
+		if ack == nil || ack.ClientEventID != event.ClientEventID || ack.ClientEventSeq != event.ClientEventSeq {
+			return fmt.Errorf("%w: missing Event ACK identity", ErrRuntimeProtocolMismatch)
+		}
+		if err = node.store.AckEvent(record.Identity.AttemptID, event.ClientEventID, event.ClientEventSeq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runtimeMissingEventRanges(err error) ([]openlinker.RuntimeV2EventRange, bool) {
+	var runtimeErr *openlinker.Error
+	if !errors.As(err, &runtimeErr) || runtimeErr.Code != "EVENTS_MISSING" {
+		return nil, false
+	}
+	switch details := runtimeErr.Details.(type) {
+	case openlinker.RuntimeV2ErrorBody:
+		return append([]openlinker.RuntimeV2EventRange(nil), details.MissingEventRanges...), true
+	case *openlinker.RuntimeV2ErrorBody:
+		if details == nil {
+			return nil, true
+		}
+		return append([]openlinker.RuntimeV2EventRange(nil), details.MissingEventRanges...), true
+	default:
+		return nil, true
+	}
 }
 
 func (node *Node) revokeLocalAttempt(record AssignmentJournalRecord) {
