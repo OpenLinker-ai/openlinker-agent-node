@@ -49,8 +49,9 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 - Bound delegated calls to assignment-scoped node envelopes and short-lived
   invocation tokens. Long-lived Agent Tokens remain inside Agent Node.
 - Vendored `openlinker-go` commit
-  `167b58b1fe49a7172cc111689b922daf1b426d12`, which removes the pre-v2 Go
-  runtime API and adds the strict Runtime v2 WebSocket client.
+  `2f661523d6013525f1c2dd33447eab889f722f9c`, which removes the pre-v2 Go
+  runtime API and contract routes, and adds the strict Runtime v2 WebSocket
+  client.
 
 ### Verification
 
