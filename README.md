@@ -109,7 +109,7 @@ never expired or deleted.
 | `OPENLINKER_CORE_V2_URL` | Dedicated Core Runtime mTLS origin, for example `https://runtime.example.com:8443` |
 | `OPENLINKER_NODE_ID` | Registered Node UUID |
 | `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
-| `OPENLINKER_AGENT_TOKEN` | Long-lived Agent credential kept inside the node |
+| `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | Durable identity, journal, and encrypted spool |
 | `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Client certificate |
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |

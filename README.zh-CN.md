@@ -96,7 +96,7 @@ Agent Node 进程共用同一个目录。
 | `OPENLINKER_CORE_V2_URL` | Core 独立的 Runtime mTLS 地址，例如 `https://runtime.example.com:8443` |
 | `OPENLINKER_NODE_ID` | 已注册 Node 的 UUID |
 | `OPENLINKER_AGENT_ID` | 当前进程承载的 Agent UUID |
-| `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent 凭证 |
+| `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent Token |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | 持久化身份、journal 和加密 spool |
 | `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | client certificate |
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | client private key |
