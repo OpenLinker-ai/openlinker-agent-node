@@ -1,4 +1,4 @@
-# github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713120638-774b0b6950b5
+# github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713125942-21bf0f24dc79
 ## explicit; go 1.25.0
 github.com/OpenLinker-ai/openlinker-go
 github.com/OpenLinker-ai/openlinker-go/a2apb
