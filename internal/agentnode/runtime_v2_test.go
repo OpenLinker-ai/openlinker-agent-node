@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +84,9 @@ func TestRuntimeV2ReliableFlowReplaysStableEventAndResult(t *testing.T) {
 	var adapterCalls atomic.Int32
 	adapter := AdapterFunc(func(ctx context.Context, _ any, runCtx RunContext) (any, error) {
 		adapterCalls.Add(1)
+		if runCtx.Source != "agent_runtime" {
+			return nil, fmt.Errorf("adapter source = %q, want agent_runtime", runCtx.Source)
+		}
 		if _, err := runCtx.CallAgent(ctx, testTargetAgentID, JSONMap{"question": "status"}, CallAgentOptions{
 			IdempotencyKey: "child-intent-status-1",
 			Reason:         "collect status",

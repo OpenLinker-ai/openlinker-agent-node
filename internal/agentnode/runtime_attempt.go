@@ -128,7 +128,7 @@ func (node *Node) executeAttempt(attempt *activeRuntimeAttempt) {
 		AgentID:  attempt.identity.AgentID,
 		Input:    input,
 		Metadata: metadata,
-		Source:   "runtime_v2",
+		Source:   "agent_runtime",
 	}
 	runCtx.emitChecked = func(eventType string, payload any) error {
 		if attempt.finished.Load() || attempt.canceled.Load() {
