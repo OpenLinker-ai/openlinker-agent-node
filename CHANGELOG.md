@@ -53,8 +53,8 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 - Bound delegated calls to assignment-scoped node envelopes and short-lived
   invocation tokens. Long-lived Agent Tokens remain inside Agent Node.
 - Vendored `openlinker-go` commit
-  `976a34b0e68326674edd7ebcd95cb25c91e61772`, including the canonical
-  `/api/v1/agent-runtime/*` endpoints and contract digest.
+  `2ab750706b7ed7f6744a6d360e04604add112fe2`, including the complete
+  canonical Runtime HTTP contract and its session heartbeat/close semantics.
 
 ### Verification
 
