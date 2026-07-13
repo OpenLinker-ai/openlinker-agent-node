@@ -7,11 +7,11 @@ requests that fit OpenLinker Agent Node's open-source scope.
 
 ## Good Issue Topics
 
-- Runtime WebSocket or HTTPS long-poll session, claim, heartbeat, or command behavior
-- assignment ACK/confirmation, lease renewal, durable Event/Result, or recovery behavior
 - local HTTP, command, A2A, Codex, or helper adapter behavior
+- CLI and environment parsing, process-tree control, or SDK configuration wiring
 - public A2A server behavior exposed by Agent Node
-- documentation gaps for local setup or runtime configuration
+- documentation gaps for local setup or Adapter configuration
+- Runtime failures that reproduce only through the Agent Node host integration
 
 ## Before Opening an Issue
 
@@ -27,6 +27,9 @@ requests that fit OpenLinker Agent Node's open-source scope.
 ## Not Supported Here
 
 - vulnerabilities; follow [SECURITY.md](./SECURITY.md)
+- Runtime discovery, mTLS, WebSocket/Pull, Session, claim, lease, resume,
+  journal/spool, ACK repair, cancellation, or drain defects that reproduce in
+  `openlinker-go`; report those in the Go SDK repository
 - backend-specific business logic for an individual Agent
 - commercial billing, wallet, withdrawal, or hosted dashboard requests
 - private deployment debugging without reproducible public details
@@ -36,7 +39,8 @@ requests that fit OpenLinker Agent Node's open-source scope.
 For issues that involve Core and Agent Node together, include:
 
 - Agent Node commit SHA or binary version
+- pinned `openlinker-go` version
 - Core API commit SHA or version
-- adapter mode and whether the failure happened during normal execution or recovery
+- Adapter mode and whether the failure is in the host integration or SDK Worker
 - run ID format examples with IDs redacted if needed
-- sanitized runtime logs from both sides when available
+- sanitized Agent Node and Core logs when available

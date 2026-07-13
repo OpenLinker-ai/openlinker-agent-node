@@ -37,3 +37,15 @@ func testJSONServer(t *testing.T, handler func(testRequest) (int, any)) *httptes
 		writeJSON(w, status, response)
 	}))
 }
+
+func eventuallyForTest(t *testing.T, timeout time.Duration, condition func() bool, label string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", label)
+}

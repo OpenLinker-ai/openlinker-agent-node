@@ -19,22 +19,27 @@ release line.
 
 ## Security-Sensitive Areas
 
-- Agent Token, mTLS private key, and encrypted spool-key handling
-- assignment-scoped invocation capability storage and transmission
+- wiring Agent Token, mTLS paths, and the SDK file-store directory without
+  exposing them to Adapters
+- passing assignment-scoped capabilities only through SDK-owned calls
 - localhost helper token scope
 - adapter command execution and environment handling
 - A2A delegation from active runs
 - public A2A server request handling
 - workspace isolation for the Codex adapter
-- durable assignment, Event, and Result recovery
-- lease fencing, cancellation, and duplicate execution prevention
+
+The pinned `openlinker-go` SDK owns mTLS loading, Runtime transport and Session
+state, encrypted journal/spool handling, lease fencing, resume, cancellation,
+and duplicate-execution prevention. Report defects that reproduce in the SDK
+to that repository; report leaks or unsafe wiring introduced by this host here.
 
 ## Reporting Guidance
 
 Please include:
 
 - the affected commit, tag, or binary version
-- runtime session ID (redacted), adapter mode, and whether recovery was involved
+- Runtime Session ID (redacted), Adapter mode, and whether the issue reproduces
+  in `openlinker-go` directly
 - adapter mode (`http`, `command`, `a2a`, `codex`, or other)
 - a minimal reproduction and sanitized logs
 - whether the issue exposes an Agent Token, invocation capability, mTLS key, or helper token

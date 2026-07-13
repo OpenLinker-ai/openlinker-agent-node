@@ -35,7 +35,7 @@ func TestNewFromEnvMapOpenClaw(t *testing.T) {
 	if node.OpenLinkerURL != "https://example.test" || node.AgentToken != "ol_agent_env" || node.DataDir != "/var/lib/openlinker-agent-node" {
 		t.Fatalf("node config = %#v", node)
 	}
-	if node.Transport != string(RuntimeTransportAuto) {
+	if node.Transport != string(openlinker.RuntimeTransportAuto) {
 		t.Fatalf("default transport = %q", node.Transport)
 	}
 	if node.Capacity != 1 || node.ClaimWait != 25*time.Second || node.HeartbeatInterval != 5*time.Second {
@@ -75,7 +75,7 @@ func TestNewFromEnvMapCommand(t *testing.T) {
 	if node.ClaimWait != 2*time.Second || node.CommandWait != 4*time.Second || node.HeartbeatInterval != 3*time.Second || node.Capacity != 4 {
 		t.Fatalf("runtime config = %#v", node)
 	}
-	if node.Transport != string(RuntimeTransportPull) {
+	if node.Transport != string(openlinker.RuntimeTransportPull) {
 		t.Fatalf("transport = %q", node.Transport)
 	}
 	adapter, ok := node.Adapter.(CommandAdapter)
@@ -345,9 +345,6 @@ func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
 	}
 	if got, err := parseCommandOutput(`{"answer":"ok"}`, ""); err != nil || got.(map[string]any)["answer"] != "ok" {
 		t.Fatalf("parseCommandOutput json = %#v, %v", got, err)
-	}
-	if err := (&Node{}).applyDefaultsAndValidate(); err == nil || !strings.Contains(err.Error(), "OpenLinker address") {
-		t.Fatalf("missing OpenLinker address error = %v", err)
 	}
 	if _, err := adapterFromEnv(func(string) string { return "" }, "module"); err == nil || !strings.Contains(err.Error(), "module adapter") {
 		t.Fatalf("module adapter error = %v", err)

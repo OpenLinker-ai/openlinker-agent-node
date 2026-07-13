@@ -3,15 +3,16 @@
 Chinese documentation: [RELEASE.zh-CN.md](./RELEASE.zh-CN.md)
 
 OpenLinker Agent Node releases are cut from `main` after CI and local release
-gates pass. Until the runtime protocol and CLI behavior are stable enough for
-strict semantic versioning, document notable changes under `Unreleased` in
-`CHANGELOG.md`.
+gates pass. Agent Node versions its Adapter host, CLI, helper, and public A2A
+surface; the reliable Runtime implementation is pinned from `openlinker-go`.
+Document notable changes under `Unreleased` in `CHANGELOG.md`.
 
 ## Pre-Release Checklist
 
 1. Confirm `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and
    examples are current.
-2. Confirm `CHANGELOG.md` describes runtime, adapter, helper, and CLI changes.
+2. Confirm `CHANGELOG.md` describes Adapter, helper, CLI, public A2A, and pinned
+   SDK integration changes.
 3. Run `gofmt -w .`.
 4. Run `go test ./...`.
 5. Run `go build ./cmd/openlinker-agent-node`.

@@ -2,14 +2,14 @@
 
 English documentation: [RELEASE.md](./RELEASE.md)
 
-OpenLinker Agent Node 从 `main` 发布，前提是 CI 和本地发布检查都通过。在 runtime 协议
-和 CLI 行为足够稳定并采用严格语义化版本之前，重要变化记录在
-[CHANGELOG.md](./CHANGELOG.md) 的 `Unreleased` 中。
+OpenLinker Agent Node 从 `main` 发布，前提是 CI 和本地发布检查都通过。Agent Node
+只对 Adapter 宿主、CLI、helper 和 public A2A 接口定版本；可靠 Runtime 实现固定来自
+`openlinker-go`。重要变化记录在 [CHANGELOG.md](./CHANGELOG.md) 的 `Unreleased` 中。
 
 ## 发布前检查
 
 1. 确认 `README.md`、`CONTRIBUTING.md`、`SECURITY.md`、`SUPPORT.md` 和示例是最新的。
-2. 确认 `CHANGELOG.md` 描述了 runtime、adapter、helper 和 CLI 变化。
+2. 确认 `CHANGELOG.md` 描述了 Adapter、helper、CLI、public A2A 和固定 SDK 集成变化。
 3. 运行 `gofmt -w .`。
 4. 运行 `go test ./...`。
 5. 运行 `go build ./cmd/openlinker-agent-node`。

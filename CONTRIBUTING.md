@@ -2,9 +2,9 @@
 
 Chinese documentation: [CONTRIBUTING.zh-CN.md](./CONTRIBUTING.zh-CN.md)
 
-Thanks for helping improve OpenLinker Agent Node. This repository owns the
-local runtime process for Agents that connect to OpenLinker Core from private,
-local, or NAT environments.
+Thanks for helping improve OpenLinker Agent Node. This repository provides a
+thin Adapter process for HTTP, command, A2A, and Codex backends. The pinned
+`openlinker-go` SDK owns the reliable Runtime Worker.
 
 ## Development Setup
 
@@ -21,35 +21,36 @@ customer payload, or adapter log containing sensitive data.
 
 Allowed here:
 
-- Runtime WebSocket and HTTPS long-poll, assignment confirmation, lease, command, and resume behavior
-- durable assignment, Event, and Result journal/spool behavior
 - local HTTP, command, A2A, Codex, and similar adapter execution
 - localhost helper behavior for delegation and progress events
 - public A2A server behavior exposed by Agent Node
-- CLI/runtime configuration and safety checks
+- CLI and environment parsing, SDK configuration, process control, and file-store selection
+- reproducible defects in the boundary between this host process and the pinned SDK
 
 Out of scope:
 
 - Core registry storage, billing, marketplace ranking, and Cloud dashboards
 - hosted payment, wallet, or withdrawal behavior
 - backend-specific business logic for a particular Agent
+- Runtime discovery, mTLS, transport switching, Session state, journal/spool,
+  lease, resume, cancellation, drain, and ACK repair; these belong in
+  `openlinker-go`
 
 ## Runtime Rules
 
-- Treat Agent Tokens, mTLS keys, invocation capabilities, spool keys, and helper tokens as secrets.
+- Treat Agent Tokens, mTLS keys, invocation capabilities, SDK store keys, and helper tokens as secrets.
 - Do not pass the Agent Token or invocation capability to backend subprocesses.
-- Persist an assignment before ACK and execute only after Core confirmation.
-- Reuse stable Event/Result IDs until the matching typed ACK arrives.
-- Never rerun a previously started Attempt after a process crash without a durable per-process checkpoint.
 - Require an explicit idempotency key for delegated calls: reuse it for the same intent, change it for a new intent.
-- Keep adapters isolated from protocol internals where possible.
+- Keep adapters isolated from Runtime protocol internals; do not add a second
+  transport, journal, spool, or delivery state machine here.
 - Keep the Codex adapter in an isolated workspace.
 
 ## Pull Request Expectations
 
-- Include tests for runtime transport, durability, adapter, helper, or public A2A behavior changes.
+- Include tests for Adapter, CLI, helper, process-control, SDK integration, or
+  public A2A behavior changes.
 - Document new environment variables in `README.md`.
-- Explain compatibility impact for existing runtimes.
+- Explain compatibility impact for existing Adapter deployments.
 - Redact tokens and local paths from logs or fixtures.
 
 ## Checks

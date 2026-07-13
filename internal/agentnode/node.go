@@ -3,25 +3,18 @@ package agentnode
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-const (
-	DefaultCapacity          int64 = 1
-	DefaultClaimWait               = 25 * time.Second
-	DefaultCommandWait             = 25 * time.Second
-	DefaultHeartbeatInterval       = 5 * time.Second
-	DefaultRetryMinimum            = 250 * time.Millisecond
-	DefaultRetryMaximum            = 15 * time.Second
-)
+const AgentNodeVersion = "openlinker-agent-node/0.1.43"
 
+// Node is the process-level Adapter shell around the Go SDK RuntimeWorker.
+// Runtime transport, session, recovery, journal, spool, lease, and cancellation
+// semantics live exclusively in openlinker-go.
 type Node struct {
 	OpenLinkerURL string
 	RuntimeURL    string
@@ -48,101 +41,78 @@ type Node struct {
 	PublicA2A *PublicA2AServer
 	Logger    *log.Logger
 
-	// RuntimeClient is an injection seam for deterministic tests. Production
-	// configuration leaves it nil and always builds a TLS 1.3 mTLS client.
-	RuntimeClient RuntimeV2Client
-	RuntimeDialer RuntimeV2TransportDialer
-
-	lifecycleMu   sync.Mutex
-	started       bool
-	done          chan struct{}
-	runtimeCtx    context.Context
-	runtimeStop   context.CancelFunc
-	httpClient    *http.Client
-	transport     *switchingRuntimeV2Client
-	transportStop context.CancelFunc
-	store         *RuntimeDurableStore
-	ready         *openlinker.RuntimeV2ReadyPayload
-
-	stateMu       sync.RWMutex
-	draining      bool
-	active        map[string]*activeRuntimeAttempt
-	cancellations map[string]struct{}
-	spoolAllowed  map[string]spoolPermission
-	wakeSpool     chan struct{}
-	fatal         chan error
-	stopRequest   chan struct{}
-	stopRequested bool
-	loops         sync.WaitGroup
-	executions    sync.WaitGroup
-
-	jitter func(time.Duration) time.Duration
+	mu       sync.Mutex
+	started  bool
+	done     chan struct{}
+	worker   *openlinker.RuntimeWorker
+	lifetime context.Context
+	cancel   context.CancelFunc
 }
 
 func (node *Node) Start(parent context.Context) (retErr error) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	if err := node.applyDefaultsAndValidate(); err != nil {
-		return err
+	if node.Adapter == nil {
+		return errors.New("adapter is required")
 	}
-	if node.RuntimeClient == nil {
-		runtimeURL, err := resolveRuntimeURL(parent, node.OpenLinkerURL, node.RuntimeURL)
-		if err != nil {
-			return err
-		}
-		node.RuntimeURL = runtimeURL
+
+	node.mu.Lock()
+	if node.started {
+		node.mu.Unlock()
+		return errors.New("agent node is already started")
 	}
-	if err := node.beginLifecycle(); err != nil {
-		return err
-	}
+	node.started = true
+	node.done = make(chan struct{})
+	node.lifetime, node.cancel = context.WithCancel(parent)
+	node.mu.Unlock()
+
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 		defer cancel()
-		shutdownErr := node.shutdown(shutdownCtx)
-		if retErr == nil && shutdownErr != nil {
-			retErr = shutdownErr
+		if err := node.stopAdapters(shutdownCtx); retErr == nil && err != nil {
+			retErr = err
 		}
-	}()
-	startupCtx, cancelStartup := context.WithCancel(parent)
-	defer cancelStartup()
-	go func() {
-		select {
-		case <-node.stopRequest:
-			cancelStartup()
-		case <-startupCtx.Done():
+		node.mu.Lock()
+		if node.started {
+			node.started = false
+			close(node.done)
 		}
+		node.worker = nil
+		node.cancel = nil
+		node.mu.Unlock()
 	}()
 
-	store, err := OpenRuntimeDurableStore(node.DataDir)
+	worker, err := openlinker.NewRuntimeWorker(openlinker.RuntimeWorkerConfig{
+		PlatformURL: node.OpenLinkerURL,
+		RuntimeURL:  node.RuntimeURL,
+		Transport:   openlinker.RuntimeTransportMode(node.Transport),
+		NodeID:      node.NodeID,
+		NodeVersion: AgentNodeVersion,
+		AgentID:     node.AgentID,
+		AgentToken:  node.AgentToken,
+		DataDir:     node.DataDir,
+		MTLS: openlinker.RuntimeMTLSConfig{
+			CertFile:   node.MTLSCertFile,
+			KeyFile:    node.MTLSKeyFile,
+			CAFile:     node.MTLSCAFile,
+			ServerName: node.MTLSServerName,
+		},
+		Capacity:          node.Capacity,
+		ClaimWait:         node.ClaimWait,
+		CommandWait:       node.CommandWait,
+		HeartbeatInterval: node.HeartbeatInterval,
+		RetryMinimum:      node.RetryMinimum,
+		RetryMaximum:      node.RetryMaximum,
+		Handler:           runtimeAdapterHandler{node: node},
+		Logger:            node.Logger,
+	})
 	if err != nil {
 		return err
 	}
-	node.store = store
-
-	if node.RuntimeClient == nil {
-		runtimeClient, httpClient, err := newRuntimeV2Client(RuntimeMTLSConfig{
-			RuntimeURL:    node.RuntimeURL,
-			AgentToken:    node.AgentToken,
-			CertFile:      node.MTLSCertFile,
-			KeyFile:       node.MTLSKeyFile,
-			CAFile:        node.MTLSCAFile,
-			TLSServerName: node.MTLSServerName,
-		})
-		if err != nil {
-			return err
-		}
-		node.RuntimeClient = runtimeClient
-		node.RuntimeDialer = sdkRuntimeV2TransportDialer{runtime: runtimeClient}
-		node.httpClient = httpClient
-	}
-	if node.RuntimeDialer != nil {
-		node.transport = newSwitchingRuntimeV2Client(node.RuntimeClient)
-		node.RuntimeClient = node.transport
-	}
 
 	if node.Helper != nil {
-		if err := node.Helper.Start(node.runtimeCtx); err != nil {
+		if err := node.Helper.Start(node.lifetime); err != nil {
 			return err
 		}
 	}
@@ -150,56 +120,42 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		if node.PublicA2A.Adapter == nil {
 			node.PublicA2A.Adapter = node.Adapter
 		}
-		if err := node.PublicA2A.Start(node.runtimeCtx); err != nil {
+		if err := node.PublicA2A.Start(node.lifetime); err != nil {
 			return err
 		}
 	}
 
-	var ready *openlinker.RuntimeV2ReadyPayload
-	if node.transport != nil {
-		ready, err = node.startInitialRuntimeTransport(startupCtx)
-	} else {
-		ready, err = node.createSessionWithRetry(startupCtx)
-	}
-	if err != nil {
-		return err
-	}
-	node.stateMu.Lock()
-	node.ready = ready
-	node.stateMu.Unlock()
-	if err := node.resumeDurableState(startupCtx); err != nil {
-		return err
-	}
-
-	node.startTransportSupervisor()
-	node.startRuntimeLoops()
-	select {
-	case <-parent.Done():
-		return nil
-	case <-node.stopRequest:
-		return nil
-	case err := <-node.fatal:
-		return err
-	}
+	node.mu.Lock()
+	node.worker = worker
+	node.mu.Unlock()
+	return worker.Start(node.lifetime)
 }
 
 func (node *Node) Stop(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	node.lifecycleMu.Lock()
+	node.mu.Lock()
 	if !node.started {
-		node.lifecycleMu.Unlock()
+		node.mu.Unlock()
 		return nil
 	}
+	worker := node.worker
 	done := node.done
-	node.setDraining(true)
-	if !node.stopRequested {
-		close(node.stopRequest)
-		node.stopRequested = true
-	}
-	node.lifecycleMu.Unlock()
+	cancel := node.cancel
+	node.mu.Unlock()
 
+	// Cancel the shell lifetime even when the SDK Worker has been constructed
+	// but has not yet entered Start. Worker.Stop is intentionally idempotent in
+	// that window and cannot replace cancellation of the pending Start call.
+	if cancel != nil {
+		cancel()
+	}
+	if worker != nil {
+		if err := worker.Stop(ctx); err != nil {
+			return err
+		}
+	}
 	select {
 	case <-done:
 		return nil
@@ -208,158 +164,10 @@ func (node *Node) Stop(ctx context.Context) error {
 	}
 }
 
-func (node *Node) beginLifecycle() error {
-	node.lifecycleMu.Lock()
-	defer node.lifecycleMu.Unlock()
-	if node.started {
-		return errors.New("agent node is already started")
+func (node *Node) stopAdapters(ctx context.Context) error {
+	if node.cancel != nil {
+		node.cancel()
 	}
-	node.started = true
-	node.done = make(chan struct{})
-	node.runtimeCtx, node.runtimeStop = context.WithCancel(context.Background())
-	node.active = make(map[string]*activeRuntimeAttempt)
-	node.cancellations = make(map[string]struct{})
-	node.spoolAllowed = make(map[string]spoolPermission)
-	node.wakeSpool = make(chan struct{}, 1)
-	node.fatal = make(chan error, 1)
-	node.stopRequest = make(chan struct{})
-	node.stopRequested = false
-	node.draining = false
-	node.ready = nil
-	return nil
-}
-
-func (node *Node) applyDefaultsAndValidate() error {
-	node.OpenLinkerURL = strings.TrimSpace(node.OpenLinkerURL)
-	node.RuntimeURL = strings.TrimSpace(node.RuntimeURL)
-	if node.RuntimeClient == nil {
-		if node.RuntimeURL != "" {
-			if _, err := validateRuntimeOrigin(node.RuntimeURL); err != nil {
-				return err
-			}
-		} else {
-			if node.OpenLinkerURL == "" {
-				return errors.New("OpenLinker address is required")
-			}
-			if _, err := validatePlatformOrigin(node.OpenLinkerURL); err != nil {
-				return err
-			}
-		}
-	}
-	if node.Transport == "" {
-		node.Transport = string(RuntimeTransportAuto)
-	}
-	switch RuntimeTransportMode(strings.ToLower(strings.TrimSpace(node.Transport))) {
-	case RuntimeTransportAuto, RuntimeTransportWebSocket, RuntimeTransportPull:
-		node.Transport = strings.ToLower(strings.TrimSpace(node.Transport))
-	default:
-		return errors.New("transport must be auto, ws, or pull")
-	}
-	if !validRuntimeUUID(node.NodeID) {
-		return errors.New("Node ID must be a non-zero lowercase UUID")
-	}
-	if !validRuntimeUUID(node.AgentID) {
-		return errors.New("Agent ID must be a non-zero lowercase UUID")
-	}
-	if node.AgentToken == "" && node.RuntimeClient == nil {
-		return errors.New("Agent Token is required")
-	}
-	if node.DataDir == "" {
-		return errors.New("runtime data directory is required")
-	}
-	if node.Adapter == nil {
-		return errors.New("adapter is required")
-	}
-	if node.RuntimeClient == nil && (node.MTLSCertFile == "" || node.MTLSKeyFile == "" || node.MTLSCAFile == "") {
-		return errors.New("runtime mTLS cert, key, and CA files are required")
-	}
-	if node.Capacity == 0 {
-		node.Capacity = DefaultCapacity
-	}
-	if node.Capacity < 1 || node.Capacity > openlinker.RuntimeV2MaxNodeCapacity {
-		return fmt.Errorf("capacity must be between 1 and %d", openlinker.RuntimeV2MaxNodeCapacity)
-	}
-	if node.ClaimWait <= 0 {
-		node.ClaimWait = DefaultClaimWait
-	}
-	if node.CommandWait <= 0 {
-		node.CommandWait = DefaultCommandWait
-	}
-	if node.HeartbeatInterval <= 0 {
-		node.HeartbeatInterval = DefaultHeartbeatInterval
-	}
-	if node.RetryMinimum <= 0 {
-		node.RetryMinimum = DefaultRetryMinimum
-	}
-	if node.RetryMaximum <= 0 {
-		node.RetryMaximum = DefaultRetryMaximum
-	}
-	if node.RetryMaximum < node.RetryMinimum {
-		return errors.New("retry maximum must not be less than retry minimum")
-	}
-	return nil
-}
-
-func (node *Node) startRuntimeLoops() {
-	for _, loop := range []func(){node.claimLoop, node.commandLoop, node.heartbeatLoop, node.spoolLoop} {
-		node.loops.Add(1)
-		go func(run func()) {
-			defer node.loops.Done()
-			run()
-		}(loop)
-	}
-}
-
-func (node *Node) shutdown(ctx context.Context) error {
-	node.setDraining(true)
-	if node.transportStop != nil {
-		node.transportStop()
-	}
-	heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, 2*time.Second)
-	_ = node.heartbeatOnce(heartbeatCtx)
-	cancelHeartbeat()
-
-	executionsDone := make(chan struct{})
-	go func() {
-		node.executions.Wait()
-		close(executionsDone)
-	}()
-	select {
-	case <-executionsDone:
-	case <-ctx.Done():
-		node.cancelAllActive()
-		forceTimer := time.NewTimer(2 * time.Second)
-		select {
-		case <-executionsDone:
-			forceTimer.Stop()
-		case <-forceTimer.C:
-		}
-	}
-
-	if node.store != nil && node.RuntimeClient != nil {
-		identity := node.store.Identity()
-		closeClient := node.RuntimeClient
-		if node.transport != nil {
-			_, closeClient = node.transport.stop()
-		}
-		if closeClient != nil {
-			_ = closeClient.CloseRuntimeV2Session(ctx, openlinker.RuntimeV2SessionCloseRequest{
-				NodeID:           node.NodeID,
-				AgentID:          node.AgentID,
-				WorkerID:         identity.WorkerID,
-				RuntimeSessionID: identity.RuntimeSessionID,
-				SessionEpoch:     identity.SessionEpoch,
-				Status:           "closed",
-				Reason:           "node_shutdown",
-			})
-		}
-	}
-	node.cancelAllActive()
-	if node.runtimeStop != nil {
-		node.runtimeStop()
-	}
-	node.loops.Wait()
-
 	var firstErr error
 	if node.Helper != nil {
 		firstErr = node.Helper.Stop(ctx)
@@ -369,74 +177,80 @@ func (node *Node) shutdown(ctx context.Context) error {
 			firstErr = err
 		}
 	}
-	if node.store != nil {
-		if err := node.store.Close(); firstErr == nil {
-			firstErr = err
-		}
-		node.store = nil
-	}
-	if node.httpClient != nil {
-		if transport, ok := node.httpClient.Transport.(*http.Transport); ok {
-			transport.CloseIdleConnections()
-		}
-	}
-
-	node.lifecycleMu.Lock()
-	if node.started {
-		node.started = false
-		close(node.done)
-	}
-	node.transport = nil
-	node.transportStop = nil
-	node.lifecycleMu.Unlock()
 	return firstErr
 }
 
-func (node *Node) setDraining(value bool) {
-	node.stateMu.Lock()
-	node.draining = value
-	node.stateMu.Unlock()
+type runtimeAdapterHandler struct {
+	node *Node
 }
 
-func (node *Node) isDraining() bool {
-	node.stateMu.RLock()
-	defer node.stateMu.RUnlock()
-	return node.draining
-}
+func (handler runtimeAdapterHandler) Handle(
+	ctx context.Context,
+	assignment openlinker.RuntimeContext,
+) (result openlinker.RuntimeResult, resultErr error) {
+	defer func() {
+		if recover() != nil {
+			result = openlinker.RuntimeResult{
+				Status: "failed",
+				Error:  &openlinker.RuntimeHandlerError{Code: "ADAPTER_PANIC", Message: "adapter panicked"},
+			}
+			resultErr = nil
+		}
+	}()
+	runCtx := RunContext{
+		RunID:    assignment.RunID,
+		AgentID:  assignment.AgentID,
+		Input:    assignment.Input,
+		Metadata: JSONMap(assignment.Metadata),
+		Source:   "agent_runtime",
+	}
+	runCtx.emitChecked = assignment.Emit
+	runCtx.Emit = func(eventType string, payload any) {
+		if err := assignment.Emit(eventType, payload); err != nil && handler.node.Logger != nil {
+			handler.node.Logger.Printf("runtime Event was not persisted: %v", err)
+		}
+	}
+	runCtx.CallAgent = func(
+		callCtx context.Context,
+		targetAgentID string,
+		input any,
+		options CallAgentOptions,
+	) (any, error) {
+		return assignment.CallAgent(callCtx, targetAgentID, input, openlinker.RuntimeCallOptions{
+			IdempotencyKey: options.IdempotencyKey,
+			Reason:         options.Reason,
+			Metadata:       options.Metadata,
+		})
+	}
 
-func (node *Node) capacitySnapshot() (capacity, inflight int64) {
-	node.stateMu.RLock()
-	draining := node.draining
-	inflight = int64(len(node.active))
-	node.stateMu.RUnlock()
-	accepting := node.store == nil || node.store.AcceptsNewRuns()
-	if !draining && accepting {
-		capacity = node.Capacity
+	var helperSession *LocalHelperSession
+	if handler.node.Helper != nil {
+		helperSession = handler.node.Helper.CreateSession(assignment.RunID, &runCtx)
+		runCtx.Helper = helperSession.Info
+		defer helperSession.Close()
 	}
-	return capacity, inflight
-}
 
-func (node *Node) signalSpool() {
-	select {
-	case node.wakeSpool <- struct{}{}:
-	default:
+	raw, err := handler.node.Adapter.Run(ctx, assignment.Input, runCtx)
+	if err != nil {
+		adapterErr := normalizeAgentError(err)
+		return openlinker.RuntimeResult{
+			Status: "failed",
+			Error:  &openlinker.RuntimeHandlerError{Code: adapterErr.Code, Message: adapterErr.Message},
+		}, nil
 	}
-}
-
-func (node *Node) reportFatal(err error) {
-	if err == nil {
-		return
+	adapterResult := normalizeAdapterResult(raw)
+	events := make([]openlinker.RuntimeEvent, len(adapterResult.Events))
+	for index, event := range adapterResult.Events {
+		events[index] = openlinker.RuntimeEvent{EventType: event.EventType, Payload: event.Payload}
 	}
-	select {
-	case node.fatal <- err:
-	default:
+	var runtimeErr *openlinker.RuntimeHandlerError
+	if adapterResult.Error != nil {
+		runtimeErr = &openlinker.RuntimeHandlerError{Code: adapterResult.Error.Code, Message: adapterResult.Error.Message}
 	}
-}
-
-func (node *Node) logf(format string, args ...any) {
-	if node.Logger != nil {
-		node.Logger.Printf(format, args...)
-		return
-	}
-	log.Printf(format, args...)
+	return openlinker.RuntimeResult{
+		Status: adapterResult.Status,
+		Output: adapterResult.Output,
+		Events: events,
+		Error:  runtimeErr,
+	}, nil
 }

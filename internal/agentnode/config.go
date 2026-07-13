@@ -39,34 +39,34 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	capacity, err := numberOption(get("OPENLINKER_AGENT_NODE_CAPACITY"), int(DefaultCapacity), "OPENLINKER_AGENT_NODE_CAPACITY")
+	capacity, err := numberOption(get("OPENLINKER_AGENT_NODE_CAPACITY"), int(openlinker.RuntimeWorkerDefaultCapacity), "OPENLINKER_AGENT_NODE_CAPACITY")
 	if err != nil {
 		return nil, err
 	}
-	claimWait, err := numberOption(get("OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS"), int(DefaultClaimWait/time.Second), "OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS")
+	claimWait, err := numberOption(get("OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS"), int(openlinker.RuntimeWorkerDefaultClaimWait/time.Second), "OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS")
 	if err != nil {
 		return nil, err
 	}
-	commandWait, err := numberOption(get("OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS"), int(DefaultCommandWait/time.Second), "OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS")
+	commandWait, err := numberOption(get("OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS"), int(openlinker.RuntimeWorkerDefaultCommandWait/time.Second), "OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS")
 	if err != nil {
 		return nil, err
 	}
-	heartbeat, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), int(DefaultHeartbeatInterval/time.Second), "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
+	heartbeat, err := numberOption(get("OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS"), int(openlinker.RuntimeWorkerDefaultHeartbeatInterval/time.Second), "OPENLINKER_AGENT_NODE_HEARTBEAT_SECONDS")
 	if err != nil {
 		return nil, err
 	}
-	retryMinMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MIN_MS"), int(DefaultRetryMinimum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MIN_MS")
+	retryMinMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MIN_MS"), int(openlinker.RuntimeWorkerDefaultRetryMinimum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MIN_MS")
 	if err != nil {
 		return nil, err
 	}
-	retryMaxMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MAX_MS"), int(DefaultRetryMaximum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MAX_MS")
+	retryMaxMS, err := numberOption(get("OPENLINKER_AGENT_NODE_RETRY_MAX_MS"), int(openlinker.RuntimeWorkerDefaultRetryMaximum/time.Millisecond), "OPENLINKER_AGENT_NODE_RETRY_MAX_MS")
 	if err != nil {
 		return nil, err
 	}
 	return &Node{
 		OpenLinkerURL:     strings.TrimSpace(get("OPENLINKER_URL")),
 		RuntimeURL:        strings.TrimSpace(get("OPENLINKER_RUNTIME_URL")),
-		Transport:         strings.ToLower(strings.TrimSpace(defaultString(get("OPENLINKER_AGENT_NODE_TRANSPORT"), string(RuntimeTransportAuto)))),
+		Transport:         strings.ToLower(strings.TrimSpace(defaultString(get("OPENLINKER_AGENT_NODE_TRANSPORT"), string(openlinker.RuntimeTransportAuto)))),
 		NodeID:            strings.TrimSpace(get("OPENLINKER_NODE_ID")),
 		AgentID:           strings.TrimSpace(get("OPENLINKER_AGENT_ID")),
 		AgentToken:        strings.TrimSpace(get("OPENLINKER_AGENT_TOKEN")),

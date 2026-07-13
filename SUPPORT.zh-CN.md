@@ -7,11 +7,11 @@ English documentation: [SUPPORT.md](./SUPPORT.md)
 
 ## 适合提交 Issue 的内容
 
-- Runtime WebSocket 或 HTTPS 长轮询的 session、claim、heartbeat 与 command 行为
-- assignment ACK/confirmation、lease renewal、durable Event/Result 或恢复行为
 - 本地 HTTP、command、A2A、Codex 或 helper adapter 行为
+- CLI 与环境变量解析、进程树控制或 SDK 配置接线
 - Agent Node 暴露的 public A2A server 行为
-- 本地设置或 runtime 配置文档缺口
+- 本地设置或 Adapter 配置文档缺口
+- 只在 Agent Node 宿主集成层可复现的 Runtime 故障
 
 ## 提交前请确认
 
@@ -25,6 +25,8 @@ English documentation: [SUPPORT.md](./SUPPORT.md)
 ## 不在这里处理
 
 - 安全漏洞；请看 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)
+- 能在 `openlinker-go` 复现的 Runtime 发现、mTLS、WebSocket/Pull、Session、claim、
+  lease、resume、journal/spool、ACK 修复、取消或 drain 问题；请提交到 Go SDK 仓库
 - 某个具体 Agent 的后端业务逻辑
 - 商业计费、钱包、提现或托管 Dashboard 请求
 - 无法公开复现的私有部署调试
@@ -34,7 +36,8 @@ English documentation: [SUPPORT.md](./SUPPORT.md)
 涉及 Core 和 Agent Node 的问题请包含：
 
 - Agent Node commit SHA 或二进制版本
+- 固定使用的 `openlinker-go` 版本
 - Core API commit SHA 或版本
-- adapter 模式，以及故障发生在正常执行还是恢复阶段
+- Adapter 模式，以及故障位于宿主集成层还是 SDK Worker
 - 可脱敏的 run ID 示例
-- 可用时提供两侧脱敏 runtime 日志
+- 可用时提供 Agent Node 与 Core 两侧的脱敏日志

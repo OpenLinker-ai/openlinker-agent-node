@@ -1,58 +1,34 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node runs an Agent that lives on a workstation, inside a
-private network, or behind NAT. Core assigns work over outbound HTTPS; Agent
-Node invokes the local HTTP service, command, A2A Agent, or Codex workspace and
-returns the resulting Events and Result.
-
-This is the callee-side runtime, not a second control plane. Agents with a
-stable HTTPS or remote MCP endpoint can be connected to Core directly and do
-not need Agent Node.
+OpenLinker Agent Node is a temporary Adapter binary for existing HTTP, command,
+A2A, and Codex backends. It starts the pinned `openlinker-go` Runtime Worker and
+injects one process-level Adapter. Applications with a native SDK
+`RuntimeHandler`, a stable HTTPS endpoint, or a remote MCP endpoint do not need
+Agent Node.
 
 Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
 ## OpenLinker Runtime
 
-Agent Node uses one reliable Runtime over two transports. The default `auto`
-mode opens a low-latency WebSocket. If the network cannot establish or keep
-that socket alive, the node switches to HTTPS long-poll, keeps serving, and
-probes with backoff until WebSocket is available again. Both paths use the same
-session, leases, acknowledgements, recovery journal, TLS 1.3 mutual TLS
-identity, and Agent Token.
+Agent Node does not implement a Runtime client or state machine. The pinned Go
+SDK owns discovery, mTLS, Session identity, WebSocket/Pull switching,
+assignment confirmation, lease renewal, resume, cancellation, drain, the
+encrypted journal, and stable Event/Result replay. The same SDK behavior is
+available directly to any Go application through `NewRuntimeWorker`.
 
-The protocol is deliberately conservative around execution:
-
-1. The node opens a runtime session with a stable worker ID and a new session
-   epoch. WebSocket uses `runtime.hello` / `runtime.ready`; long-poll uses the
-   equivalent HTTP Session endpoint.
-2. It receives or claims an offer, encrypts and fsyncs the assignment, records
-   `ack_sent`, and sends the assignment ACK.
-3. It starts the adapter only after Core confirms the lease, or after an
-   authoritative resume decision says `continue_execution`.
-4. Events and the terminal Result are encrypted and fsynced before upload.
-   Retries keep the same Event/Result IDs. ACKed Events remain encrypted until
-   the Result ACK so an `EVENTS_MISSING` response can request exact ranges;
-   then the node replays those Events and retries the same Result ID.
-5. Lease renewal and command polling run alongside execution. A cancellation
-   targets the exact Attempt and its process tree; `stopped` is acknowledged
-   only after the adapter has exited.
-6. A transport change first cancels and drains every old transport call. The
-   node detaches, attaches the replacement with the same durable identity,
-   resumes the journal, and only then allows new claims. The two transports
-   never claim concurrently, and a `started` adapter is never rerun.
-
-A hard crash after a process has started is fail-closed: Agent Node reports the
-durable state on restart but never guesses that rerunning the process is safe.
-Core must revoke that Attempt and create a new Attempt when retry policy allows.
+This repository owns only environment and CLI parsing, Adapter selection,
+localhost helper sessions, process-tree control, public A2A exposure, and the
+choice of SDK file-store directory. Cancellation reaches an Adapter through
+the SDK handler context; command and Codex Adapters terminate their own process
+trees before returning.
 
 ```mermaid
 flowchart LR
-  Core["OpenLinker Core"] -->|"WebSocket by default"| Node["Agent Node"]
-  Core -->|"HTTPS long-poll fallback"| Node
-  Node -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
-  Backend -->|"run-scoped helper"| Node
-  Node -->|"durable Event / Result upload"| Core
-  Node --- Store["encrypted assignment + Event + Result spool"]
+  Core["OpenLinker Core"] <-->|"Runtime protocol"| SDK["openlinker-go RuntimeWorker"]
+  SDK --> Handler["Agent Node Adapter"]
+  Handler -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
+  Backend -->|"run-scoped helper"| Handler
+  SDK --- Store["SDK FileRuntimeStore"]
 ```
 
 ## Quick start
@@ -90,12 +66,12 @@ OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
 go run ./cmd/openlinker-agent-node
 ```
 
-The data directory is single-process locked. Keep it on persistent local
-storage, back it up as sensitive state, and never share one directory between
-two node processes.
+The SDK `FileRuntimeStore` takes a single-process lock on the data directory.
+Keep it on persistent local storage, back it up as sensitive state, and never
+share one directory between two node processes.
 
-The encrypted spool is bounded to 512 MiB and 10,000 records. At 80% usage the
-node advertises capacity zero and stops accepting new Runs while it continues
+The SDK's encrypted spool is bounded to 512 MiB and 10,000 records. At 80% usage the
+worker advertises capacity zero and stops accepting new Runs while it continues
 renewal, cancellation, upload, and cleanup for existing Attempts. Data writes
 cannot consume the final 16 MiB of logical or filesystem capacity, leaving
 space for journal/control progress. Corruption, authentication failure, a
@@ -104,7 +80,7 @@ never expired or deleted.
 
 ## Required Agent Node configuration
 
-At startup, Agent Node reads the public connection manifest from
+At startup, the Go SDK Worker reads the public connection manifest from
 `$OPENLINKER_URL/.well-known/openlinker.json` and discovers the dedicated
 Runtime origin. Discovery uses a separate five-second HTTP client, follows no
 redirects, reads at most 64 KiB, and sends neither the Agent Token nor the mTLS
@@ -117,7 +93,7 @@ stops startup instead of falling back to the ordinary API origin.
 | `OPENLINKER_NODE_ID` | Registered Node UUID |
 | `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
-| `OPENLINKER_AGENT_NODE_DATA_DIR` | Durable identity, journal, and encrypted spool |
+| `OPENLINKER_AGENT_NODE_DATA_DIR` | Directory selected for the SDK `FileRuntimeStore` |
 | `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Client certificate |
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |
 | `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | CA bundle used to verify Core |
@@ -137,9 +113,9 @@ Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 
 Use `auto` for normal deployments. Use `ws` when operators prefer the node to
 wait for WebSocket recovery instead of serving through long-poll. Use `pull` only
-for networks where WebSocket is known to be unavailable. Transport changes
-reuse the current session identity, journal, encrypted spool, leases, and
-per-Run cancellation state.
+for networks where WebSocket is known to be unavailable. Transport changes are
+implemented by the SDK and reuse the current session identity, journal,
+encrypted spool, leases, and per-Run cancellation state.
 
 ## Backend envelope
 
@@ -265,15 +241,15 @@ Core's platform A2A adapter when callback subscriptions must be durable.
 
 ## Security and operations
 
-- Treat the Agent Token, mTLS private key, spool key, assignment payloads, and
-  helper tokens as secrets.
+- Treat the Agent Token, mTLS private key, SDK-managed spool key, assignment
+  payloads, and helper tokens as secrets.
 - Do not mount the runtime data directory into backend containers.
 - Keep command and Codex workspaces isolated and narrowly permissioned.
 - Graceful shutdown first advertises capacity zero, waits for active adapters,
   closes the runtime session, and then releases the data-directory lock.
 - Redact credentials, private URLs, customer payloads, and adapter logs before
   filing an issue.
-- Alert before spool usage reaches 80%. Free space or complete existing uploads;
+- Alert before the SDK spool reaches 80%. Free space or complete existing uploads;
   never delete `.record`, journal, identity, or key files by hand.
 
 See [SECURITY.md](./SECURITY.md), [SUPPORT.md](./SUPPORT.md), and
