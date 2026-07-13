@@ -43,6 +43,20 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
+登记 Runtime Node 时必须写入当前 Adapter 的精确实现版本。登记值与 Worker hello 不一致时，
+Core 会拒绝 Session：
+
+```bash
+DATABASE_URL='postgres://...' ./api runtime-node issue \
+  --ca-cert /secure/runtime-client-ca.crt \
+  --ca-key /secure/runtime-client-ca.key \
+  --display-name 'legacy-backend-adapter' \
+  --node-version 'openlinker-agent-node/0.1.43' \
+  --capacity 1 \
+  --cert-out /run/openlinker/node.crt \
+  --key-out /run/openlinker/node.key
+```
+
 运行本地 HTTP backend：
 
 ```bash

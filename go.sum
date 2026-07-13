@@ -1,5 +1,5 @@
-github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713120408-204db33d3035 h1:4N86yrKj70N4VEy6yTjE5adN/U5SjbHVmqR+pcTS4eg=
-github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713120408-204db33d3035/go.mod h1:hZI+rinQqwQC5NH+RVIfbA/nmn5UWAOYMRA6cyOiKT4=
+github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713120638-774b0b6950b5 h1:CuwRRytFJPa8ha5WAbEobFZ9WQhpwzZJYcA7hqOPpBc=
+github.com/OpenLinker-ai/openlinker-go v0.1.43-0.20260713120638-774b0b6950b5/go.mod h1:hZI+rinQqwQC5NH+RVIfbA/nmn5UWAOYMRA6cyOiKT4=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=

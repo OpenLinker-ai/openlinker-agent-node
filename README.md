@@ -49,6 +49,20 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
+Enroll the Runtime Node with this Adapter's exact implementation version. Core
+rejects a Session when the enrolled version and Worker hello differ:
+
+```bash
+DATABASE_URL='postgres://...' ./api runtime-node issue \
+  --ca-cert /secure/runtime-client-ca.crt \
+  --ca-key /secure/runtime-client-ca.key \
+  --display-name 'legacy-backend-adapter' \
+  --node-version 'openlinker-agent-node/0.1.43' \
+  --capacity 1 \
+  --cert-out /run/openlinker/node.crt \
+  --key-out /run/openlinker/node.key
+```
+
 Run a local HTTP backend:
 
 ```bash
