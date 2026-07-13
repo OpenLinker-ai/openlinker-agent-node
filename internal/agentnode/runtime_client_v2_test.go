@@ -44,7 +44,7 @@ func TestRuntimeV2ClientUsesTLS13MTLSAndExactInvocationProof(t *testing.T) {
 		}
 		w.Header().Set("content-type", "application/json")
 		switch request.URL.Path {
-		case "/api/v1/agent-runtime/v2/sessions":
+		case "/api/v1/agent-runtime/sessions":
 			sessionCalls.Add(1)
 			if request.Header.Get("authorization") != "Bearer "+agentToken {
 				http.Error(w, "Agent Token mismatch", http.StatusUnauthorized)
@@ -62,7 +62,7 @@ func TestRuntimeV2ClientUsesTLS13MTLSAndExactInvocationProof(t *testing.T) {
 				LeaseTTLSeconds: 60,
 				DatabaseTime:    time.Now().UTC(),
 			})
-		case "/api/v1/agent-runtime/v2/call-agent":
+		case "/api/v1/agent-runtime/call-agent":
 			delegatedCalls.Add(1)
 			if request.Header.Get("authorization") != "Bearer "+invocation || request.Header.Get("authorization") == "Bearer "+agentToken {
 				http.Error(w, "delegated authority mismatch", http.StatusUnauthorized)
@@ -79,7 +79,7 @@ func TestRuntimeV2ClientUsesTLS13MTLSAndExactInvocationProof(t *testing.T) {
 			}
 			expectedProof, err := openlinker.BuildRuntimeV2InvocationProof(invocation, openlinker.RuntimeV2InvocationProofRequest{
 				Method:         http.MethodPost,
-				Path:           "/api/v1/agent-runtime/v2/call-agent",
+				Path:           "/api/v1/agent-runtime/call-agent",
 				IdempotencyKey: idempotencyKey,
 				Context:        nodeEnvelope,
 				Body:           body,
@@ -124,7 +124,7 @@ func TestRuntimeV2ClientUsesTLS13MTLSAndExactInvocationProof(t *testing.T) {
 	}
 
 	client, httpClient, err := newRuntimeV2Client(RuntimeMTLSConfig{
-		CoreURL:       server.URL,
+		RuntimeURL:    server.URL,
 		AgentToken:    agentToken,
 		CertFile:      certPath,
 		KeyFile:       keyPath,

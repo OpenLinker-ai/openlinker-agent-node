@@ -21,7 +21,7 @@ customer payload, or adapter log containing sensitive data.
 
 Allowed here:
 
-- Runtime v2 HTTP long-poll, assignment confirmation, lease, command, and resume behavior
+- Runtime WebSocket and HTTPS long-poll, assignment confirmation, lease, command, and resume behavior
 - durable assignment, Event, and Result journal/spool behavior
 - local HTTP, command, A2A, Codex, and similar adapter execution
 - localhost helper behavior for delegation and progress events

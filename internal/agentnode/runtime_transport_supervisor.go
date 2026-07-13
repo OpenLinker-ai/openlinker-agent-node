@@ -27,7 +27,7 @@ func (node *Node) startInitialRuntimeTransport(parent context.Context) (*openlin
 		if runtimeErrorIsPermanent(err) {
 			return nil, scrubRuntimeError(err)
 		}
-		node.logf("runtime WebSocket unavailable; activating v2 HTTP pull: %v", scrubRuntimeError(err))
+		node.logf("runtime WebSocket unavailable; activating HTTPS long-poll: %v", scrubRuntimeError(err))
 		return node.activatePullWithRetry(parent, false)
 	default:
 		return nil, errors.New("invalid runtime transport mode")

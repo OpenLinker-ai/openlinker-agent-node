@@ -15,9 +15,9 @@ import (
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-func TestNewFromEnvMapOpenClawRuntimeV2HTTP(t *testing.T) {
+func TestNewFromEnvMapOpenClaw(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":               "https://example.test/api/v1",
+		"OPENLINKER_URL":                       "https://example.test",
 		"OPENLINKER_NODE_ID":                   "11111111-1111-4111-8111-111111111111",
 		"OPENLINKER_AGENT_ID":                  "22222222-2222-4222-8222-222222222222",
 		"OPENLINKER_AGENT_TOKEN":               "ol_agent_env",
@@ -32,14 +32,14 @@ func TestNewFromEnvMapOpenClawRuntimeV2HTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.CoreURL != "https://example.test/api/v1" || node.AgentToken != "ol_agent_env" || node.DataDir != "/var/lib/openlinker-agent-node" {
+	if node.OpenLinkerURL != "https://example.test" || node.AgentToken != "ol_agent_env" || node.DataDir != "/var/lib/openlinker-agent-node" {
 		t.Fatalf("node config = %#v", node)
 	}
 	if node.Transport != string(RuntimeTransportAuto) {
 		t.Fatalf("default transport = %q", node.Transport)
 	}
 	if node.Capacity != 1 || node.ClaimWait != 25*time.Second || node.HeartbeatInterval != 5*time.Second {
-		t.Fatalf("runtime v2 timing/capacity = %#v", node)
+		t.Fatalf("runtime timing/capacity = %#v", node)
 	}
 	adapter, ok := node.Adapter.(HTTPAdapter)
 	if !ok {
@@ -53,9 +53,9 @@ func TestNewFromEnvMapOpenClawRuntimeV2HTTP(t *testing.T) {
 	}
 }
 
-func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
+func TestNewFromEnvMapCommand(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":                     "https://api.example.test",
+		"OPENLINKER_URL":                             "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                     "ol_agent_v2",
 		"OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS":   "2",
 		"OPENLINKER_AGENT_NODE_COMMAND_WAIT_SECONDS": "4",
@@ -73,7 +73,7 @@ func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
 		t.Fatal(err)
 	}
 	if node.ClaimWait != 2*time.Second || node.CommandWait != 4*time.Second || node.HeartbeatInterval != 3*time.Second || node.Capacity != 4 {
-		t.Fatalf("runtime v2 config = %#v", node)
+		t.Fatalf("runtime config = %#v", node)
 	}
 	if node.Transport != string(RuntimeTransportPull) {
 		t.Fatalf("transport = %q", node.Transport)
@@ -94,7 +94,7 @@ func TestNewFromEnvMapRuntimeV2Command(t *testing.T) {
 }
 
 func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
-	t.Setenv("OPENLINKER_CORE_V2_URL", "https://env.example.test")
+	t.Setenv("OPENLINKER_URL", "https://env.example.test")
 	t.Setenv("OPENLINKER_AGENT_TOKEN", "ol_agent_env_process")
 	t.Setenv("OPENLINKER_NODE_ID", "11111111-1111-4111-8111-111111111111")
 	t.Setenv("OPENLINKER_AGENT_ID", "22222222-2222-4222-8222-222222222222")
@@ -112,7 +112,7 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.CoreURL != "https://env.example.test" || node.AgentToken != "ol_agent_env_process" {
+	if node.OpenLinkerURL != "https://env.example.test" || node.AgentToken != "ol_agent_env_process" {
 		t.Fatalf("node from env = %#v", node)
 	}
 	adapter, ok := node.Adapter.(CommandAdapter)
@@ -123,7 +123,7 @@ func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 
 func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":                    "https://api.example.test",
+		"OPENLINKER_URL":                            "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                    "ol_agent_codex",
 		"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":     "/workspace",
 		"OPENLINKER_AGENT_NODE_CODEX_SANDBOX":       "workspace-write",
@@ -151,14 +151,14 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	}
 
 	if _, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":        "https://api.example.test",
+		"OPENLINKER_URL":                "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":        "ol_agent_bad",
 		"OPENLINKER_AGENT_NODE_ADAPTER": "module",
 	}); err == nil || !strings.Contains(err.Error(), "module adapter is not supported") {
 		t.Fatalf("module adapter error = %v", err)
 	}
 	if _, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":        "https://api.example.test",
+		"OPENLINKER_URL":                "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":        "ol_agent_bad",
 		"OPENLINKER_AGENT_NODE_ARGS":    "not-json",
 		"OPENLINKER_AGENT_NODE_COMMAND": "openclaw",
@@ -169,7 +169,7 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 
 func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":                          "https://api.example.test",
+		"OPENLINKER_URL":                                  "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":                          "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL":              "http://127.0.0.1:9001/",
 		"OPENLINKER_UPSTREAM_A2A_TOKEN":                   "a2a-token",
@@ -199,7 +199,7 @@ func TestNewFromEnvMapA2AAdapter(t *testing.T) {
 
 func TestNewFromEnvMapA2AAdapterLegacyDialect(t *testing.T) {
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_CORE_V2_URL":             "https://api.example.test",
+		"OPENLINKER_URL":                     "https://api.example.test",
 		"OPENLINKER_AGENT_TOKEN":             "ol_agent_a2a",
 		"OPENLINKER_AGENT_NODE_A2A_BASE_URL": "http://127.0.0.1:9001/",
 		"OPENLINKER_AGENT_NODE_A2A_DIALECT":  "legacy",
@@ -240,10 +240,10 @@ func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	if _, err := parseJSONMap("not-json", "TEST_HEADERS"); err == nil {
 		t.Fatal("expected parseJSONMap invalid JSON error")
 	}
-	if got := joinAPIPath("https://example.test/api/v1/", "agents"); got != "https://example.test/api/v1/agents" {
+	if got := joinAPIPath("https://example.test/", "agents"); got != "https://example.test/agents" {
 		t.Fatalf("joinAPIPath relative = %q", got)
 	}
-	if got := joinAPIPath("https://example.test/api/v1", "https://other.test/run"); got != "https://other.test/run" {
+	if got := joinAPIPath("https://example.test", "https://other.test/run"); got != "https://other.test/run" {
 		t.Fatalf("joinAPIPath absolute = %q", got)
 	}
 	if stringFromMap(JSONMap{"answer": 123}, "answer") != "123" {
@@ -346,8 +346,8 @@ func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
 	if got, err := parseCommandOutput(`{"answer":"ok"}`, ""); err != nil || got.(map[string]any)["answer"] != "ok" {
 		t.Fatalf("parseCommandOutput json = %#v, %v", got, err)
 	}
-	if err := (&Node{}).applyDefaultsAndValidate(); err == nil || !strings.Contains(err.Error(), "Core v2 URL") {
-		t.Fatalf("missing Core v2 URL error = %v", err)
+	if err := (&Node{}).applyDefaultsAndValidate(); err == nil || !strings.Contains(err.Error(), "OpenLinker address") {
+		t.Fatalf("missing OpenLinker address error = %v", err)
 	}
 	if _, err := adapterFromEnv(func(string) string { return "" }, "module"); err == nil || !strings.Contains(err.Error(), "module adapter") {
 		t.Fatalf("module adapter error = %v", err)

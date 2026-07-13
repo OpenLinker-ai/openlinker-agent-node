@@ -26,7 +26,7 @@ var (
 	ErrEventSequence             = errors.New("client event sequence is not monotonic")
 	ErrResultAlreadyExists       = errors.New("attempt already has a different durable result")
 	ErrRuntimeMessageTooLarge    = errors.New("runtime message exceeds 4 MiB")
-	ErrRuntimeProtocolMismatch   = errors.New("runtime v2 protocol response mismatch")
+	ErrRuntimeProtocolMismatch   = errors.New("runtime protocol response mismatch")
 	ErrRuntimeSpoolBackpressure  = errors.New("runtime spool reached the new-Run backpressure threshold")
 	ErrRuntimeSpoolFull          = errors.New("runtime spool capacity is exhausted")
 )

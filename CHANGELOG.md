@@ -9,20 +9,24 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Breaking
 
-- Replaced every pre-v2 transport with Runtime v2 only. Runtime v2 WebSocket is
-  the default path and Runtime v2 HTTP long-poll is the restricted-network
-  fallback; no v1 fallback remains.
-- Runtime startup now requires a Core v2 URL, Node UUID, Agent UUID, persistent
-  data directory, Agent Token, and TLS 1.3 mTLS client cert/key/CA files.
+- Replaced every legacy transport with the current reliable Runtime. WebSocket
+  is the default and HTTPS long-poll is the restricted-network fallback.
+- Normal startup now takes one `OPENLINKER_URL` and discovers the dedicated
+  mTLS Runtime origin from `/.well-known/openlinker.json`. The old Core URL
+  setting is no longer read, and the Runtime endpoints no longer include a
+  version segment.
+- Runtime startup requires an OpenLinker address, Node UUID, Agent UUID,
+  persistent data directory, Agent Token, and TLS 1.3 mTLS client cert/key/CA
+  files. `OPENLINKER_RUNTIME_URL` remains an advanced explicit override.
 - Removed the legacy transport configuration, implementations, tests, and
-  documentation; pre-v2 runtime behavior is not retained.
+  documentation; the old behavior is not retained.
 - Delegated Agent calls now require an explicit idempotency key. The same key
   represents a retry of one intent; a distinct intent needs a distinct key.
 
 ### Runtime reliability
 
-- Added `OPENLINKER_AGENT_NODE_TRANSPORT=auto|ws|pull`. `auto` starts with v2
-  WebSocket, switches to v2 Pull after an unavailable or disconnected socket,
+- Added `OPENLINKER_AGENT_NODE_TRANSPORT=auto|ws|pull`. `auto` starts with
+  WebSocket, switches to HTTPS long-poll after an unavailable or disconnected socket,
   and probes with exponential backoff before returning to WebSocket.
 - Added an explicit transport state machine that cancels and drains the old
   generation, detaches it, attaches and resumes the same durable identity, and
@@ -49,9 +53,8 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 - Bound delegated calls to assignment-scoped node envelopes and short-lived
   invocation tokens. Long-lived Agent Tokens remain inside Agent Node.
 - Vendored `openlinker-go` commit
-  `2f661523d6013525f1c2dd33447eab889f722f9c`, which removes the pre-v2 Go
-  runtime API and contract routes, and adds the strict Runtime v2 WebSocket
-  client.
+  `976a34b0e68326674edd7ebcd95cb25c91e61772`, including the canonical
+  `/api/v1/agent-runtime/*` endpoints and contract digest.
 
 ### Verification
 
@@ -61,5 +64,5 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   WS-to-Pull-to-WS, Core replacement, and cross-transport claim exclusion tests.
 - Added crash injection at pre-write, post-fsync, post-rename, post-directory
   fsync, pre-WAL, post-WAL, send/ACK-loss, and Result-ACK cleanup boundaries.
-- Rewrote the English and Chinese runtime documentation for the v2-only
-  configuration and recovery model.
+- Rewrote the English and Chinese Runtime documentation for automatic
+  discovery, transport fallback, and the recovery model.

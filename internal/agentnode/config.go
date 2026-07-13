@@ -64,7 +64,8 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 		return nil, err
 	}
 	return &Node{
-		CoreURL:           strings.TrimSpace(get("OPENLINKER_CORE_V2_URL")),
+		OpenLinkerURL:     strings.TrimSpace(get("OPENLINKER_URL")),
+		RuntimeURL:        strings.TrimSpace(get("OPENLINKER_RUNTIME_URL")),
 		Transport:         strings.ToLower(strings.TrimSpace(defaultString(get("OPENLINKER_AGENT_NODE_TRANSPORT"), string(RuntimeTransportAuto)))),
 		NodeID:            strings.TrimSpace(get("OPENLINKER_NODE_ID")),
 		AgentID:           strings.TrimSpace(get("OPENLINKER_AGENT_ID")),

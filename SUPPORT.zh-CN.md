@@ -7,7 +7,7 @@ English documentation: [SUPPORT.md](./SUPPORT.md)
 
 ## 适合提交 Issue 的内容
 
-- Runtime v2 HTTP long-poll session、claim、heartbeat 或 command 行为
+- Runtime WebSocket 或 HTTPS 长轮询的 session、claim、heartbeat 与 command 行为
 - assignment ACK/confirmation、lease renewal、durable Event/Result 或恢复行为
 - 本地 HTTP、command、A2A、Codex 或 helper adapter 行为
 - Agent Node 暴露的 public A2A server 行为

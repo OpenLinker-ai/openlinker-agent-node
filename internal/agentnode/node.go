@@ -23,12 +23,13 @@ const (
 )
 
 type Node struct {
-	CoreURL    string
-	Transport  string
-	NodeID     string
-	AgentID    string
-	AgentToken string
-	DataDir    string
+	OpenLinkerURL string
+	RuntimeURL    string
+	Transport     string
+	NodeID        string
+	AgentID       string
+	AgentToken    string
+	DataDir       string
 
 	MTLSCertFile   string
 	MTLSKeyFile    string
@@ -85,6 +86,13 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 	if err := node.applyDefaultsAndValidate(); err != nil {
 		return err
 	}
+	if node.RuntimeClient == nil {
+		runtimeURL, err := resolveRuntimeURL(parent, node.OpenLinkerURL, node.RuntimeURL)
+		if err != nil {
+			return err
+		}
+		node.RuntimeURL = runtimeURL
+	}
 	if err := node.beginLifecycle(); err != nil {
 		return err
 	}
@@ -114,7 +122,7 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 
 	if node.RuntimeClient == nil {
 		runtimeClient, httpClient, err := newRuntimeV2Client(RuntimeMTLSConfig{
-			CoreURL:       node.CoreURL,
+			RuntimeURL:    node.RuntimeURL,
 			AgentToken:    node.AgentToken,
 			CertFile:      node.MTLSCertFile,
 			KeyFile:       node.MTLSKeyFile,
@@ -222,8 +230,21 @@ func (node *Node) beginLifecycle() error {
 }
 
 func (node *Node) applyDefaultsAndValidate() error {
-	if node.CoreURL == "" {
-		return errors.New("Core v2 URL is required")
+	node.OpenLinkerURL = strings.TrimSpace(node.OpenLinkerURL)
+	node.RuntimeURL = strings.TrimSpace(node.RuntimeURL)
+	if node.RuntimeClient == nil {
+		if node.RuntimeURL != "" {
+			if _, err := validateRuntimeOrigin(node.RuntimeURL); err != nil {
+				return err
+			}
+		} else {
+			if node.OpenLinkerURL == "" {
+				return errors.New("OpenLinker address is required")
+			}
+			if _, err := validatePlatformOrigin(node.OpenLinkerURL); err != nil {
+				return err
+			}
+		}
 	}
 	if node.Transport == "" {
 		node.Transport = string(RuntimeTransportAuto)

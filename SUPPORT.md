@@ -7,7 +7,7 @@ requests that fit OpenLinker Agent Node's open-source scope.
 
 ## Good Issue Topics
 
-- Runtime v2 HTTP long-poll session, claim, heartbeat, or command behavior
+- Runtime WebSocket or HTTPS long-poll session, claim, heartbeat, or command behavior
 - assignment ACK/confirmation, lease renewal, durable Event/Result, or recovery behavior
 - local HTTP, command, A2A, Codex, or helper adapter behavior
 - public A2A server behavior exposed by Agent Node

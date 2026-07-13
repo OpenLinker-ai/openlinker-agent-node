@@ -224,7 +224,7 @@ func assignedRunForHello(hello openlinker.RuntimeV2HelloPayload) *openlinker.Run
 
 func newRuntimeNodeForTest(dataDir string, client RuntimeV2Client, adapter Adapter) *Node {
 	return &Node{
-		CoreURL:           "https://core.example.test",
+		RuntimeURL:        "https://core.example.test",
 		NodeID:            testNodeID,
 		AgentID:           testAgentID,
 		DataDir:           dataDir,

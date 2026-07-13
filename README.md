@@ -11,19 +11,19 @@ not need Agent Node.
 
 Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
-## Runtime v2
+## OpenLinker Runtime
 
-Agent Node uses two transports for the same reliable Runtime v2 contract. The
-default `auto` mode opens a low-latency v2 WebSocket. If the network cannot
-establish or keep that socket alive, the node switches to v2 HTTP long-poll,
-keeps serving, and probes with backoff until WebSocket is available again.
-Both paths require TLS 1.3 mutual TLS and an Agent Token. Only v1 was removed;
-there is no v1 fallback.
+Agent Node uses one reliable Runtime over two transports. The default `auto`
+mode opens a low-latency WebSocket. If the network cannot establish or keep
+that socket alive, the node switches to HTTPS long-poll, keeps serving, and
+probes with backoff until WebSocket is available again. Both paths use the same
+session, leases, acknowledgements, recovery journal, TLS 1.3 mutual TLS
+identity, and Agent Token.
 
 The protocol is deliberately conservative around execution:
 
 1. The node opens a runtime session with a stable worker ID and a new session
-   epoch. WebSocket uses `runtime.hello` / `runtime.ready`; Pull uses the
+   epoch. WebSocket uses `runtime.hello` / `runtime.ready`; long-poll uses the
    equivalent HTTP Session endpoint.
 2. It receives or claims an offer, encrypts and fsyncs the assignment, records
    `ack_sent`, and sends the assignment ACK.
@@ -47,8 +47,8 @@ Core must revoke that Attempt and create a new Attempt when retry policy allows.
 
 ```mermaid
 flowchart LR
-  Core["OpenLinker Core"] -->|"v2 WebSocket by default"| Node["Agent Node"]
-  Core -->|"v2 HTTP Pull fallback"| Node
+  Core["OpenLinker Core"] -->|"WebSocket by default"| Node["Agent Node"]
+  Core -->|"HTTPS long-poll fallback"| Node
   Node -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
   Backend -->|"run-scoped helper"| Node
   Node -->|"durable Event / Result upload"| Core
@@ -76,7 +76,7 @@ go build ./cmd/openlinker-agent-node
 Run a local HTTP backend:
 
 ```bash
-OPENLINKER_CORE_V2_URL=https://runtime.example.com:8443 \
+OPENLINKER_URL=https://openlinker.example \
 OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
 OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
@@ -102,11 +102,18 @@ space for journal/control progress. Corruption, authentication failure, a
 missing key, or exhausted capacity fails closed; unacknowledged Results are
 never expired or deleted.
 
-## Required runtime configuration
+## Required Agent Node configuration
+
+At startup, Agent Node reads the public connection manifest from
+`$OPENLINKER_URL/.well-known/openlinker.json` and discovers the dedicated
+Runtime origin. Discovery uses a separate five-second HTTP client, follows no
+redirects, reads at most 64 KiB, and sends neither the Agent Token nor the mTLS
+client certificate. A missing, disabled, insecure, or malformed Runtime entry
+stops startup instead of falling back to the ordinary API origin.
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENLINKER_CORE_V2_URL` | Dedicated Core Runtime mTLS origin, for example `https://runtime.example.com:8443` |
+| `OPENLINKER_URL` | OpenLinker platform origin used to discover the Runtime connection |
 | `OPENLINKER_NODE_ID` | Registered Node UUID |
 | `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
@@ -115,7 +122,11 @@ never expired or deleted.
 | `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |
 | `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | CA bundle used to verify Core |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | Optional certificate server-name override |
-| `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto` (default), `ws`, or `pull`; all are Runtime v2 |
+| `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto` (default), `ws`, or `pull`; all share one Runtime session |
+
+`OPENLINKER_RUNTIME_URL` is an advanced override for integration tests and
+private-network routing. It must be an absolute HTTPS origin and skips public
+discovery. Normal deployments should leave it unset.
 
 Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 `OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`,
@@ -125,7 +136,7 @@ Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 `OPENLINKER_AGENT_NODE_RETRY_MAX_MS`.
 
 Use `auto` for normal deployments. Use `ws` when operators prefer the node to
-wait for WebSocket recovery instead of serving through Pull. Use `pull` only
+wait for WebSocket recovery instead of serving through long-poll. Use `pull` only
 for networks where WebSocket is known to be unavailable. Transport changes
 reuse the current session identity, journal, encrypted spool, leases, and
 per-Run cancellation state.

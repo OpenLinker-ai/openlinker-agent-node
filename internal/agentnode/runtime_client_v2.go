@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -34,7 +33,7 @@ type RuntimeV2Client interface {
 }
 
 type RuntimeMTLSConfig struct {
-	CoreURL       string
+	RuntimeURL    string
 	AgentToken    string
 	CertFile      string
 	KeyFile       string
@@ -43,9 +42,9 @@ type RuntimeMTLSConfig struct {
 }
 
 func newRuntimeV2Client(config RuntimeMTLSConfig) (*openlinker.Runtime, *http.Client, error) {
-	parsed, err := url.Parse(strings.TrimSpace(config.CoreURL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return nil, nil, errors.New("Core v2 URL must be an absolute https URL")
+	runtimeURL, err := validateRuntimeOrigin(config.RuntimeURL)
+	if err != nil {
+		return nil, nil, err
 	}
 	if strings.TrimSpace(config.AgentToken) == "" {
 		return nil, nil, errors.New("Agent Token is required")
@@ -84,7 +83,7 @@ func newRuntimeV2Client(config RuntimeMTLSConfig) (*openlinker.Runtime, *http.Cl
 		},
 	}
 	runtimeClient, err := openlinker.NewRuntime(
-		config.CoreURL,
+		runtimeURL,
 		openlinker.WithAgentToken(config.AgentToken),
 		openlinker.WithHTTPClient(httpClient),
 		openlinker.WithSDKAgent(AgentNodeVersion),
