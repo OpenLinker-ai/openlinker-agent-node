@@ -22,6 +22,10 @@ choice of SDK file-store directory. Cancellation reaches an Adapter through
 the SDK handler context; command and Codex Adapters terminate their own process
 trees before returning.
 
+Agent Node connects only to the Core Runtime contract. It does not call hosted
+service-listing, order, wallet, billing, or marketplace-operation APIs, and it
+does not provide an MCP Adapter.
+
 ```mermaid
 flowchart LR
   Core["OpenLinker Core"] <-->|"Runtime protocol"| SDK["openlinker-go RuntimeWorker"]
@@ -30,6 +34,18 @@ flowchart LR
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
 ```
+
+## Status and installation
+
+Agent Node is pre-1.0 and intended as a migration path for existing backends,
+not as the default way to build a new Agent. Pin the Core, Go SDK, and Agent
+Node versions together and review `CHANGELOG.md` before upgrading.
+
+Prebuilt binaries for Linux, macOS, and Windows, together with adjacent
+`.sha256` files, are available from
+[GitHub Releases](https://github.com/OpenLinker-ai/openlinker-agent-node/releases).
+Verify the checksum before installing a binary. Contributors can build from
+source with the commands below.
 
 ## Quick start
 
@@ -50,14 +66,18 @@ go build ./cmd/openlinker-agent-node
 ```
 
 Enroll the Runtime Node with this Adapter's exact implementation version. Core
-rejects a Session when the enrolled version and Worker hello differ:
+rejects a Session when the enrolled version and Worker hello differ. Set
+`NODE_VERSION` to the complete value reported by the binary release, or copy
+the complete `AgentNodeVersion` string from `internal/agentnode/node.go` for a
+source build:
 
 ```bash
+NODE_VERSION=openlinker-agent-node/0.x.y
 DATABASE_URL='postgres://...' ./api runtime-node issue \
   --ca-cert /secure/runtime-client-ca.crt \
   --ca-key /secure/runtime-client-ca.key \
   --display-name 'legacy-backend-adapter' \
-  --node-version 'openlinker-agent-node/0.1.43' \
+  --node-version "${NODE_VERSION}" \
   --capacity 1 \
   --cert-out /run/openlinker/node.crt \
   --key-out /run/openlinker/node.key

@@ -9,8 +9,9 @@ Document notable changes under `Unreleased` in `CHANGELOG.md`.
 
 ## Pre-Release Checklist
 
-1. Confirm `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and
-   examples are current.
+1. Confirm `README.md` and `README.zh-CN.md` both present Agent Node as a
+   temporary Adapter over the Go SDK Runtime Worker, and that `CONTRIBUTING`,
+   `SECURITY`, `SUPPORT`, and examples are current.
 2. Confirm `CHANGELOG.md` describes Adapter, helper, CLI, public A2A, and pinned
    SDK integration changes.
 3. Run `gofmt -w .`.
@@ -21,6 +22,8 @@ Document notable changes under `Unreleased` in `CHANGELOG.md`.
 7. Confirm generated artifacts, `.env` files, coverage output, local binaries,
    adapter logs, and private workspace files are not tracked.
 8. Confirm Agent/helper token and mTLS examples use placeholders only.
+9. Confirm `AgentNodeVersion`, the release tag, enrollment examples, and the
+   pinned `openlinker-go` compatibility notes agree.
 
 ## Tagging
 

@@ -16,6 +16,9 @@ WebSocket/Pull 切换、assignment confirmation、续租、resume、取消、dra
 以及 SDK 文件存储目录的选择。取消通过 SDK handler context 传入 Adapter；command 和 Codex
 Adapter 在返回前终止自己的进程树。
 
+Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、订单、钱包、计费或市场
+运营 API，也不提供 MCP Adapter。
+
 ```mermaid
 flowchart LR
   Core["OpenLinker Core"] <-->|"Runtime protocol"| SDK["openlinker-go RuntimeWorker"]
@@ -24,6 +27,15 @@ flowchart LR
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
 ```
+
+## 状态与安装
+
+Agent Node 目前是 pre-1.0，只用于既有 backend 的迁移接入，不是新 Agent 的默认开发方式。
+升级时应同时固定 Core、Go SDK 和 Agent Node 版本，并阅读 `CHANGELOG.md`。
+
+Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
+[GitHub Releases](https://github.com/OpenLinker-ai/openlinker-agent-node/releases)。安装前请
+校验 checksum；贡献者可以使用下方命令从源码构建。
 
 ## 快速开始
 
@@ -44,14 +56,16 @@ go build ./cmd/openlinker-agent-node
 ```
 
 登记 Runtime Node 时必须写入当前 Adapter 的精确实现版本。登记值与 Worker hello 不一致时，
-Core 会拒绝 Session：
+Core 会拒绝 Session。`NODE_VERSION` 应填写二进制 release 报告的完整值；源码构建则原样
+复制 `internal/agentnode/node.go` 中完整的 `AgentNodeVersion` 字符串：
 
 ```bash
+NODE_VERSION=openlinker-agent-node/0.x.y
 DATABASE_URL='postgres://...' ./api runtime-node issue \
   --ca-cert /secure/runtime-client-ca.crt \
   --ca-key /secure/runtime-client-ca.key \
   --display-name 'legacy-backend-adapter' \
-  --node-version 'openlinker-agent-node/0.1.43' \
+  --node-version "${NODE_VERSION}" \
   --capacity 1 \
   --cert-out /run/openlinker/node.crt \
   --key-out /run/openlinker/node.key
