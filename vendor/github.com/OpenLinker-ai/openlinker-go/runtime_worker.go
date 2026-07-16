@@ -44,21 +44,42 @@ type RuntimeWorker struct {
 	Handler RuntimeHandler
 	Store   RuntimeStore
 	Logger  *log.Logger
+	OnReady func(RuntimeReadyPayload)
 
 	runtimeClient RuntimeClient
 	runtimeDialer RuntimeTransportDialer
 
-	lifecycleMu   sync.Mutex
-	started       bool
-	completed     bool
-	done          chan struct{}
-	runtimeCtx    context.Context
-	runtimeStop   context.CancelFunc
-	httpClient    *http.Client
-	transport     *switchingRuntimeClient
-	transportStop context.CancelFunc
-	store         RuntimeStore
-	ready         *RuntimeReadyPayload
+	lifecycleMu            sync.Mutex
+	started                bool
+	completed              bool
+	done                   chan struct{}
+	runtimeCtx             context.Context
+	runtimeStop            context.CancelFunc
+	httpClient             *http.Client
+	transport              *switchingRuntimeClient
+	transportStop          context.CancelFunc
+	transportTransitionMu  sync.Mutex
+	store                  RuntimeStore
+	ready                  *RuntimeReadyPayload
+	transportPolicyMu      sync.RWMutex
+	transportOrder         []RuntimeTransportMode
+	sessionStaleAfter      time.Duration
+	webSocketProbeInterval time.Duration
+	webSocketProbeTimeout  time.Duration
+	policyHeartbeat        time.Duration
+	policyRetryMinimum     time.Duration
+	policyRetryMaximum     time.Duration
+	policySessionStale     time.Duration
+	policyProbeInterval    time.Duration
+	policyProbeTimeout     time.Duration
+	policyRecoveryMu       sync.Mutex
+	policyRevision         uint64
+	policyLastObserved     uint64
+	policyLastReady        *RuntimeReadyPayload
+	policyLastError        error
+	policyTerminalError    error
+	initialResumeComplete  bool
+	runtimeDiscovery       func(context.Context, string) (runtimeConnectionInformation, error)
 
 	stateMu       sync.RWMutex
 	draining      bool
@@ -94,11 +115,14 @@ func (node *RuntimeWorker) Start(parent context.Context) (retErr error) {
 		return err
 	}
 	if node.runtimeClient == nil {
-		runtimeURL, err := resolveRuntimeURL(parent, node.PlatformURL, node.RuntimeURL)
+		connection, err := resolveRuntimeConnection(parent, node.PlatformURL, node.RuntimeURL)
 		if err != nil {
 			return err
 		}
-		node.RuntimeURL = runtimeURL
+		node.RuntimeURL = connection.RuntimeURL
+		if err = node.applyRuntimeTransportPolicy(connection.Policy); err != nil {
+			return err
+		}
 	}
 	startupCtx, cancelStartup := context.WithCancel(parent)
 	defer cancelStartup()
@@ -126,7 +150,7 @@ func (node *RuntimeWorker) Start(parent context.Context) (retErr error) {
 			return err
 		}
 		node.runtimeClient = runtimeClient
-		node.runtimeDialer = sdkRuntimeTransportDialer{runtime: runtimeClient}
+		node.runtimeDialer = &sdkRuntimeTransportDialer{runtime: runtimeClient}
 		node.httpClient = httpClient
 	}
 	if node.runtimeDialer != nil {
@@ -134,12 +158,15 @@ func (node *RuntimeWorker) Start(parent context.Context) (retErr error) {
 		node.lifecycleMu.Lock()
 		node.transport = transport
 		node.lifecycleMu.Unlock()
-		node.runtimeClient = transport
+		node.runtimeClient = &policyRecoveringRuntimeClient{node: node, transport: transport}
 	}
 
 	var ready *RuntimeReadyPayload
 	if node.transport != nil {
 		ready, err = node.startInitialRuntimeTransport(startupCtx)
+		if runtimePolicyRecoverySignal(err) {
+			ready, err = node.recoverRuntimePolicy(startupCtx, node.currentPolicyRevision())
+		}
 	} else {
 		ready, err = node.createSessionWithRetry(startupCtx)
 	}
@@ -151,6 +178,12 @@ func (node *RuntimeWorker) Start(parent context.Context) (retErr error) {
 	node.stateMu.Unlock()
 	if err := node.resumeDurableState(startupCtx); err != nil {
 		return err
+	}
+	node.policyRecoveryMu.Lock()
+	node.initialResumeComplete = true
+	node.policyRecoveryMu.Unlock()
+	if node.OnReady != nil {
+		node.OnReady(*ready)
 	}
 
 	node.startTransportSupervisor()
@@ -164,6 +197,9 @@ func (node *RuntimeWorker) Start(parent context.Context) (retErr error) {
 		return err
 	}
 }
+
+// Run is the facade-friendly alias for Start.
+func (node *RuntimeWorker) Run(ctx context.Context) error { return node.Start(ctx) }
 
 func (node *RuntimeWorker) Stop(ctx context.Context) error {
 	if ctx == nil {
@@ -285,6 +321,9 @@ func (node *RuntimeWorker) applyDefaultsAndValidate() error {
 	}
 	if node.RetryMaximum < node.RetryMinimum {
 		return errors.New("retry maximum must not be less than retry minimum")
+	}
+	if node.webSocketProbeTimeout <= 0 {
+		node.webSocketProbeTimeout = 10 * time.Second
 	}
 	return nil
 }

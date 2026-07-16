@@ -120,10 +120,13 @@ func (node *RuntimeWorker) executeAttempt(attempt *activeRuntimeAttempt) {
 	}
 	handlerCtx, stopHandler := context.WithCancel(attempt.ctx)
 	runCtx := RuntimeContext{
-		RunID:    attempt.identity.RunID,
-		AgentID:  attempt.identity.AgentID,
-		Input:    input,
-		Metadata: metadata,
+		RunID:             attempt.identity.RunID,
+		AgentID:           attempt.identity.AgentID,
+		AttemptIdentity:   sdkAttemptIdentity(attempt.identity),
+		AttemptDeadlineAt: attempt.payload.AttemptDeadlineAt,
+		RunDeadlineAt:     attempt.payload.RunDeadlineAt,
+		Input:             input,
+		Metadata:          metadata,
 	}
 	runCtx.emit = func(eventType string, payload any) error {
 		if attempt.finished.Load() || attempt.canceled.Load() {
@@ -433,7 +436,9 @@ func runtimeResultPayload(identity AttemptIdentity, result RuntimeResult) (Runti
 		if agentErr == nil {
 			agentErr = &RuntimeHandlerError{Code: "HANDLER_ERROR", Message: "runtime handler returned a failed result"}
 		}
-		return runtimeFailurePayload(identity, agentErr.Code, agentErr.Message, result.DurationMS), nil
+		payload := runtimeFailurePayload(identity, agentErr.Code, agentErr.Message, result.DurationMS)
+		payload.Error.RetryableHint = agentErr.Retryable
+		return payload, nil
 	}
 	output, err := runtimeObject(result.Output)
 	if err != nil {
@@ -534,6 +539,15 @@ func maxDurationMS(startedAt time.Time) int64 {
 func scrubRuntimeError(err error) error {
 	if err == nil {
 		return nil
+	}
+	// The two server-authoritative policy signals are deliberately exact and
+	// contain no private detail. Preserve their concrete error chain so attach,
+	// supervisor, and startup boundaries can still trigger canonical recovery.
+	// A terminal recovery wrapper must likewise remain terminal rather than
+	// being flattened back into a recoverable FORBIDDEN status.
+	var recoveryErr *runtimePolicyRecoveryError
+	if errors.As(err, &recoveryErr) || runtimePolicyRecoverySignal(err) {
+		return err
 	}
 	var runtimeErr *Error
 	if errors.As(err, &runtimeErr) {

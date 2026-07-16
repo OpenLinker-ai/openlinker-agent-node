@@ -12,9 +12,11 @@ Agent Node 不实现 Runtime client 或状态机。固定版本的 Go SDK 负责
 WebSocket/Pull 切换、assignment confirmation、续租、resume、取消、drain、加密 journal，
 以及 Event/Result 的稳定 ID 重传。Go 应用也可以直接通过 `NewRuntimeWorker` 使用同一套能力。
 
-本仓库只负责环境变量和 CLI、Adapter 选择、localhost helper、进程树控制、public A2A，
-以及 SDK 文件存储目录的选择。取消通过 SDK handler context 传入 Adapter；command 和 Codex
-Adapter 在返回前终止自己的进程树。
+本仓库只负责环境变量和 CLI、Adapter 选择、localhost helper、进程树控制、public A2A
+兼容监听器外壳（Card、鉴权与请求限制），以及 SDK 文件存储目录的选择。该监听器的 A2A
+有状态操作由 SDK 转发给 Core；为保持外部 URL 指向 AgentNode listener，无状态 Agent Card
+响应仍在本地生成。取消通过 SDK handler context 传入 Adapter；command 和 Codex Adapter
+在返回前终止自己的进程树。
 
 Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、订单、钱包、计费或市场
 运营 API，也不提供 MCP Adapter。
@@ -26,6 +28,9 @@ flowchart LR
   Handler -->|"HTTP、command、A2A 或 Codex"| Backend["私有 Agent backend"]
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
+  A2AClient["旧 A2A 客户端"] --> Compat["AgentNode Card/鉴权/限制"]
+  Compat --> Proxy["openlinker-go RuntimeA2AProxy"]
+  Proxy --> Core
 ```
 
 ## 状态与安装
@@ -234,9 +239,13 @@ curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
 程序化 adapter 遵循同一规则：`CallAgentOptions.IdempotencyKey` 为空时，
 `RunContext.CallAgent` 会直接拒绝调用。
 
-## 可选 Public A2A Server
+## 可选 Public A2A 兼容监听器
 
-Agent Node 也可以把 backend 暴露成入站 A2A server。这与 Core runtime 相互独立，默认关闭：
+Agent Node 可以提供一个兼容旧接入方式的本地 A2A 地址。监听器只负责展示本地
+Agent Card 并校验 `OPENLINKER_PUBLIC_A2A_TOKEN`；所有 message、task、push、
+有状态 JSON-RPC 与 SSE 请求都由 Go SDK 通过 Agent Token 和 mTLS 身份转发到 Core。
+REST 和 JSON-RPC Agent Card 响应仍在本地生成，以保持外部 URL 指向此监听器。
+A2A task、run、stream 与 push 状态的唯一权威仍是 Core。该监听器默认关闭：
 
 ```bash
 OPENLINKER_AGENT_NODE_PUBLIC_A2A=true
@@ -247,8 +256,8 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
 OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 ```
 
-该可选 server 的 Push Notification Config 只保存在内存中。需要持久化 callback
-subscription 时，应使用 Core 的平台 A2A adapter。
+兼容监听器将每个请求体限制为 1 MiB，并对 header/body 读取设置超时；SSE 响应不设置
+监听器级写入截止时间，其生命周期由客户端取消和 Core stream 决定。
 
 ## 安全与运维
 

@@ -28,5 +28,11 @@ jobs:
       - name: Test
         run: go test -mod=vendor ./...
 
+      - name: Vet
+        run: GOWORK=off go vet -mod=vendor ./...
+
+      - name: Race test
+        run: GOWORK=off go test -race -mod=vendor ./...
+
       - name: Build
         run: go build -mod=vendor ./cmd/openlinker-agent-node

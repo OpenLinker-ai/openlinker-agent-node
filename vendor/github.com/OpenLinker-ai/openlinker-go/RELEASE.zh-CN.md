@@ -5,9 +5,13 @@ English documentation: [RELEASE.md](./RELEASE.md)
 `openlinker-go` 从 `main` 发布，前提是 CI 和本地发布检查都通过。公共 SDK 版本应使用
 语义化版本 tag。
 
+`v0.2.0-rc.1` 的专项门槛、Core/layout 验证和回滚步骤见
+[docs/v0.2.0-rc.1-release-checklist.zh-CN.md](./docs/v0.2.0-rc.1-release-checklist.zh-CN.md)。
+
 ## 发布前检查
 
-1. 确认 `README.md`、`CONTRIBUTING.md`、`SECURITY.md`、`SUPPORT.md`、contracts、
+1. 确认 `README.md` 与 `README.zh-CN.md` 对 Core/Hosted、Client/Runtime 和 Agent Node
+   Adapter 边界的描述一致，并确认 `CONTRIBUTING`、`SECURITY`、`SUPPORT`、contracts、
    protobuf 文件和示例是最新的。
 2. 确认 `CHANGELOG.md` 描述了公共 API 变化、兼容性说明和 Core 版本假设。
 3. 运行 `gofmt -w .`。

@@ -17,10 +17,13 @@ encrypted journal, and stable Event/Result replay. The same SDK behavior is
 available directly to any Go application through `NewRuntimeWorker`.
 
 This repository owns only environment and CLI parsing, Adapter selection,
-localhost helper sessions, process-tree control, public A2A exposure, and the
-choice of SDK file-store directory. Cancellation reaches an Adapter through
-the SDK handler context; command and Codex Adapters terminate their own process
-trees before returning.
+localhost helper sessions, process-tree control, the public A2A compatibility
+listener shell (cards, authentication, and request limits), and the choice of
+SDK file-store directory. The SDK proxies that listener's A2A operations to
+Core, except for stateless Agent Card responses whose external URL must remain
+the AgentNode listener. Cancellation reaches an Adapter through the SDK handler
+context; command and Codex Adapters terminate their own process trees before
+returning.
 
 Agent Node connects only to the Core Runtime contract. It does not call hosted
 service-listing, order, wallet, billing, or marketplace-operation APIs, and it
@@ -33,6 +36,9 @@ flowchart LR
   Handler -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
+  A2AClient["Legacy A2A client"] --> Compat["AgentNode card/auth/limits"]
+  Compat --> Proxy["openlinker-go RuntimeA2AProxy"]
+  Proxy --> Core
 ```
 
 ## Status and installation
@@ -256,10 +262,15 @@ curl -X POST "$OPENLINKER_AGENT_NODE_HELPER_EVENTS_URL" \
 Programmatic adapters follow the same rule: `RunContext.CallAgent` rejects a
 call whose `CallAgentOptions.IdempotencyKey` is empty.
 
-## Optional public A2A server
+## Optional public A2A compatibility listener
 
-Agent Node can also expose its backend as an inbound A2A server. This is
-independent of the Core runtime and is disabled by default:
+Agent Node can expose a local inbound A2A URL for compatibility. The listener
+serves the local Agent Card and validates `OPENLINKER_PUBLIC_A2A_TOKEN`; the Go
+SDK forwards every message, task, push-notification, stateful JSON-RPC, and SSE
+request to Core over the configured Agent Token and mTLS identity. REST and
+JSON-RPC Agent Card responses remain local so their external URL continues to
+name this listener. Core remains the sole authority for A2A task, run, stream,
+and push state. The listener is disabled by default:
 
 ```bash
 OPENLINKER_AGENT_NODE_PUBLIC_A2A=true
@@ -270,8 +281,9 @@ OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME="My Agent"
 OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 ```
 
-Push Notification Config state in this optional server is memory-backed. Use
-Core's platform A2A adapter when callback subscriptions must be durable.
+The compatibility listener caps each request body at 1 MiB and applies bounded
+header/body read timeouts. SSE responses have no listener-wide write deadline;
+their lifetime follows client cancellation and the Core stream.
 
 ## Security and operations
 

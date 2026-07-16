@@ -3,7 +3,9 @@ package agentnode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,8 +119,17 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		}
 	}
 	if node.PublicA2A != nil {
-		if node.PublicA2A.Adapter == nil {
-			node.PublicA2A.Adapter = node.Adapter
+		node.PublicA2A.Slug = strings.TrimSpace(node.PublicA2A.Slug)
+		if node.PublicA2A.Slug == "" {
+			node.PublicA2A.Slug = "agent-node"
+		}
+		proxy, err := node.newPublicA2AProxy(node.lifetime)
+		if err != nil {
+			return fmt.Errorf("create public A2A Core proxy: %w", err)
+		}
+		if err := node.PublicA2A.setProxy(proxy); err != nil {
+			proxy.Close()
+			return err
 		}
 		if err := node.PublicA2A.Start(node.lifetime); err != nil {
 			return err
@@ -129,6 +140,24 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 	node.worker = worker
 	node.mu.Unlock()
 	return worker.Start(node.lifetime)
+}
+
+func (node *Node) newPublicA2AProxy(ctx context.Context) (publicA2AProxy, error) {
+	if node.PublicA2A == nil {
+		return nil, errors.New("public A2A server is not configured")
+	}
+	return openlinker.NewRuntimeA2AProxy(ctx, openlinker.RuntimeA2AProxyConfig{
+		PlatformURL: node.OpenLinkerURL,
+		RuntimeURL:  node.RuntimeURL,
+		AgentToken:  node.AgentToken,
+		AgentSlug:   node.PublicA2A.Slug,
+		MTLS: openlinker.RuntimeMTLSConfig{
+			CertFile:   node.MTLSCertFile,
+			KeyFile:    node.MTLSKeyFile,
+			CAFile:     node.MTLSCAFile,
+			ServerName: node.MTLSServerName,
+		},
+	})
 }
 
 func (node *Node) Stop(ctx context.Context) error {

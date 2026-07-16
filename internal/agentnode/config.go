@@ -35,7 +35,7 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	publicA2A, err := publicA2AFromEnv(get, adapter)
+	publicA2A, err := publicA2AFromEnv(get)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func helperFromEnv(get EnvLookup, adapterMode string) (*LocalHelperServer, error
 	}, nil
 }
 
-func publicA2AFromEnv(get EnvLookup, adapter Adapter) (*PublicA2AServer, error) {
+func publicA2AFromEnv(get EnvLookup) (*PublicA2AServer, error) {
 	if !boolOption(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A"), false) {
 		return nil, nil
 	}
@@ -204,11 +204,6 @@ func publicA2AFromEnv(get EnvLookup, adapter Adapter) (*PublicA2AServer, error) 
 		Name:        defaultString(get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_NAME"), "OpenLinker Agent Node"),
 		Description: get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_DESCRIPTION"),
 		Token:       get("OPENLINKER_PUBLIC_A2A_TOKEN"),
-		Adapter:     adapter,
-		AllowLocalPushURLs: boolOption(
-			get("OPENLINKER_AGENT_NODE_PUBLIC_A2A_ALLOW_LOCAL_PUSH_URLS"),
-			false,
-		),
 	}, nil
 }
 
