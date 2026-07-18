@@ -157,7 +157,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			EnvAllowlist: envAllowlist,
 		}, nil
 	case "module":
-		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, or codex")
+		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, or codex")
 	default:
 		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_ADAPTER=%s", mode)
 	}

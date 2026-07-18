@@ -14,7 +14,7 @@ import (
 func TestAdapterModeCompatibilityBoundary(t *testing.T) {
 	supported := []string{"http", "openclaw", "command", "a2a", "codex"}
 	explicitlyRejected := map[string]string{
-		"module": "module adapter is not supported",
+		"module": "module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, or codex",
 	}
 
 	get := func(string) string { return "" }
@@ -38,8 +38,8 @@ func TestAdapterModeCompatibilityBoundary(t *testing.T) {
 			if adapter != nil {
 				t.Fatalf("adapterFromEnv(%q) returned adapter %T on rejection", mode, adapter)
 			}
-			if !strings.Contains(err.Error(), errorFragment) {
-				t.Fatalf("adapterFromEnv(%q) error = %q, want fragment %q", mode, err, errorFragment)
+			if got := err.Error(); got != errorFragment {
+				t.Fatalf("adapterFromEnv(%q) error = %q, want %q", mode, got, errorFragment)
 			}
 			if strings.Contains(err.Error(), "unsupported OPENLINKER_AGENT_NODE_ADAPTER=") {
 				t.Fatalf("adapterFromEnv(%q) used the generic unsupported-mode error: %v", mode, err)
