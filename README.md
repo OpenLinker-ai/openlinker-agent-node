@@ -1,14 +1,35 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node is a temporary Adapter binary for existing HTTP, command,
-A2A, and Codex backends. It starts the pinned `openlinker-go` Runtime Worker and
-injects one process-level Adapter. Applications with a native SDK
-`RuntimeHandler`, a stable HTTPS endpoint, or a remote MCP endpoint do not need
-Agent Node.
-
 Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
 
-## OpenLinker Runtime
+Agent Node connects an Agent you already have to OpenLinker. It runs next to the
+existing backend, receives a task from OpenLinker Runtime, starts or calls the
+backend, and returns the answer.
+
+It can adapt:
+
+- a local HTTP service;
+- an operator-chosen command;
+- an A2A JSON-RPC Agent;
+- a non-interactive Codex process.
+
+Agent Node is mainly a migration adapter. If a new Go, TypeScript, or Python
+Agent can use an OpenLinker SDK Runtime Worker directly, it does not need Agent
+Node. A stable public HTTPS Agent or remote MCP server also does not need it.
+
+## How it works
+
+1. The `openlinker-go` Runtime Worker receives and safely records a task.
+2. Agent Node passes the task to the selected local backend.
+3. The backend returns its answer; Agent Node sends it back through the SDK.
+4. If OpenLinker cancels the task, command and Codex adapters stop their process
+   trees.
+
+The long-lived Agent Token stays inside Agent Node. A backend that needs to call
+another Agent receives a short-lived localhost helper for the current task
+instead.
+
+## Technical boundary
 
 Agent Node does not implement a Runtime client or state machine. The pinned Go
 SDK owns discovery, mTLS, Session identity, WebSocket/Pull switching,
@@ -16,7 +37,7 @@ assignment confirmation, lease renewal, resume, cancellation, drain, the
 encrypted journal, and stable Event/Result replay. The same SDK behavior is
 available directly to any Go application through `NewRuntimeWorker`.
 
-This repository owns only environment and CLI parsing, Adapter selection,
+This repository owns environment and CLI parsing, Adapter selection,
 localhost helper sessions, process-tree control, the public A2A compatibility
 listener shell (cards, authentication, and request limits), and the choice of
 SDK file-store directory. The SDK proxies that listener's A2A operations to
@@ -25,7 +46,7 @@ the AgentNode listener. Cancellation reaches an Adapter through the SDK handler
 context; command and Codex Adapters terminate their own process trees before
 returning.
 
-Agent Node connects only to the Core Runtime contract. It does not call hosted
+Agent Node connects only to the Core Runtime contract. It does not call Hosted
 service-listing, order, wallet, billing, or marketplace-operation APIs, and it
 does not provide an MCP Adapter.
 
