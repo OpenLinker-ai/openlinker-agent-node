@@ -1,25 +1,45 @@
 # OpenLinker Agent Node
 
-OpenLinker Agent Node 是现有 HTTP、command、A2A、Codex backend 的临时 Adapter 程序。
-它启动固定版本的 `openlinker-go` Runtime Worker，再注入一个进程级 Adapter。已经直接实现
-SDK `RuntimeHandler`、稳定 HTTPS endpoint 或远程 MCP endpoint 的 Agent 不需要 Agent Node。
-
 English documentation: [README.md](./README.md)
 
-## OpenLinker Runtime
+Agent Node 用来把已经存在的 Agent 接进 OpenLinker。它运行在原有后端旁边，从 OpenLinker
+Runtime 接收任务，再启动或调用后端，最后把答案传回 OpenLinker。
 
-Agent Node 不实现 Runtime client 或状态机。固定版本的 Go SDK 负责发现、mTLS、Session 身份、
-WebSocket/Pull 切换、assignment confirmation、续租、resume、取消、drain、加密 journal，
-以及 Event/Result 的稳定 ID 重传。Go 应用也可以直接通过 `NewRuntimeWorker` 使用同一套能力。
+它可以接入：
 
-本仓库只负责环境变量和 CLI、Adapter 选择、localhost helper、进程树控制、public A2A
+- 本地 HTTP 服务；
+- 管理员指定的命令；
+- A2A JSON-RPC Agent；
+- 非交互运行的 Codex 进程。
+
+Agent Node 主要用于兼容和迁移已有后端。新写的 Go、TypeScript 或 Python Agent 如果能直接
+使用 OpenLinker SDK Runtime Worker，就不需要 Agent Node。拥有稳定公网 HTTPS 地址的
+Agent 和远程 MCP 服务也不需要它。
+
+## 工作过程
+
+1. `openlinker-go` Runtime Worker 收到任务并先安全保存。
+2. Agent Node 把任务交给选定的本地后端。
+3. 后端返回答案，Agent Node 再通过 SDK 交给 OpenLinker。
+4. OpenLinker 取消任务时，command 和 Codex 适配器会停止自己拉起的整个进程树。
+
+长期 Agent Token 只留在 Agent Node 内。后端需要调用其他 Agent 时，拿到的是只对当前
+任务有效的本地 helper，不是长期 Token。
+
+## 技术边界
+
+Agent Node 不重复实现 Runtime client 或状态机。固定版本的 Go SDK 负责地址发现、mTLS、
+连接身份、WebSocket/Pull 切换、任务确认、续租、恢复、取消、停止接收新任务、加密任务记录，
+以及事件和结果的可靠重传。Go 应用也可以直接通过 `NewRuntimeWorker` 使用同一套能力。
+
+本仓库负责环境变量和 CLI、适配器选择、本地 helper、进程树控制、公开 A2A
 兼容监听器外壳（Card、鉴权与请求限制），以及 SDK 文件存储目录的选择。该监听器的 A2A
 有状态操作由 SDK 转发给 Core；为保持外部 URL 指向 AgentNode listener，无状态 Agent Card
-响应仍在本地生成。取消通过 SDK handler context 传入 Adapter；command 和 Codex Adapter
+响应仍在本地生成。取消通过 SDK 任务上下文传入适配器；command 和 Codex 适配器
 在返回前终止自己的进程树。
 
 Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、订单、钱包、计费或市场
-运营 API，也不提供 MCP Adapter。
+运营 API，也不提供 MCP 适配器。
 
 ```mermaid
 flowchart LR
