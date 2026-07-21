@@ -67,9 +67,7 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 需要准备：
 
 - Go 1.25 或更高版本
-- 已在 Core 注册的 Agent 和 Node
-- 两者的小写 UUID 与 Agent Token
-- Core 签发的 client certificate、private key 和受信 CA bundle
+- 有效的 Agent Token
 - 私有、可持久化的数据目录
 - 本地 backend
 
@@ -80,33 +78,15 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-登记 Runtime Node 时必须写入当前 Adapter 的精确实现版本。登记值与 Worker hello 不一致时，
-Core 会拒绝 Session。`NODE_VERSION` 应填写二进制 release 报告的完整值；源码构建则原样
-复制 `internal/agentnode/node.go` 中完整的 `AgentNodeVersion` 字符串：
-
-```bash
-NODE_VERSION=openlinker-agent-node/0.x.y
-DATABASE_URL='postgres://...' ./api runtime-node issue \
-  --ca-cert /secure/runtime-client-ca.crt \
-  --ca-key /secure/runtime-client-ca.key \
-  --display-name 'legacy-backend-adapter' \
-  --node-version "${NODE_VERSION}" \
-  --capacity 1 \
-  --cert-out /run/openlinker/node.crt \
-  --key-out /run/openlinker/node.key
-```
+首次启动时，SDK 会在私有目录生成 Node ID 和 P-256 私钥，将公钥一对一绑定到 Agent Token，
+并取得 24 小时客户端证书；续期全自动完成。
 
 运行本地 HTTP backend：
 
 ```bash
 OPENLINKER_URL=https://openlinker.example \
-OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
-OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
-OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
-OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
-OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
 OPENLINKER_AGENT_NODE_TRANSPORT=auto \
 OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
@@ -133,13 +113,13 @@ SDK 加密 spool 的上限是 512 MiB 和 10,000 条记录。使用量达到 80%
 | 环境变量 | 用途 |
 | --- | --- |
 | `OPENLINKER_URL` | OpenLinker 平台地址，用于自动发现 Runtime 连接信息 |
-| `OPENLINKER_NODE_ID` | 已注册 Node 的 UUID |
-| `OPENLINKER_AGENT_ID` | 当前进程承载的 Agent UUID |
+| `OPENLINKER_NODE_ID` | 可选的旧版 Node UUID 覆盖；默认自动生成 |
+| `OPENLINKER_AGENT_ID` | 可选的旧版 Agent UUID 覆盖；默认从 Agent Token 解析 |
 | `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent Token |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | 交给 SDK `FileRuntimeStore` 的目录 |
-| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | client certificate |
-| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | client private key |
-| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | 用来校验 Core 的 CA bundle |
+| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | 可选的外部 PKI 兼容证书 |
+| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | 可选的外部 PKI 兼容私钥 |
+| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | 可选的外部 PKI 兼容 CA bundle |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | 可选的证书 server name 覆盖值 |
 | `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto`（默认）、`ws` 或 `pull`；三者共用同一 Runtime session |
 

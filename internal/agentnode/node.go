@@ -151,6 +151,11 @@ func (node *Node) newPublicA2AProxy(ctx context.Context) (publicA2AProxy, error)
 		RuntimeURL:  node.RuntimeURL,
 		AgentToken:  node.AgentToken,
 		AgentSlug:   node.PublicA2A.Slug,
+		DataDir:     node.DataDir,
+		NodeID:      node.NodeID,
+		AgentID:     node.AgentID,
+		NodeVersion: AgentNodeVersion,
+		Capacity:    node.Capacity,
 		MTLS: openlinker.RuntimeMTLSConfig{
 			CertFile:   node.MTLSCertFile,
 			KeyFile:    node.MTLSKeyFile,
