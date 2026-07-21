@@ -75,6 +75,8 @@ func TestPublicA2AServerKeepsLocalCardsAndProxiesA2AToCore(t *testing.T) {
 	}
 	node := &Node{
 		RuntimeURL:     core.URL,
+		NodeID:         "11111111-1111-4111-8111-111111111111",
+		AgentID:        "22222222-2222-4222-8222-222222222222",
 		AgentToken:     "ol_agent_runtime",
 		MTLSCertFile:   mtls.CertFile,
 		MTLSKeyFile:    mtls.KeyFile,
@@ -256,6 +258,61 @@ func TestPublicA2AServerKeepsLocalCardsAndProxiesA2AToCore(t *testing.T) {
 		if strings.Contains(rpcUnavailable.Body, secret) {
 			t.Fatalf("JSON-RPC unavailable Core response leaked %q: %s", secret, rpcUnavailable.Body)
 		}
+	}
+}
+
+func TestPublicA2AProxyUsesDiscoveredTokenOnlyRuntimeWithoutCertificates(t *testing.T) {
+	var discoveryCalls atomic.Int32
+	var runtimeCalls atomic.Int32
+	var core *httptest.Server
+	core = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openlinker.json" {
+			discoveryCalls.Add(1)
+			if r.Header.Get("Authorization") != "" {
+				t.Errorf("discovery Authorization = %q", r.Header.Get("Authorization"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"base_urls": map[string]any{"runtime": core.URL},
+				"runtime": map[string]any{
+					"enabled":       true,
+					"mtls_required": false,
+					"transports":    []string{"long_poll"},
+				},
+			})
+			return
+		}
+		runtimeCalls.Add(1)
+		if r.Header.Get("Authorization") != "Bearer ol_agent_token_only" {
+			t.Errorf("Runtime Authorization = %q", r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("OpenLinker-Runtime-Node") != "11111111-1111-4111-8111-111111111111" {
+			t.Errorf("Runtime Node ID = %q", r.Header.Get("OpenLinker-Runtime-Node"))
+		}
+		if r.TLS != nil && len(r.TLS.PeerCertificates) != 0 {
+			t.Errorf("token-only Runtime unexpectedly received client certificates")
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer core.Close()
+
+	node := &Node{
+		OpenLinkerURL: core.URL,
+		NodeID:        "11111111-1111-4111-8111-111111111111",
+		AgentID:       "22222222-2222-4222-8222-222222222222",
+		AgentToken:    "ol_agent_token_only",
+		PublicA2A:     &PublicA2AServer{Slug: "token-only-agent"},
+	}
+	proxy, err := node.newPublicA2AProxy(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	request := httptest.NewRequest(http.MethodPost, "http://agent-node.test/message:send", strings.NewReader(`{"message":{"messageId":"token-only"}}`))
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted || discoveryCalls.Load() != 1 || runtimeCalls.Load() != 1 {
+		t.Fatalf("response=%d discovery=%d runtime=%d", recorder.Code, discoveryCalls.Load(), runtimeCalls.Load())
 	}
 }
 
