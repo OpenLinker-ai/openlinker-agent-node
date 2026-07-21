@@ -15,23 +15,24 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 - The pinned `openlinker-go` SDK now owns the complete reliable Runtime Worker.
   Public Go names are generation-free `Runtime*`, and Runtime URLs do not carry
   a protocol generation.
-- Normal startup uses `OPENLINKER_URL` to discover the dedicated mTLS Runtime
-  origin from `/.well-known/openlinker.json`. `OPENLINKER_RUNTIME_URL` remains
-  an advanced HTTPS override.
+- Normal startup uses `OPENLINKER_URL` to discover the Runtime origin and its
+  token-only or mTLS policy from `/.well-known/openlinker.json`.
+  `OPENLINKER_RUNTIME_URL` remains an advanced address override but no longer
+  bypasses discovery or downgrades its security policy.
 - Delegated Agent calls require an explicit idempotency key. Reuse a key only
   for retries of the same intent.
 - The optional public A2A listener no longer executes an Adapter or owns
   in-memory task and push-notification state. It retains only local Agent Card,
   bearer-authentication, request-size, and timeout guards; the Go SDK proxies
-  every stateful A2A operation to Core over Agent Token plus mTLS. REST and
+  every stateful A2A operation to Core over Agent Token plus the discovered security policy. REST and
   JSON-RPC Agent Card responses remain stateless and local so their external
   URL continues to identify the AgentNode listener.
 
 ### SDK boundary
 
-- Pinned and vendored `openlinker-go` commit
-  `4ce0eec90a533e235cb28e2045f136529186bf51`.
-- The SDK owns discovery, TLS 1.3 mTLS, Session identity, WebSocket/Pull
+- Pinned `openlinker-go` commit
+  `bcb5823c5bd08da78802691a31a05501db74e7d8`; dependencies now use standard Go module resolution instead of a checked-in vendor tree.
+- The SDK owns discovery, token-only/TLS 1.3 mTLS policy, Session identity, WebSocket/Pull
   switching, assignment confirmation, lease renewal, resume, cancellation,
   drain, durable assignment state, encrypted Event/Result delivery, ACK repair,
   backpressure, and duplicate-execution prevention.
@@ -53,8 +54,8 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   integration.
 - Added regressions for Stop during Worker startup and for Adapter error,
   cancellation, and panic mapping.
-- Added mTLS proxy regressions for all public A2A operation families, SSE,
+- Added token-only and mTLS proxy regressions for public A2A operation families, SSE,
   identity/header isolation, oversized requests, unavailable Core, and
   listener generation-safe shutdown/restart.
-- Verified both repositories with ordinary and race-enabled Go tests, and
-  verified Agent Node from the vendored dependency graph.
+- Verified both repositories with ordinary and race-enabled Go tests and a
+  read-only standard module dependency graph.

@@ -19,7 +19,7 @@ release line.
 
 ## Security-Sensitive Areas
 
-- wiring Agent Token, mTLS paths, and the SDK file-store directory without
+- wiring Agent Token, optional external-PKI paths, and the SDK file-store directory without
   exposing them to Adapters
 - passing assignment-scoped capabilities only through SDK-owned calls
 - localhost helper token scope
@@ -28,7 +28,7 @@ release line.
 - public A2A server request handling
 - workspace isolation for the Codex adapter
 
-The pinned `openlinker-go` SDK owns mTLS loading, Runtime transport and Session
+The pinned `openlinker-go` SDK owns discovered token-only/mTLS security, Runtime transport and Session
 state, encrypted journal/spool handling, lease fencing, resume, cancellation,
 and duplicate-execution prevention. Report defects that reproduce in the SDK
 to that repository; report leaks or unsafe wiring introduced by this host here.

@@ -12,6 +12,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+      GOFLAGS: "-mod=readonly"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -22,17 +25,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Verify vendored dependencies
-        run: go list -mod=vendor ./...
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependency graph
+        run: |
+          go mod verify
+          go list ./...
 
       - name: Test
-        run: go test -mod=vendor ./...
+        run: go test ./...
 
       - name: Vet
-        run: GOWORK=off go vet -mod=vendor ./...
+        run: go vet ./...
 
       - name: Race test
-        run: GOWORK=off go test -race -mod=vendor ./...
+        run: go test -race ./...
 
       - name: Build
-        run: go build -mod=vendor ./cmd/openlinker-agent-node
+        run: go build ./cmd/openlinker-agent-node

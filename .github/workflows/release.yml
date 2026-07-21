@@ -13,6 +13,9 @@ jobs:
   package-binaries:
     name: Package ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-24.04
+    env:
+      GOWORK: "off"
+      GOFLAGS: "-mod=readonly"
     permissions:
       contents: read
     strategy:
@@ -40,6 +43,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Verify dependency graph
+        run: |
+          go mod download
+          go mod verify
+          go list ./...
 
       - name: Package binary
         id: package

@@ -93,6 +93,26 @@ func TestNewFromEnvMapCommand(t *testing.T) {
 	}
 }
 
+func TestNewFromEnvMapDefaultsToDiscoveredTokenOnlySecurity(t *testing.T) {
+	node, err := NewFromEnvMap(Env{
+		"OPENLINKER_URL":                "https://api.example.test",
+		"OPENLINKER_NODE_ID":            "11111111-1111-4111-8111-111111111111",
+		"OPENLINKER_AGENT_ID":           "22222222-2222-4222-8222-222222222222",
+		"OPENLINKER_AGENT_TOKEN":        "ol_agent_token_only",
+		"OPENLINKER_AGENT_NODE_ADAPTER": "command",
+		"OPENLINKER_AGENT_NODE_COMMAND": "/bin/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.RuntimeURL != "" {
+		t.Fatalf("Runtime URL override = %q; normal startup must use platform discovery", node.RuntimeURL)
+	}
+	if node.MTLSCertFile != "" || node.MTLSKeyFile != "" || node.MTLSCAFile != "" || node.MTLSServerName != "" {
+		t.Fatalf("default mTLS configuration = cert %q key %q CA %q server %q", node.MTLSCertFile, node.MTLSKeyFile, node.MTLSCAFile, node.MTLSServerName)
+	}
+}
+
 func TestNewFromEnvUsesProcessEnvironment(t *testing.T) {
 	t.Setenv("OPENLINKER_URL", "https://env.example.test")
 	t.Setenv("OPENLINKER_AGENT_TOKEN", "ol_agent_env_process")

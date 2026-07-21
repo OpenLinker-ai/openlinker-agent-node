@@ -32,7 +32,7 @@ instead.
 ## Technical boundary
 
 Agent Node does not implement a Runtime client or state machine. The pinned Go
-SDK owns discovery, mTLS, Session identity, WebSocket/Pull switching,
+SDK owns discovery and the token-only or mTLS security policy, Session identity, WebSocket/Pull switching,
 assignment confirmation, lease renewal, resume, cancellation, drain, the
 encrypted journal, and stable Event/Result replay. The same SDK behavior is
 available directly to any Go application through `NewRuntimeWorker`.
@@ -90,14 +90,16 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-On first start the SDK creates the Node ID and P-256 private key inside the
-private data directory, binds that public key one-to-one to the Agent Token,
-and obtains a 24-hour client certificate. Renewal is automatic.
+Platform discovery decides whether the Runtime is token-only or requires mTLS.
+For mTLS, the SDK can create the private key inside the data directory and
+automatically enroll and renew a short-lived client certificate.
 
 Run a local HTTP backend:
 
 ```bash
 OPENLINKER_URL=https://openlinker.example \
+OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
+OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
 OPENLINKER_AGENT_NODE_TRANSPORT=auto \
@@ -123,26 +125,28 @@ never expired or deleted.
 At startup, the Go SDK Worker reads the public connection manifest from
 `$OPENLINKER_URL/.well-known/openlinker.json` and discovers the dedicated
 Runtime origin. Discovery uses a separate five-second HTTP client, follows no
-redirects, reads at most 64 KiB, and sends neither the Agent Token nor the mTLS
-client certificate. A missing, disabled, insecure, or malformed Runtime entry
+redirects, reads at most 64 KiB, and sends neither the Agent Token nor a client
+certificate. The same manifest selects token-only or mTLS security. A missing, disabled, insecure, or malformed Runtime entry
 stops startup instead of falling back to the ordinary API origin.
 
 | Variable | Purpose |
 | --- | --- |
 | `OPENLINKER_URL` | OpenLinker platform origin used to discover the Runtime connection |
-| `OPENLINKER_NODE_ID` | Optional legacy Node UUID override; generated automatically by default |
-| `OPENLINKER_AGENT_ID` | Optional legacy Agent UUID override; resolved from the Agent Token by default |
+| `OPENLINKER_NODE_ID` | Stable Runtime Node UUID; required for token-only Runtime |
+| `OPENLINKER_AGENT_ID` | Agent UUID; required for token-only Runtime |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | Directory selected for the SDK `FileRuntimeStore` |
-| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Optional external-PKI compatibility certificate |
-| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Optional external-PKI compatibility private key |
-| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | Optional external-PKI compatibility CA bundle |
+| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Optional external-PKI certificate used only when discovery requires mTLS |
+| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Optional external-PKI private key; configure the complete cert/key/CA group |
+| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | Optional external-PKI CA bundle |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | Optional certificate server-name override |
 | `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto` (default), `ws`, or `pull`; all share one Runtime session |
 
-`OPENLINKER_RUNTIME_URL` is an advanced override for integration tests and
-private-network routing. It must be an absolute HTTPS origin and skips public
-discovery. Normal deployments should leave it unset.
+`OPENLINKER_RUNTIME_URL` is an advanced connection-address override for tests
+and private routing. Platform discovery still runs and remains authoritative
+for the security policy; an override cannot downgrade an mTLS manifest. Normal
+deployments should leave it unset. A Runtime URL without `OPENLINKER_URL` uses
+the legacy direct mode and requires a complete mTLS configuration.
 
 Useful tuning options are `OPENLINKER_AGENT_NODE_CAPACITY`,
 `OPENLINKER_AGENT_NODE_CLAIM_WAIT_SECONDS`,
@@ -267,7 +271,7 @@ call whose `CallAgentOptions.IdempotencyKey` is empty.
 Agent Node can expose a local inbound A2A URL for compatibility. The listener
 serves the local Agent Card and validates `OPENLINKER_PUBLIC_A2A_TOKEN`; the Go
 SDK forwards every message, task, push-notification, stateful JSON-RPC, and SSE
-request to Core over the configured Agent Token and mTLS identity. REST and
+request to Core over the configured Agent Token and discovered security policy. REST and
 JSON-RPC Agent Card responses remain local so their external URL continues to
 name this listener. Core remains the sole authority for A2A task, run, stream,
 and push state. The listener is disabled by default:
@@ -287,7 +291,7 @@ their lifetime follows client cancellation and the Core stream.
 
 ## Security and operations
 
-- Treat the Agent Token, mTLS private key, SDK-managed spool key, assignment
+- Treat the Agent Token, any mTLS private key, SDK-managed spool key, assignment
   payloads, and helper tokens as secrets.
 - Do not mount the runtime data directory into backend containers.
 - Keep command and Codex workspaces isolated and narrowly permissioned.
