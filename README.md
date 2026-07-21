@@ -79,9 +79,7 @@ source with the commands below.
 Prerequisites:
 
 - Go 1.25 or newer
-- an Agent and Node registered in Core
-- their lowercase UUIDs and an Agent Token
-- a Core-issued client certificate, private key, and trusted CA bundle
+- an active Agent Token
 - a private, persistent data directory
 - a local backend
 
@@ -92,35 +90,16 @@ go test ./...
 go build ./cmd/openlinker-agent-node
 ```
 
-Enroll the Runtime Node with this Adapter's exact implementation version. Core
-rejects a Session when the enrolled version and Worker hello differ. Set
-`NODE_VERSION` to the complete value reported by the binary release, or copy
-the complete `AgentNodeVersion` string from `internal/agentnode/node.go` for a
-source build:
-
-```bash
-NODE_VERSION=openlinker-agent-node/0.x.y
-DATABASE_URL='postgres://...' ./api runtime-node issue \
-  --ca-cert /secure/runtime-client-ca.crt \
-  --ca-key /secure/runtime-client-ca.key \
-  --display-name 'legacy-backend-adapter' \
-  --node-version "${NODE_VERSION}" \
-  --capacity 1 \
-  --cert-out /run/openlinker/node.crt \
-  --key-out /run/openlinker/node.key
-```
+On first start the SDK creates the Node ID and P-256 private key inside the
+private data directory, binds that public key one-to-one to the Agent Token,
+and obtains a 24-hour client certificate. Renewal is automatic.
 
 Run a local HTTP backend:
 
 ```bash
 OPENLINKER_URL=https://openlinker.example \
-OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
-OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
-OPENLINKER_AGENT_NODE_MTLS_CERT_FILE=/run/openlinker/node.crt \
-OPENLINKER_AGENT_NODE_MTLS_KEY_FILE=/run/openlinker/node.key \
-OPENLINKER_AGENT_NODE_MTLS_CA_FILE=/run/openlinker/core-ca.crt \
 OPENLINKER_AGENT_NODE_TRANSPORT=auto \
 OPENLINKER_AGENT_NODE_ADAPTER=http \
 OPENLINKER_AGENT_NODE_HTTP_URL=http://127.0.0.1:18080/run \
@@ -151,13 +130,13 @@ stops startup instead of falling back to the ordinary API origin.
 | Variable | Purpose |
 | --- | --- |
 | `OPENLINKER_URL` | OpenLinker platform origin used to discover the Runtime connection |
-| `OPENLINKER_NODE_ID` | Registered Node UUID |
-| `OPENLINKER_AGENT_ID` | Agent UUID served by this process |
+| `OPENLINKER_NODE_ID` | Optional legacy Node UUID override; generated automatically by default |
+| `OPENLINKER_AGENT_ID` | Optional legacy Agent UUID override; resolved from the Agent Token by default |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | Directory selected for the SDK `FileRuntimeStore` |
-| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Client certificate |
-| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Client private key |
-| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | CA bundle used to verify Core |
+| `OPENLINKER_AGENT_NODE_MTLS_CERT_FILE` | Optional external-PKI compatibility certificate |
+| `OPENLINKER_AGENT_NODE_MTLS_KEY_FILE` | Optional external-PKI compatibility private key |
+| `OPENLINKER_AGENT_NODE_MTLS_CA_FILE` | Optional external-PKI compatibility CA bundle |
 | `OPENLINKER_AGENT_NODE_MTLS_SERVER_NAME` | Optional certificate server-name override |
 | `OPENLINKER_AGENT_NODE_TRANSPORT` | `auto` (default), `ws`, or `pull`; all share one Runtime session |
 
