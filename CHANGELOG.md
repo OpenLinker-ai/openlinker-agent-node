@@ -30,8 +30,11 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### SDK boundary
 
+- Token-only startup no longer requires `OPENLINKER_NODE_ID`; the pinned SDK
+  derives a deterministic token-scoped identity. Explicit mTLS startup keeps
+  the provisioned Node ID requirement.
 - Pinned `openlinker-go` commit
-  `bcb5823c5bd08da78802691a31a05501db74e7d8`; dependencies now use standard Go module resolution instead of a checked-in vendor tree.
+  `28adfdebe8e15a07f3f3a75f2c4b4a2b5c736195`; dependencies now use standard Go module resolution instead of a checked-in vendor tree.
 - The SDK owns discovery, token-only/TLS 1.3 mTLS policy, Session identity, WebSocket/Pull
   switching, assignment confirmation, lease renewal, resume, cancellation,
   drain, durable assignment state, encrypted Event/Result delivery, ACK repair,

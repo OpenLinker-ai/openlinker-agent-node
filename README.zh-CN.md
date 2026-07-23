@@ -85,7 +85,6 @@ go build ./cmd/openlinker-agent-node
 
 ```bash
 OPENLINKER_URL=https://openlinker.example \
-OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
 OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
@@ -115,7 +114,7 @@ SDK 加密 spool 的上限是 512 MiB 和 10,000 条记录。使用量达到 80%
 | 环境变量 | 用途 |
 | --- | --- |
 | `OPENLINKER_URL` | OpenLinker 平台地址，用于自动发现 Runtime 连接信息 |
-| `OPENLINKER_NODE_ID` | 稳定的 Runtime Node UUID；token-only Runtime 必填 |
+| `OPENLINKER_NODE_ID` | 可选的已有 Runtime Node UUID；token-only 发现模式省略时会派生稳定、仅限该凭证的值 |
 | `OPENLINKER_AGENT_ID` | Agent UUID；token-only Runtime 必填 |
 | `OPENLINKER_AGENT_TOKEN` | 只保留在节点内的长效 Agent Token |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | 交给 SDK `FileRuntimeStore` 的目录 |

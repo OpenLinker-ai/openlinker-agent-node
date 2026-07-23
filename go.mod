@@ -2,7 +2,7 @@ module github.com/OpenLinker-ai/openlinker-agent-node
 
 go 1.25.0
 
-require github.com/OpenLinker-ai/openlinker-go v0.2.0-rc1.0.20260721114051-7ebd3239780d
+require github.com/OpenLinker-ai/openlinker-go v0.2.0-rc1.0.20260723124010-28adfdebe8e1
 
 require (
 	github.com/gorilla/websocket v1.5.3 // indirect
