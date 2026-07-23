@@ -98,7 +98,6 @@ Run a local HTTP backend:
 
 ```bash
 OPENLINKER_URL=https://openlinker.example \
-OPENLINKER_NODE_ID=11111111-1111-4111-8111-111111111111 \
 OPENLINKER_AGENT_ID=22222222-2222-4222-8222-222222222222 \
 OPENLINKER_AGENT_TOKEN=ol_agent_xxx \
 OPENLINKER_AGENT_NODE_DATA_DIR=/var/lib/openlinker-agent-node \
@@ -132,7 +131,7 @@ stops startup instead of falling back to the ordinary API origin.
 | Variable | Purpose |
 | --- | --- |
 | `OPENLINKER_URL` | OpenLinker platform origin used to discover the Runtime connection |
-| `OPENLINKER_NODE_ID` | Stable Runtime Node UUID; required for token-only Runtime |
+| `OPENLINKER_NODE_ID` | Optional existing Runtime Node UUID; token-only discovery derives a stable token-scoped value when omitted |
 | `OPENLINKER_AGENT_ID` | Agent UUID; required for token-only Runtime |
 | `OPENLINKER_AGENT_TOKEN` | Long-lived Agent Token kept inside the node |
 | `OPENLINKER_AGENT_NODE_DATA_DIR` | Directory selected for the SDK `FileRuntimeStore` |
