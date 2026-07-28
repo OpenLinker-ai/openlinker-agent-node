@@ -231,12 +231,21 @@ func (handler runtimeAdapterHandler) Handle(
 			resultErr = nil
 		}
 	}()
+	assignmentMetadata := JSONMap(assignment.Metadata)
+	adapterMetadata := make(JSONMap, len(assignmentMetadata))
+	for key, value := range assignmentMetadata {
+		if key != "a2a" && key != "conversation" {
+			adapterMetadata[key] = value
+		}
+	}
 	runCtx := RunContext{
-		RunID:    assignment.RunID,
-		AgentID:  assignment.AgentID,
-		Input:    assignment.Input,
-		Metadata: JSONMap(assignment.Metadata),
-		Source:   "agent_runtime",
+		RunID:        assignment.RunID,
+		AgentID:      assignment.AgentID,
+		Input:        assignment.Input,
+		Metadata:     adapterMetadata,
+		Source:       "agent_runtime",
+		A2A:          jsonMapFromAny(assignmentMetadata["a2a"]),
+		Conversation: trustedConversationContext(assignmentMetadata["conversation"]),
 	}
 	runCtx.emitChecked = assignment.Emit
 	runCtx.Emit = func(eventType string, payload any) {
