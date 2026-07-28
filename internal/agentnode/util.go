@@ -141,6 +141,23 @@ func jsonMapFromAny(value any) JSONMap {
 	}
 }
 
+func trustedConversationContext(value any) *ConversationContext {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var conversation ConversationContext
+	if err := json.Unmarshal(raw, &conversation); err != nil {
+		return nil
+	}
+	if conversation.Source != "core" ||
+		strings.TrimSpace(conversation.SessionKey) == "" ||
+		strings.TrimSpace(conversation.CurrentRunID) == "" {
+		return nil
+	}
+	return &conversation
+}
+
 func sleepContext(ctx context.Context, duration time.Duration) error {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
