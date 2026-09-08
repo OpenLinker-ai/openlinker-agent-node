@@ -158,7 +158,7 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter, ok := node.Adapter.(CodexAdapter)
+	adapter, ok := node.Adapter.(*CodexAdapter)
 	if !ok {
 		t.Fatalf("adapter = %T", node.Adapter)
 	}
@@ -168,8 +168,8 @@ func TestNewFromEnvMapCodexAndInvalidEnv(t *testing.T) {
 	if strings.Join(adapter.EnvAllowlist, ",") != "CODEX_HOME" {
 		t.Fatalf("codex env allowlist = %#v", adapter.EnvAllowlist)
 	}
-	if node.Helper == nil {
-		t.Fatal("codex adapter should enable helper in auto mode")
+	if node.Helper != nil {
+		t.Fatal("native adapters use scoped MCP delegation; auto mode must not create a token helper")
 	}
 
 	if _, err := NewFromEnvMap(Env{
@@ -349,9 +349,6 @@ func TestNormalizeAdapterResultBranches(t *testing.T) {
 }
 
 func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
-	if modelLabel("") != "default" || modelLabel("gpt-5") != "gpt-5" {
-		t.Fatal("modelLabel returned an unexpected value")
-	}
 	allowed := map[string]bool{"PATH": true, "CUSTOM_ENV": true}
 	if !adapterEnvKeyAllowed("PATH", allowed) || !adapterEnvKeyAllowed("LC_ALL", allowed) || !adapterEnvKeyAllowed("CUSTOM_ENV", allowed) {
 		t.Fatal("adapterEnvKeyAllowed rejected allowed environment keys")

@@ -3,6 +3,9 @@ package agentnode
 import (
 	"context"
 	"time"
+
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
+	"github.com/OpenLinker-ai/openlinker-plugin/packages/agent-adapters/agentexec"
 )
 
 const DefaultShutdownTimeout = 10 * time.Second
@@ -47,14 +50,18 @@ type HelperEndpoints struct {
 }
 
 type RunContext struct {
-	RunID        string
-	AgentID      string
-	Input        any
-	Metadata     JSONMap
-	Source       string
-	A2A          JSONMap
-	Conversation *ConversationContext
-	Helper       *HelperInfo
+	AttemptDeadlineAt time.Time
+	RunDeadlineAt     time.Time
+	Authority         *openlinker.RuntimeAuthorityContext
+	ReadDelegatedRun  func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error)
+	RunID             string
+	AgentID           string
+	Input             any
+	Metadata          JSONMap
+	Source            string
+	A2A               JSONMap
+	Conversation      *ConversationContext
+	Helper            *HelperInfo
 
 	Emit      func(eventType string, payload any)
 	CallAgent func(ctx context.Context, targetAgentID string, input any, options CallAgentOptions) (any, error)
@@ -62,26 +69,8 @@ type RunContext struct {
 	emitChecked func(eventType string, payload any) error
 }
 
-type ConversationContext struct {
-	ID                   string                `json:"id"`
-	SessionKey           string                `json:"session_key"`
-	ProtocolContextID    string                `json:"protocol_context_id,omitempty"`
-	RootContextID        string                `json:"root_context_id,omitempty"`
-	CurrentRunID         string                `json:"current_run_id"`
-	CurrentProtocolTask  string                `json:"current_protocol_task_id,omitempty"`
-	HistoryBeforeCurrent []ConversationMessage `json:"history_before_current,omitempty"`
-	Truncated            bool                  `json:"truncated"`
-	Source               string                `json:"source"`
-}
-
-type ConversationMessage struct {
-	RunID         string         `json:"run_id"`
-	EventSequence *int32         `json:"event_sequence,omitempty"`
-	Role          string         `json:"role"`
-	Content       string         `json:"content"`
-	Payload       map[string]any `json:"payload,omitempty"`
-	CreatedAt     string         `json:"created_at,omitempty"`
-}
+type ConversationContext = agentexec.ConversationContext
+type ConversationMessage = agentexec.ConversationMessage
 
 type CallAgentOptions struct {
 	IdempotencyKey string

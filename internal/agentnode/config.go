@@ -7,6 +7,7 @@ import (
 	"time"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
+	"github.com/OpenLinker-ai/openlinker-plugin/packages/agent-adapters/agentexec"
 )
 
 type Env map[string]string
@@ -139,25 +140,55 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			EnvAllowlist: envAllowlist,
 			Timeout:      time.Duration(timeout) * time.Millisecond,
 		}, nil
+	case "claude":
+		nativeTimeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 30*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
+		if err != nil {
+			return nil, err
+		}
+		allowed, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS"), "OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS")
+		if err != nil {
+			return nil, err
+		}
+		targets, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_DELEGATION_TARGETS"), "OPENLINKER_AGENT_NODE_DELEGATION_TARGETS")
+		if err != nil {
+			return nil, err
+		}
+		return &NativeAdapter{Config: agentexec.ProviderConfig{
+			Provider: "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
+			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
+			Model:        get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
+			Permission:   defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
+			AllowedTools: allowed, Timeout: time.Duration(nativeTimeout) * time.Millisecond,
+			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"), false),
+			SessionStore: get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_STORE"), EnvAllowlist: envAllowlist,
+			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
+			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
+		}}, nil
 	case "codex":
+		targets, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_DELEGATION_TARGETS"), "OPENLINKER_AGENT_NODE_DELEGATION_TARGETS")
+		if err != nil {
+			return nil, err
+		}
 		codexTimeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 30*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
 		if err != nil {
 			return nil, err
 		}
-		return CodexAdapter{
-			CodexBin:     defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),
-			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CODEX_WORKSPACE"), mustGetwd()),
-			Sandbox:      defaultString(get("OPENLINKER_AGENT_NODE_CODEX_SANDBOX"), "read-only"),
-			Approval:     defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
-			Model:        get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
-			Timeout:      time.Duration(codexTimeout) * time.Millisecond,
-			MockResponse: get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
-			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), false),
-			SessionStore: get("OPENLINKER_AGENT_NODE_CODEX_SESSION_STORE"),
-			EnvAllowlist: envAllowlist,
+		return &CodexAdapter{
+			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
+			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
+			CodexBin:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),
+			Workspace:            defaultString(get("OPENLINKER_AGENT_NODE_CODEX_WORKSPACE"), mustGetwd()),
+			Sandbox:              defaultString(get("OPENLINKER_AGENT_NODE_CODEX_SANDBOX"), "read-only"),
+			Approval:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
+			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
+			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
+			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
+			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), false),
+			SessionStore:         get("OPENLINKER_AGENT_NODE_CODEX_SESSION_STORE"),
+			EnvAllowlist:         envAllowlist,
 		}, nil
 	case "module":
-		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, or codex")
+		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude")
 	default:
 		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_ADAPTER=%s", mode)
 	}
@@ -168,7 +199,7 @@ func helperFromEnv(get EnvLookup, adapterMode string) (*LocalHelperServer, error
 	enabled := false
 	switch mode {
 	case "auto":
-		enabled = adapterMode == "http" || adapterMode == "openclaw" || adapterMode == "command" || adapterMode == "codex"
+		enabled = adapterMode == "http" || adapterMode == "openclaw" || adapterMode == "command"
 	case "1", "true", "yes", "on":
 		enabled = true
 	case "0", "false", "no", "off":
