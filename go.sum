@@ -6,6 +6,8 @@ github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260905195715-3b7b183cc675
 github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260905195715-3b7b183cc675/go.mod h1:9INdrtv5jycZQDPOzpF7ClaDxPK7xLZJrYW+WzO7Uak=
 github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908075353-6955bf208ff1 h1:czt2Nb8RgyeMFlc0+yHlK1+FDEU3HeXoOxV9s1jvwc4=
 github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908075353-6955bf208ff1/go.mod h1:uQD3Uhrq+cT2jy6xGqQi4lBWFYIRyKaA4M8K5jC/e1U=
+github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908081016-53ac0a5d1c9d h1:M7vpRVtrobS1NZSgX6saKOX7Wjkj6gSZESluWf0P0sc=
+github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908081016-53ac0a5d1c9d/go.mod h1:uQD3Uhrq+cT2jy6xGqQi4lBWFYIRyKaA4M8K5jC/e1U=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
