@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/OpenLinker-ai/openlinker-go v0.2.0-rc8.0.20260908135527-31afbf9c1a18
-	github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908140014-058ad5fdd937
+	github.com/OpenLinker-ai/openlinker-plugin v0.1.59-0.20260908143510-4af16869b13c
 )
 
 require (
