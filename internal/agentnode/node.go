@@ -85,15 +85,25 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		node.mu.Unlock()
 	}()
 
+	if adapter, ok := node.Adapter.(interface{ Preflight(context.Context) error }); ok {
+		if err := adapter.Preflight(node.lifetime); err != nil {
+			return err
+		}
+	}
+	var features []string
+	if adapter, ok := node.Adapter.(interface{ RuntimeFeatures() []string }); ok {
+		features = adapter.RuntimeFeatures()
+	}
 	worker, err := openlinker.NewRuntimeWorker(openlinker.RuntimeWorkerConfig{
-		PlatformURL: node.OpenLinkerURL,
-		RuntimeURL:  node.RuntimeURL,
-		Transport:   openlinker.RuntimeTransportMode(node.Transport),
-		NodeID:      node.NodeID,
-		NodeVersion: AgentNodeVersion,
-		AgentID:     node.AgentID,
-		AgentToken:  node.AgentToken,
-		DataDir:     node.DataDir,
+		OptionalFeatures: features,
+		PlatformURL:      node.OpenLinkerURL,
+		RuntimeURL:       node.RuntimeURL,
+		Transport:        openlinker.RuntimeTransportMode(node.Transport),
+		NodeID:           node.NodeID,
+		NodeVersion:      AgentNodeVersion,
+		AgentID:          node.AgentID,
+		AgentToken:       node.AgentToken,
+		DataDir:          node.DataDir,
 		MTLS: openlinker.RuntimeMTLSConfig{
 			CertFile:   node.MTLSCertFile,
 			KeyFile:    node.MTLSKeyFile,
@@ -239,13 +249,19 @@ func (handler runtimeAdapterHandler) Handle(
 		}
 	}
 	runCtx := RunContext{
-		RunID:        assignment.RunID,
-		AgentID:      assignment.AgentID,
-		Input:        assignment.Input,
-		Metadata:     adapterMetadata,
-		Source:       "agent_runtime",
-		A2A:          jsonMapFromAny(assignmentMetadata["a2a"]),
-		Conversation: trustedConversationContext(assignmentMetadata["conversation"]),
+		AttemptDeadlineAt: assignment.AttemptDeadlineAt,
+		RunDeadlineAt:     assignment.RunDeadlineAt,
+		Authority:         assignment.Authority,
+		RunID:             assignment.RunID,
+		AgentID:           assignment.AgentID,
+		Input:             assignment.Input,
+		Metadata:          adapterMetadata,
+		Source:            "agent_runtime",
+		A2A:               jsonMapFromAny(assignmentMetadata["a2a"]),
+		Conversation:      trustedConversationContext(assignmentMetadata["conversation"]),
+	}
+	if assignment.CanReadDelegatedRuns() {
+		runCtx.ReadDelegatedRun = assignment.ReadDelegatedRun
 	}
 	runCtx.emitChecked = assignment.Emit
 	runCtx.Emit = func(eventType string, payload any) {

@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 )
 
@@ -59,22 +57,4 @@ func adapterOutputLimitError(label string, stdout, stderr *limitedOutputBuffer) 
 		return nil
 	}
 	return fmt.Errorf("%s output exceeded %d bytes (%s)", label, maxAdapterOutputBytes, strings.Join(streams, ", "))
-}
-
-func readLimitedFile(path string, limit int64) ([]byte, error) {
-	// #nosec G304 -- caller supplies a generated adapter output path and this reader enforces a byte limit.
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, errAdapterOutputTooLarge
-	}
-	return data, nil
 }

@@ -2,6 +2,7 @@ package agentnode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -56,7 +57,8 @@ func TestRuntimeAdapterHandlerProjectsCoreConversationExactlyOnce(t *testing.T) 
 		runCtx RunContext,
 	) (any, error) {
 		captured = runCtx
-		prompt = BuildCodexPrompt(input, runCtx)
+		raw, _ := json.Marshal(runCtx.Conversation)
+		prompt = string(raw)
 		return JSONMap{"ok": true}, nil
 	})}}
 	assignment := openlinker.RuntimeContext{
@@ -114,7 +116,7 @@ func TestRuntimeAdapterHandlerProjectsCoreConversationExactlyOnce(t *testing.T) 
 		t.Fatal("assignment metadata was mutated")
 	}
 	for _, expected := range []string{
-		"conversation.history_before_current",
+		"history_before_current",
 		"first question",
 		"first answer",
 	} {

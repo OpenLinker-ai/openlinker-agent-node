@@ -11,7 +11,7 @@ It can adapt:
 - a local HTTP service;
 - an operator-chosen command;
 - an A2A JSON-RPC Agent;
-- a non-interactive Codex process.
+- a non-interactive Codex or Claude Code process, through the shared Plugin `agentexec` package.
 
 Agent Node is mainly a migration adapter. If a new Go, TypeScript, or Python
 Agent can use an OpenLinker SDK Runtime Worker directly, it does not need Agent
@@ -22,12 +22,12 @@ Node. A stable public HTTPS Agent or remote MCP server also does not need it.
 1. The `openlinker-go` Runtime Worker receives and safely records a task.
 2. Agent Node passes the task to the selected local backend.
 3. The backend returns its answer; Agent Node sends it back through the SDK.
-4. If OpenLinker cancels the task, command and Codex adapters stop their process
+4. If OpenLinker cancels the task, command and native provider adapters stop their process
    trees.
 
 The long-lived Agent Token stays inside Agent Node. A backend that needs to call
-another Agent receives a short-lived localhost helper for the current task
-instead.
+another Agent receives a short-lived localhost helper (HTTP/command) or
+Attempt-scoped MCP delegation tools (native Codex/Claude) instead.
 
 ## Technical boundary
 
@@ -43,7 +43,7 @@ listener shell (cards, authentication, and request limits), and the choice of
 SDK file-store directory. The SDK proxies that listener's A2A operations to
 Core, except for stateless Agent Card responses whose external URL must remain
 the AgentNode listener. Cancellation reaches an Adapter through the SDK handler
-context; command and Codex Adapters terminate their own process trees before
+context; command and native provider Adapters terminate their own process trees before
 returning.
 
 Agent Node connects only to the Core Runtime contract. It does not call Hosted
@@ -54,7 +54,7 @@ does not provide an MCP Adapter.
 flowchart LR
   Core["OpenLinker Core"] <-->|"Runtime protocol"| SDK["openlinker-go RuntimeWorker"]
   SDK --> Handler["Agent Node Adapter"]
-  Handler -->|"HTTP, command, A2A, or Codex"| Backend["Private Agent backend"]
+  Handler -->|"HTTP, command, A2A, Codex, or Claude"| Backend["Private Agent backend"]
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
   A2AClient["Legacy A2A client"] --> Compat["AgentNode card/auth/limits"]
@@ -78,7 +78,7 @@ source with the commands below.
 
 Prerequisites:
 
-- Go 1.25 or newer
+- Go 1.26.4 or newer
 - an active Agent Token
 - a private, persistent data directory
 - a local backend
@@ -232,10 +232,37 @@ OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
 ```
 
+### `claude`
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
+OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
+OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
+```
+
+Both native adapters use Plugin's `agentexec`; Agent Node owns no separate
+provider parser, session store, or subprocess policy. Startup checks the installed
+CLI version and required flags (tested baselines: Codex 0.153.0, Claude 2.1.259).
+Codex uses bounded JSONL final messages; Claude streams normalized progress.
+`CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE` and `*_SESSION_STORE` with the
+`OPENLINKER_AGENT_NODE_` prefix configure native session reuse. Core history
+is synchronized on resume. Legacy Node Codex maps are not imported: a new
+session is seeded from Core history. The old plaintext session-key output and
+model-visible localhost helper credentials have been removed.
+
+To enable native delegation, set `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS` to a
+JSON array of allowed Agent UUIDs and `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`
+to a compatible OpenLinker CLI. The host must pass `plugin capabilities`.
+`OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT` optionally selects a private
+socket directory. Delegation is disabled by default and requires the SDK/Core
+`delegated_run_read.v1` extension. `CLAUDE_ALLOWED_TOOLS` with the same Node
+prefix takes a JSON string array; `OPENLINKER_AGENT_NODE_TIMEOUT_MS` applies to
+both providers. Native providers receive scoped MCP tools, not helper tokens.
+
 ## Events and delegated Agent calls
 
-The localhost helper is enabled by default for `http`, `openclaw`, `command`,
-and `codex`. Command backends also receive:
+The localhost helper is enabled by default for `http`, `openclaw`, and `command`. Command backends also receive:
 
 ```text
 OPENLINKER_AGENT_NODE_HELPER_URL
@@ -293,7 +320,7 @@ their lifetime follows client cancellation and the Core stream.
 - Treat the Agent Token, any mTLS private key, SDK-managed spool key, assignment
   payloads, and helper tokens as secrets.
 - Do not mount the runtime data directory into backend containers.
-- Keep command and Codex workspaces isolated and narrowly permissioned.
+- Keep command and native provider workspaces isolated and narrowly permissioned.
 - Graceful shutdown first advertises capacity zero, waits for active adapters,
   closes the runtime session, and then releases the data-directory lock.
 - Redact credentials, private URLs, customer payloads, and adapter logs before

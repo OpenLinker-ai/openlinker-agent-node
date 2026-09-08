@@ -10,7 +10,7 @@ Runtime 接收任务，再启动或调用后端，最后把答案传回 OpenLink
 - 本地 HTTP 服务；
 - 管理员指定的命令；
 - A2A JSON-RPC Agent；
-- 非交互运行的 Codex 进程。
+- 非交互运行的 Codex / Claude Code 进程，复用 Plugin 的 `agentexec` 执行器。
 
 Agent Node 主要用于兼容和迁移已有后端。新写的 Go、TypeScript 或 Python Agent 如果能直接
 使用 OpenLinker SDK Runtime Worker，就不需要 Agent Node。拥有稳定公网 HTTPS 地址的
@@ -21,10 +21,10 @@ Agent 和远程 MCP 服务也不需要它。
 1. `openlinker-go` Runtime Worker 收到任务并先安全保存。
 2. Agent Node 把任务交给选定的本地后端。
 3. 后端返回答案，Agent Node 再通过 SDK 交给 OpenLinker。
-4. OpenLinker 取消任务时，command 和 Codex 适配器会停止自己拉起的整个进程树。
+4. OpenLinker 取消任务时，command 和原生 Provider 适配器会停止自己拉起的整个进程树。
 
 长期 Agent Token 只留在 Agent Node 内。后端需要调用其他 Agent 时，拿到的是只对当前
-任务有效的本地 helper，不是长期 Token。
+任务有效的本地 helper（HTTP / command），或 Attempt 范围内的 MCP 委派工具（原生 Codex / Claude）。
 
 ## 技术边界
 
@@ -35,7 +35,7 @@ Agent Node 不重复实现 Runtime client 或状态机。固定版本的 Go SDK 
 本仓库负责环境变量和 CLI、适配器选择、本地 helper、进程树控制、公开 A2A
 兼容监听器外壳（Card、鉴权与请求限制），以及 SDK 文件存储目录的选择。该监听器的 A2A
 有状态操作由 SDK 转发给 Core；为保持外部 URL 指向 AgentNode listener，无状态 Agent Card
-响应仍在本地生成。取消通过 SDK 任务上下文传入适配器；command 和 Codex 适配器
+响应仍在本地生成。取消通过 SDK 任务上下文传入适配器；command 和原生 Provider 适配器
 在返回前终止自己的进程树。
 
 Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、订单、钱包、计费或市场
@@ -45,7 +45,7 @@ Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、�
 flowchart LR
   Core["OpenLinker Core"] <-->|"Runtime protocol"| SDK["openlinker-go RuntimeWorker"]
   SDK --> Handler["Agent Node Adapter"]
-  Handler -->|"HTTP、command、A2A 或 Codex"| Backend["私有 Agent backend"]
+  Handler -->|"HTTP、command、A2A、Codex 或 Claude"| Backend["私有 Agent backend"]
   Backend -->|"run-scoped helper"| Handler
   SDK --- Store["SDK FileRuntimeStore"]
   A2AClient["旧 A2A 客户端"] --> Compat["AgentNode Card/鉴权/限制"]
@@ -66,7 +66,7 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 
 需要准备：
 
-- Go 1.25 或更高版本
+- Go 1.26.4 或更高版本
 - 有效的 Agent Token
 - 私有、可持久化的数据目录
 - 本地 backend
@@ -209,9 +209,33 @@ OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
 ```
 
+### `claude`
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
+OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
+OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
+```
+
+两端都调用 Plugin 的 `agentexec`；Agent Node 不再维护第二套解析、会话存储或子进程策略。
+启动前检查原生 CLI 版本及所需参数，当前验证基线是 Codex 0.153.0、Claude 2.1.259。
+Codex 从有界 JSONL 读取最终答复，Claude 持续发送标准化进度。
+`OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE`（同前缀）及
+各自的 `*_SESSION_STORE` 配置会话复用，恢复时补入 Core 历史增量。
+旧 Node Codex 会话映射不自动导入，首次运行由 Core 历史建立新会话；输出不再包含明文
+session key，模型 prompt 不再携带 localhost helper 凭证。
+
+原生委派使用 `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS`（允许的 Agent UUID 的 JSON 数组）
+和 `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`（兼容的 OpenLinker CLI 路径），宿主必须
+通过 `plugin capabilities` 握手。可选 `OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT`
+指定私有 socket 目录。默认关闭委派，启用需要 SDK / Core 的 `delegated_run_read.v1` 扩展。
+Claude 工具列表为 `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS`（JSON 字符串数组）；
+两端超时都使用 `OPENLINKER_AGENT_NODE_TIMEOUT_MS`。原生 Provider 接收受限 MCP 工具。
+
 ## Event 与 Agent 子调用
 
-`http`、`openclaw`、`command` 和 `codex` 默认启用 localhost helper。command backend
+`http`、`openclaw` 和 `command` 默认启用 localhost helper。command backend
 还会收到以下环境变量：
 
 ```text

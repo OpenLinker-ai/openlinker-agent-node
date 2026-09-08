@@ -12,9 +12,9 @@ import (
 )
 
 func TestAdapterModeCompatibilityBoundary(t *testing.T) {
-	supported := []string{"http", "openclaw", "command", "a2a", "codex"}
+	supported := []string{"http", "openclaw", "command", "a2a", "codex", "claude"}
 	explicitlyRejected := map[string]string{
-		"module": "module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, or codex",
+		"module": "module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude",
 	}
 
 	get := func(string) string { return "" }
