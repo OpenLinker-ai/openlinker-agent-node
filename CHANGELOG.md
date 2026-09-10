@@ -7,6 +7,21 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+### Local Claude bridge candidate — release blocked
+
+- Build-injected Node identity (`dev`, exact release tag, or commit) and a
+  read-only `--version` command that bypasses all runtime startup. Unsupported
+  command arguments now fail instead of being ignored. This changes the
+  enrollment version from the old hardcoded `openlinker-agent-node/0.1.43`.
+  **Do not publish or upgrade enrolled Nodes until a supported Core-controlled
+  version upgrade and rollback path has passed its compatibility gates.**
+- Long-lived Claude success diagnostics `claude_resume_session_id_sha256` and
+  `claude_session_id_sha256`, bound to actual invocation/result IDs, with no raw
+  IDs and no failed-retry evidence carried into a successful fresh invocation.
+- Native Codex/Claude adapters and reusable protocol leaves belong to this
+  repository, with no CLI/Plugin module dependency. Session reuse remains
+  false by default; deep Plugin/Browser policy is unchanged.
+
 ### Breaking
 
 - Removed Agent Node's duplicate Runtime client, transport supervisor,
@@ -43,8 +58,9 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   HTTP/command/Codex/A2A execution, localhost helper sessions, process-tree
   control, the public A2A listener shell, and SDK file-store directory
   selection. Core owns public A2A message, task, run, stream, and push state.
-- Agent Node identifies itself to Core as `openlinker-agent-node/0.1.43`; direct
-  SDK workers default to `openlinker-go/runtime-worker`.
+- Prior builds identify themselves to Core as `openlinker-agent-node/0.1.43`;
+  the version-injection candidate above remains release-blocked. Direct SDK
+  workers default to `openlinker-go/runtime-worker`.
 
 ### Verification
 

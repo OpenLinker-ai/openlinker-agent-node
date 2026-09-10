@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -68,6 +69,7 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	resumed := sessionID != ""
 	recovered := false
 	var response claudeResponse
+	var successfulResumeSessionID string
 	for attempt := 0; attempt < 2; attempt++ {
 		args := claudeArguments(config, permission, sessionID)
 		command := exec.CommandContext(requestCtx, bin, args...) // #nosec G204 -- operator-configured official provider binary, no shell.
@@ -118,6 +120,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 			}
 			return openlinker.RuntimeResult{}, fmt.Errorf("Claude failed: %w: %s", err, boundedText(stderr.String(), 500, "no diagnostic output"))
 		}
+		// Bind evidence to this successful invocation, never a failed resume
+		// discarded by the missing-session retry or the subsequently saved map.
+		successfulResumeSessionID = sessionID
 		break
 	}
 	summary := strings.TrimSpace(response.Result)
@@ -141,6 +146,12 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	result := map[string]any{
 		"handled_by": "claude", "claude_permission": permission,
 		"claude_model": modelLabel(config.Model), "summary": summary,
+	}
+	if successfulResumeSessionID != "" {
+		result["claude_resume_session_id_sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(successfulResumeSessionID)))
+	}
+	if response.SessionID != "" {
+		result["claude_session_id_sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(response.SessionID)))
 	}
 	if config.SessionReuse && sessionKey != "" {
 		result["claude_session_reuse"] = true

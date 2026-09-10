@@ -10,9 +10,9 @@ Runtime 接收任务，再启动或调用后端，最后把答案传回 OpenLink
 - 本地 HTTP 服务；
 - 管理员指定的命令；
 - A2A JSON-RPC Agent；
-- 非交互运行的 Codex / Claude Code 进程，复用 Plugin 的 `agentexec` 执行器。
+- 非交互运行的 Codex / Claude Code 进程，使用本仓库的原生桥接适配器。
 
-Agent Node 主要用于兼容和迁移已有后端。新写的 Go、TypeScript 或 Python Agent 如果能直接
+Agent Node 是可独立部署的已有后端桥接器，不是所有 Agent 的必经中转。新写的 Go、TypeScript 或 Python Agent 如果能直接
 使用 OpenLinker SDK Runtime Worker，就不需要 Agent Node。拥有稳定公网 HTTPS 地址的
 Agent 和远程 MCP 服务也不需要它。
 
@@ -38,6 +38,10 @@ Agent Node 不重复实现 Runtime client 或状态机。固定版本的 Go SDK 
 响应仍在本地生成。取消通过 SDK 任务上下文传入适配器；command 和原生 Provider 适配器
 在返回前终止自己的进程树。
 
+本仓库还维护 `pkg/adapters` 公开协议叶子，CLI/Plugin 可编译期复用，不要求另启 Node
+进程。Node 的模块图与包图均不依赖 CLI/Plugin；Plugin 仍保留独立深度执行策略及
+Browser/Viewer/Profile 产品能力。
+
 Agent Node 只连接 Core Runtime 契约，不调用 Hosted 的服务商品、订单、钱包、计费或市场
 运营 API，也不提供 MCP 适配器。
 
@@ -55,12 +59,27 @@ flowchart LR
 
 ## 状态与安装
 
-Agent Node 目前是 pre-1.0，只用于既有 backend 的迁移接入，不是新 Agent 的默认开发方式。
+Agent Node 目前是 pre-1.0，用于既有 backend 的桥接接入，不是新 Agent 的默认开发方式。
 升级时应同时固定 Core、Go SDK 和 Agent Node 版本，并阅读 `CHANGELOG.md`。
 
 Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 [GitHub Releases](https://github.com/OpenLinker-ai/openlinker-agent-node/releases)。安装前请
 校验 checksum；贡献者可以使用下方命令从源码构建。
+
+### 未发布候选的构建身份与升级门禁
+
+本源码候选新增 `openlinker-agent-node --version`，在读取配置、启动 Provider/监听器、
+打开 SDK 状态或发出网络请求之前，输出与 Runtime 登记相同的实现身份。不带参数仍启动
+配置的 Worker；未知参数不启动服务并报错。旧正式二进制尚无该参数。
+
+源码构建报告 `openlinker-agent-node/dev`，发布构建注入精确 `v...` tag 或 `sha-...`。
+统一构建入口为 `node scripts/build-agent-node.mjs <version> <output>`，需要 Node.js 22
+与 Go；运行已下载二进制不需要这些构建工具。
+
+**本候选尚不能发布，也不能直接升级已经登记的 Node。** 既有 token-only 登记锁定旧
+`node_version`，重连版本不同会被拒绝。必须先交付、验证 Core 受控升级/回退流程；
+仅加 release notes、新建本地数据目录或伪报旧版本均不算通过。不得删除状态、重新创建
+凭据来绕过 `ContractMismatch`。
 
 ## 快速开始
 
@@ -218,13 +237,30 @@ OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
 ```
 
-两端都调用 Plugin 的 `agentexec`；Agent Node 不再维护第二套解析、会话存储或子进程策略。
+两端均使用本仓库的 `pkg/adapters`，共同协议解析、私有会话存储和进程机制在公开叶子包内。
+SDK 固定为 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`。
 启动前检查原生 CLI 版本及所需参数，当前验证基线是 Codex 0.153.0、Claude 2.1.259。
 Codex 从有界 JSONL 读取最终答复，Claude 持续发送标准化进度。
 `OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE`（同前缀）及
 各自的 `*_SESSION_STORE` 配置会话复用，恢复时补入 Core 历史增量。
 旧 Node Codex 会话映射不自动导入，首次运行由 Core 历史建立新会话；输出不再包含明文
 session key，模型 prompt 不再携带 localhost helper 凭证。
+
+原生会话复用默认 **false**；保持已有工作流时必须显式启用，并保持 workspace 与
+session-store 路径稳定。显式 true 的验证不能代替默认配置验证；同一 OS 身份下分开
+目录也不等于隔离本机数据或其他会话。
+
+Claude 成功结果增加两个长期、可选的诊断字段：
+
+- `claude_resume_session_id_sha256`：最终成功调用实际传给 `--resume` 的非空 ID 哈希；
+  该次调用未 resume 则省略。
+- `claude_session_id_sha256`：Claude 成功返回的非空 `result.session_id` 哈希；缺失则
+  省略，绝不以请求 ID 补填。
+
+两者都是原 ID UTF-8 的小写十六进制 SHA256，不作为凭据、授权或会话选择依据。
+missing-session 回退清除失败调用的证据，重新建立会话不算 resume 成功；字段缺失
+不能视为两会话相同。哈希仍可关联，沿用 Run 结果的访问/保留规则，不新增原始 session ID。
+既有 `claude_session_reuse` 只在启用复用且存在可信 session key 时输出。
 
 原生委派使用 `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS`（允许的 Agent UUID 的 JSON 数组）
 和 `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`（兼容的 OpenLinker CLI 路径），宿主必须
@@ -290,7 +326,8 @@ OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 - Agent Token、可能存在的 mTLS private key、SDK 管理的 spool key、assignment payload 和 helper token 都是密钥。
 - 不要把 runtime 数据目录挂载进 backend container。
 - command 与 Codex workspace 应隔离，并只授予必要权限。
-- 优雅关闭会先上报 capacity 为 0，等待 active adapter，关闭 runtime session，再释放数据目录锁。
+- Stop 不等于已确认 drain；运维切换前须围栏接单、核实 Core 结算及 SDK spool 为空。
+  停进程可能取消正在执行的 adapter，关闭失败须保留状态。
 - 请在 SDK spool 达到 80% 前告警并释放容量或完成上传；不要手工删除 `.record`、journal、identity 或 key 文件。
 - 提 Issue 前删除凭证、私有 URL、客户 payload 和 adapter 日志。
 
