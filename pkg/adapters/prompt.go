@@ -44,8 +44,9 @@ func buildCodexPrompt(
 		prompt,
 		"",
 		"Live public-web access is enabled for this run.",
-		"When the task depends on current or live information, use web search or a permitted public HTTP tool before answering.",
-		"Do not claim that internet access is unavailable unless an actual web tool attempt fails.",
+		"When the task depends on current or live information, obtain live evidence using a tool permitted by the current user request.",
+		"Respect explicit tool restrictions: enabling web search makes it available, not mandatory.",
+		"If a required tool is unavailable or fails, report that limitation instead of silently substituting a forbidden tool. Do not claim that internet access is unavailable merely because one tool is unavailable.",
 		"Identify the public source hosts or URLs used in the final answer.",
 		"Never use web access to reach private, loopback, link-local, metadata, or credential-bearing destinations.",
 	}, "\n")
