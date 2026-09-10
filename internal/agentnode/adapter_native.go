@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
-	"github.com/OpenLinker-ai/openlinker-plugin/packages/agent-adapters/agentexec"
+	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
 )
 
 // NativeAdapter embeds the canonical Codex/Claude execution backend. Agent Node

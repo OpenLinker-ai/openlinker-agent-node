@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OpenLinker-ai/openlinker-plugin/packages/agent-adapters/agentexec"
+	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
 )
 
 // CodexAdapter preserves the Agent Node configuration surface. Native process,

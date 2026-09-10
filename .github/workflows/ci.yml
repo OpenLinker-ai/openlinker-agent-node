@@ -25,6 +25,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node for boundary checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Download dependencies
         run: go mod download
 
@@ -35,6 +40,12 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Check isolated adapter boundaries and negative controls
+        run: |
+          node scripts/generate-codex-rpc.mjs --check
+          node --test scripts/check-adapter-boundaries.test.mjs
+          node scripts/check-adapter-boundaries.mjs
 
       - name: Vet
         run: go vet ./...
