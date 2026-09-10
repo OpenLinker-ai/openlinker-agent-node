@@ -1,0 +1,5 @@
+{
+  "protocol": "openlinker.agent-host.v1",
+  "browser_proxy": ["plugin", "browser-proxy", "--host"],
+  "delegation_proxy": ["plugin", "delegation-proxy", "--host"]
+}
