@@ -49,6 +49,10 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Require a pre-1.0 test prerelease tag
+        if: github.ref_type == 'tag'
+        run: node scripts/check-release-upgrade-readiness.mjs "$GITHUB_REF_NAME"
+
       - name: Verify dependency graph
         run: |
           go mod download
@@ -60,6 +64,11 @@ jobs:
           node scripts/generate-codex-rpc.mjs --check
           node --test scripts/check-adapter-boundaries.test.mjs
           node scripts/check-adapter-boundaries.mjs
+
+      - name: Test exact build identity and read-only version command
+        run: |
+          go test ./...
+          node --test scripts/build-agent-node.test.mjs
 
       - name: Package binary
         id: package
@@ -82,7 +91,7 @@ jobs:
           fi
 
           CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
-            go build -trimpath -ldflags="-s -w" -o "${work_dir}/${binary_name}" ./cmd/openlinker-agent-node
+            node scripts/build-agent-node.mjs "${version}" "${work_dir}/${binary_name}"
 
           cp README.md LICENSE "${work_dir}/" 2>/dev/null || true
 
@@ -129,6 +138,8 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes
+            gh release create "${tag}" --title "${tag}" --generate-notes --prerelease
+          else
+            gh release edit "${tag}" --prerelease
           fi
           gh release upload "${tag}" dist/* --clobber

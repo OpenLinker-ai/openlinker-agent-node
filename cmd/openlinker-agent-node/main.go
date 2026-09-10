@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -13,6 +14,15 @@ import (
 
 func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
+	if len(os.Args) > 1 {
+		if len(os.Args) != 2 || os.Args[1] != "--version" {
+			logger.Fatal("usage: openlinker-agent-node [--version]; configure serving through environment variables")
+		}
+		if _, err := fmt.Fprintln(os.Stdout, agentnode.AgentNodeVersion); err != nil {
+			logger.Fatal("openlinker agent node version output failed")
+		}
+		return
+	}
 
 	node, err := agentnode.NewFromEnv()
 	if err != nil {

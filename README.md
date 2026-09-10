@@ -11,9 +11,9 @@ It can adapt:
 - a local HTTP service;
 - an operator-chosen command;
 - an A2A JSON-RPC Agent;
-- a non-interactive Codex or Claude Code process, through the shared Plugin `agentexec` package.
+- a non-interactive Codex or Claude Code process, through this repository's native adapters.
 
-Agent Node is mainly a migration adapter. If a new Go, TypeScript, or Python
+Agent Node is a deployable bridge for existing backends, not a mandatory intermediary. If a new Go, TypeScript, or Python
 Agent can use an OpenLinker SDK Runtime Worker directly, it does not need Agent
 Node. A stable public HTTPS Agent or remote MCP server also does not need it.
 
@@ -46,6 +46,11 @@ the AgentNode listener. Cancellation reaches an Adapter through the SDK handler
 context; command and native provider Adapters terminate their own process trees before
 returning.
 
+The public `pkg/adapters` packages also provide protocol leaves that CLI and
+Plugin can reuse at compile time; that does not require running a Node process.
+Neither the Node module nor its package graph depends on CLI or Plugin. Plugin
+keeps its independent deep execution policy and Browser/Viewer/Profile products.
+
 Agent Node connects only to the Core Runtime contract. It does not call Hosted
 service-listing, order, wallet, billing, or marketplace-operation APIs, and it
 does not provide an MCP Adapter.
@@ -64,7 +69,7 @@ flowchart LR
 
 ## Status and installation
 
-Agent Node is pre-1.0 and intended as a migration path for existing backends,
+Agent Node is pre-1.0 and intended as a bridge for existing backends,
 not as the default way to build a new Agent. Pin the Core, Go SDK, and Agent
 Node versions together and review `CHANGELOG.md` before upgrading.
 
@@ -73,6 +78,53 @@ Prebuilt binaries for Linux, macOS, and Windows, together with adjacent
 [GitHub Releases](https://github.com/OpenLinker-ai/openlinker-agent-node/releases).
 Verify the checksum before installing a binary. Contributors can build from
 source with the commands below.
+
+### Candidate build identity and test-only enrollment
+
+This source candidate adds `openlinker-agent-node --version`. It returns the
+same implementation identity used for Runtime enrollment before reading
+configuration, starting a Provider/listener, opening SDK state, or making a
+network request. No arguments starts the configured Worker; unsupported
+arguments fail without startup. Older published binaries do not have this flag.
+
+Source builds report `openlinker-agent-node/dev`; packaged builds inject the
+exact `v...` tag or `sha-...` identity. The release builder is
+`node scripts/build-agent-node.mjs <version> <output>` (Node.js 22 and Go are
+build tools, not requirements for running a downloaded binary).
+
+**This candidate is eligible only for pre-1.0 test prereleases, not an in-place
+upgrade of an enrolled Node.** The release gate accepts only canonical
+`v0.x.y-alpha.N`, `v0.x.y-beta.N`, or `v0.x.y-rc.N` tags. Numeric components are
+nonnegative with no leading zeroes. Stable tags, v1+ tags, and missing or malformed
+arguments are rejected; there is no environment bypass. Non-tag SHA artifacts
+remain available for CI testing but are not GitHub releases.
+
+For a test deployment with no real users, the supported change-of-version path
+is explicit fresh enrollment:
+
+1. Stop new test calls, confirm all old Attempts have settled and the SDK spool
+   is empty, then stop the old test process. Retain its private data directory;
+   do not erase state or run two Workers on one directory.
+2. Obtain a new, unbound, active Agent credential through the existing Core
+   registration/token flow. Use a new `OPENLINKER_NODE_ID` and a new private
+   `OPENLINKER_AGENT_NODE_DATA_DIR`; do not reuse the old binding, identity,
+   certificates, or keys. Discovery still selects token-only or mTLS enrollment.
+3. Start the exact selected binary, verify its `--version` and new Core readiness,
+   then verify a test task. A changed Node identity is intentional; this is not
+   an upgrade of the old enrollment or an automatic rollback mechanism.
+
+An ordinary restart of an **active** Node retains the exact binary version,
+Node identity, credential and SDK DataDir. The SDK rotates the Runtime Session;
+do not create a fresh directory on each restart. This does not cover a revoked
+or administratively drained Node. Changing the version under the original
+enrollment is unsupported and can fail with `ContractMismatch`; never spoof
+the old version to avoid it. No Core-controlled upgrade extension or generic
+migration controller is required for fresh test enrollment.
+
+These are source-level compatibility and release-policy boundaries, not proof
+that this candidate has been published or deployed. Record real WebSocket and
+pull enrollment, task execution and same-DataDir restart results before declaring
+a target environment verified. See [RELEASE.md](./RELEASE.md).
 
 ## Quick start
 
@@ -241,8 +293,10 @@ OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
 ```
 
-Both native adapters use Plugin's `agentexec`; Agent Node owns no separate
-provider parser, session store, or subprocess policy. Startup checks the installed
+Both native adapters use this repository's `pkg/adapters`; shared protocol
+parsing, private session storage and process mechanisms live in its public
+leaf packages. The pinned SDK is
+`v0.2.0-rc8.0.20260908135527-31afbf9c1a18`. Startup checks the installed
 CLI version and required flags (tested baselines: Codex 0.153.0, Claude 2.1.259).
 Codex uses bounded JSONL final messages; Claude streams normalized progress.
 `CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE` and `*_SESSION_STORE` with the
@@ -250,6 +304,27 @@ Codex uses bounded JSONL final messages; Claude streams normalized progress.
 is synchronized on resume. Legacy Node Codex maps are not imported: a new
 session is seeded from Core history. The old plaintext session-key output and
 model-visible localhost helper credentials have been removed.
+
+Native session reuse defaults to **false**. Enable it explicitly when preserving
+an existing workflow; that configuration is not evidence of the default
+behavior. Workspace and session-store paths must remain stable for reuse.
+Separate directories alone do not isolate processes running under the same OS
+identity from local files or other sessions.
+
+Successful Claude results provide two optional, long-lived diagnostics:
+
+- `claude_resume_session_id_sha256`: SHA256 of the exact ID passed to `--resume`
+  in the successful invocation; omitted when that invocation did not resume.
+- `claude_session_id_sha256`: SHA256 of the exact nonempty `result.session_id`
+  returned by Claude; omitted when unavailable, never backfilled from a request.
+
+They are lowercase hexadecimal SHA256 values of the UTF-8 IDs, not credentials
+or authorization inputs. Missing-session recovery clears evidence from the
+failed invocation; a successful fresh retry does not claim a successful resume.
+Missing fields do not prove matching sessions. These hashes remain correlatable
+Run diagnostics and follow result access/retention policy; raw session IDs are
+not added to the result. The existing `claude_session_reuse` field is emitted
+only when reuse is enabled and a trusted session key is available.
 
 To enable native delegation, set `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS` to a
 JSON array of allowed Agent UUIDs and `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`
@@ -321,8 +396,9 @@ their lifetime follows client cancellation and the Core stream.
   payloads, and helper tokens as secrets.
 - Do not mount the runtime data directory into backend containers.
 - Keep command and native provider workspaces isolated and narrowly permissioned.
-- Graceful shutdown first advertises capacity zero, waits for active adapters,
-  closes the runtime session, and then releases the data-directory lock.
+- Stop is not a substitute for a confirmed drain. Fence admissions and verify
+  Core settlement and empty SDK spool before an operational switch; stopping a
+  process can cancel active adapters. Preserve state when shutdown cannot finish.
 - Redact credentials, private URLs, customer payloads, and adapter logs before
   filing an issue.
 - Alert before the SDK spool reaches 80%. Free space or complete existing uploads;

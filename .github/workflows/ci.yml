@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test release build identity
+        run: node --test scripts/build-agent-node.test.mjs
+
       - name: Check isolated adapter boundaries and negative controls
         run: |
           node scripts/generate-codex-rpc.mjs --check

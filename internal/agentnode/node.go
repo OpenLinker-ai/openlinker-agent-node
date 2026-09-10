@@ -12,8 +12,6 @@ import (
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-const AgentNodeVersion = "openlinker-agent-node/0.1.43"
-
 // Node is the process-level Adapter shell around the Go SDK RuntimeWorker.
 // Runtime transport, session, recovery, journal, spool, lease, and cancellation
 // semantics live exclusively in openlinker-go.
