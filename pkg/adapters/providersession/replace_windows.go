@@ -1,10 +1,11 @@
 //go:build windows
 
-package adapters
+package providersession
 
 import "golang.org/x/sys/windows"
 
-func replaceFileAtomic(source, destination string) error {
+// ReplaceAtomic preserves replace-existing and write-through on Windows.
+func ReplaceAtomic(source, destination string) error {
 	from, err := windows.UTF16PtrFromString(source)
 	if err != nil {
 		return err

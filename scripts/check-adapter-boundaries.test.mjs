@@ -52,6 +52,10 @@ test("real isolated Go graphs reject direct, transitive, replacement, host and p
   async function source(imports = `import _ "${leaf}"`) {
     await file(join(root, "pkg/adapters/value.go"), `package adapters\n${imports}\nconst Value = 1\n`);
   }
+  const commandPath = join(root, "cmd/fixture/main.go");
+  async function command(extraImport = "") {
+    await file(commandPath, `package main\nimport (\n "${nodeModule}/pkg/adapters"\n ${extraImport}\n)\nfunc main() { _ = adapters.Value }\n`);
+  }
   function download() {
     execFileSync("go", ["mod", "download", "all"], {
       cwd: root, env: {...process.env, ...environment, GOWORK: "off", GOENV: "off", GOTOOLCHAIN: "local", GOFLAGS: "-modcacherw"},
@@ -61,10 +65,17 @@ test("real isolated Go graphs reject direct, transitive, replacement, host and p
   const check = (targets = ["linux/amd64"]) => checkAdapterBoundaries(root, {targets, environment});
   await manifest();
   await source();
+  await command();
+  await file(join(root, "pkg/adapters/providertest/value.go"), "package providertest\nconst Value = 1\n");
+  await file(join(root, "pkg/adapters/value_test.go"), `package adapters\nimport (\n "testing"\n _ "${nodeModule}/pkg/adapters/providertest"\n)\nfunc TestFixture(t *testing.T) {}\n`);
   await file(join(fixture, "unrelated-plugin/go.mod"), `module ${plugin}\n\ngo 1.23.0\n`);
   await file(join(fixture, "go.work"), "go 1.23.0\nuse (\n ./node\n ./unrelated-plugin\n)\n");
   download();
-  assert.equal(check().gowork, "off", "workspace Plugin must not contaminate isolated check");
+  const baseline = check();
+  assert.equal(baseline.gowork, "off", "workspace Plugin must not contaminate isolated check");
+  assert.equal(baseline.results.length, 4, "test-inclusive graphs retain their existing count");
+  assert.equal(baseline.production_results.length, 1, "production graphs are reported separately");
+  assert.equal(baseline.production_results[0].commands, 1);
 
   for (const path of [plugin, `${plugin}/nested`, cli]) {
     await manifest(`require ${path} v1.0.0`);
@@ -101,6 +112,39 @@ test("real isolated Go graphs reject direct, transitive, replacement, host and p
   await file(join(root, "pkg/adapters/platform_cgo.go"), `//go:build cgo\n\npackage adapters\nimport _ "${nodeModule}/internal/host"\n`);
   assert.throws(() => check(), /forbidden package/, "cgo consumers must not escape the library boundary");
   await rm(join(root, "pkg/adapters/platform_cgo.go"));
+
+  // Legal testing/providertest imports in _test.go must not fail a production
+  // graph. Only reachable production dependencies are rejected, without -test.
+  await command(' _ "testing"');
+  assert.throws(() => check(), /forbidden production package: testing/, "direct testing import must not enter the command");
+  await command();
+  check();
+  await file(join(root, "internal/testbridge/bridge.go"), `package testbridge\nimport _ "${nodeModule}/pkg/adapters/providertest"\n`);
+  await command(` _ "${nodeModule}/internal/testbridge"`);
+  assert.throws(() => check(), /forbidden production package: .*\/pkg\/adapters\/providertest/, "indirect test helper import must not enter the command");
+  await command();
+  check();
+
+  await rm(commandPath);
+  assert.throws(() => check(), /empty Go JSON|no production command packages/, "missing command graph must fail closed");
+  await file(commandPath, "package command\n");
+  assert.throws(() => check(), /no production command packages/, "a library under cmd is not a production entrypoint");
+  await command();
+  const targets = ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64"];
+  const recovered = check(targets);
+  assert.equal(recovered.results.length, 24, "production checks must not change the original 24 graphs");
+  assert.equal(recovered.production_results.length, 6);
+  assert.deepEqual(recovered.production_results.map((result) => result.target), targets);
+  for (const result of recovered.production_results) {
+    assert.equal(result.cgo_enabled, "0");
+    assert.equal(result.scope, "./cmd/...");
+    assert.equal(result.commands, 1);
+    assert.ok(result.packages > 0);
+  }
+
+  await file(commandPath, "package main\nfunc main() {}\n");
+  await rm(join(root, "pkg/adapters/value_test.go"));
+  await rm(join(root, "pkg/adapters/providertest"), { recursive: true, force: true });
   await rm(join(root, "pkg/adapters/value.go"));
   assert.throws(() => check(), /no adapter packages|empty Go JSON/);
   await rmdir(join(root, "pkg/adapters"));

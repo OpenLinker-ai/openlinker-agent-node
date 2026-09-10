@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 export const nodeModule = "github.com/OpenLinker-ai/openlinker-agent-node";
 const forbiddenModules = ["github.com/OpenLinker-ai/openlinker-plugin", "github.com/OpenLinker-ai/openlinker-cli"];
 const leafForbidden = [...forbiddenModules, `${nodeModule}/internal`, `${nodeModule}/cmd`, "github.com/spf13/cobra"];
+const productionForbidden = ["testing", `${nodeModule}/pkg/adapters/providertest`];
 const platforms = ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64"];
 const within = (value, prefix) => value === prefix || value.startsWith(`${prefix}/`);
 
@@ -74,6 +75,7 @@ export function checkAdapterBoundaries(root, { targets = platforms, environment 
   }
 
   const results = [];
+  const productionResults = [];
   for (const target of targets) {
     const [GOOS, GOARCH] = target.split("/");
     // Public library consumers (and race tests) may enable cgo even though
@@ -92,8 +94,21 @@ export function checkAdapterBoundaries(root, { targets = platforms, environment 
         results.push({ target, cgo_enabled: CGO_ENABLED, scope: pattern, packages: packages.length });
       }
     }
+    // Test helpers may legitimately appear in the test-inclusive library graphs
+    // above, but must never enter the transitive dependencies of shipped cmds.
+    const pattern = "./cmd/...";
+    const packages = jsonObjects(go(["list", "-deps", "-mod=readonly", "-json", pattern], { GOOS, GOARCH, CGO_ENABLED: "0" }));
+    const commands = packages.filter((entry) => !entry.DepOnly && entry.Name === "main" && within(entry.ImportPath ?? "", `${nodeModule}/cmd`));
+    assert.ok(commands.length > 0, "no production command packages resolved");
+    for (const entry of packages) {
+      assert.ok(!entry.Error && !entry.DepsErrors?.length && !entry.Incomplete, `unresolved production package: ${entry.ImportPath}`);
+      assert.ok(typeof entry.ImportPath === "string" && entry.ImportPath.length > 0, "missing production package identity");
+      assert.ok(!productionForbidden.some((prefix) => within(entry.ImportPath, prefix)), `forbidden production package: ${entry.ImportPath}`);
+      if (entry.Module) rejectModule(entry.Module.Path);
+    }
+    productionResults.push({ target, cgo_enabled: "0", scope: pattern, packages: packages.length, commands: commands.length });
   }
-  return { scope: "isolated_module_graph_and_packages", gowork: "off", modules: modules.length, results };
+  return { scope: "isolated_module_graph_and_packages", gowork: "off", modules: modules.length, results, production_results: productionResults };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
