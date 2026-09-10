@@ -57,6 +57,7 @@ jobs:
 
       - name: Check isolated adapter boundaries and negative controls
         run: |
+          node scripts/generate-codex-rpc.mjs --check
           node --test scripts/check-adapter-boundaries.test.mjs
           node scripts/check-adapter-boundaries.mjs
 

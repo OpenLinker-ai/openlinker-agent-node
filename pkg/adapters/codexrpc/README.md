@@ -1,8 +1,10 @@
 # Codex stdio protocol
 
-This is the shared transport used by Plugin `agentexec`, the CLI Worker and
-Agent Node. Each invocation owns one `codex app-server --listen stdio://`
-process. There is no resident server, exec fallback, or Agent Node copy.
+This Agent Node leaf is the shared transport used by Plugin `agentexec`, the
+CLI Worker and Agent Node. Each invocation owns one
+`codex app-server --listen stdio://` process. There is no resident server, exec
+fallback, or duplicate transport in Plugin. Plugin keeps its own deep Provider
+and Browser policy; sharing this protocol does not route it through Node's Run.
 
 `schema/protocol.json` contains the transitively closed stable schema subset
 exported by Codex **0.153.0**, source commit
@@ -12,7 +14,8 @@ retain conflicting variant fields as `json.RawMessage`; consumers must inspect
 `type` before using a variant. This is a binding generator, not a JSON Schema
 validator. Unknown unions stay raw rather than silently losing variants.
 
-Refresh with the pinned CLI on PATH (or set `CODEX_BIN` for the version check):
+Run the following from the Agent Node repository. Refresh with the pinned CLI
+on PATH (or set `CODEX_BIN` for the version check):
 
 ```sh
 codex app-server generate-json-schema --out /tmp/codex-schema-0.153.0
@@ -50,8 +53,8 @@ undefined. These are regression sentinels for selected APIs, not an exhaustive
 audit of dynamic imports or handles reachable through `globalThis`, nor proof
 of a V8 sandbox. Isolation in the official deployment relies on the hardened
 container boundary, read-only sandbox, disabled shell/multi-agent tools and
-Browser/delegation authorization. CI installs the image-pinned Codex and runs
-this test without provider secrets:
+Browser/delegation authorization. Plugin CI installs the image-pinned Codex and
+runs this deep-policy test from the Plugin repository without provider secrets:
 
 ```sh
 OPENLINKER_TEST_CODEX_RPC_LOCAL_MODEL=1 go test ./packages/agent-adapters/agentexec \
@@ -65,7 +68,7 @@ preserves the refreshed source file. Re-run this test on provider upgrades;
 an upstream switch to rename-based persistence would invalidate the contract.
 
 ```sh
-OPENLINKER_TEST_CODEX_AUTH_REFRESH=1 go test ./packages/agent-adapters/codexhome \
+OPENLINKER_TEST_CODEX_AUTH_REFRESH=1 go test ./pkg/adapters/codexhome \
   -run TestInstalledCodexRefreshPersistsThroughAuthSymlink -v
 ```
 
