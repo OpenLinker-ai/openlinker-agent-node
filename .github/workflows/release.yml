@@ -49,9 +49,9 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Require supported enrolled-Node upgrade before publishing
+      - name: Require a pre-1.0 test prerelease tag
         if: github.ref_type == 'tag'
-        run: node scripts/check-release-upgrade-readiness.mjs
+        run: node scripts/check-release-upgrade-readiness.mjs "$GITHUB_REF_NAME"
 
       - name: Verify dependency graph
         run: |
@@ -138,6 +138,8 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes
+            gh release create "${tag}" --title "${tag}" --generate-notes --prerelease
+          else
+            gh release edit "${tag}" --prerelease
           fi
           gh release upload "${tag}" dist/* --clobber

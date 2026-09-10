@@ -27,25 +27,44 @@ Document notable changes under `Unreleased` in `CHANGELOG.md`.
 10. Run `node --test scripts/build-agent-node.test.mjs` and the compiled command
     tests. Package only through `scripts/build-agent-node.mjs`, which injects the
     exact tag/commit; preserve the six-platform matrix and adjacent checksums.
-11. **Current candidate release blocker:** do not publish this version-injection
-    change before the supported Core-controlled version upgrade/rollback path
-    has been delivered and verified for existing enrollments. Record its exact
-    Core release and user-facing procedure. Neither warnings nor a new Node ID
-    chosen for a private migration satisfy this product compatibility gate.
-    Include clean shutdown/restart on both WebSocket and pull, not just network
-    reconnect. Do not publish instructions for a command that does not exist.
-    Tagged packaging currently executes `scripts/check-release-upgrade-readiness.mjs`
-    and deliberately fails. There is no workflow-input/environment bypass;
-    replace this block only with the reviewed Core compatibility integration.
+11. **Test-only prerelease gate:** run
+    `node scripts/check-release-upgrade-readiness.mjs "$tag"` with the actual tag.
+    Only canonical `v0.x.y-alpha.N`, `v0.x.y-beta.N`, and `v0.x.y-rc.N` pass;
+    numeric components are nonnegative without leading zeroes. Missing/extra
+    arguments, stable tags, v1+ tags and malformed tags fail. No workflow-input
+    or environment variable bypass is provided. The workflow passes the real
+    `GITHUB_REF_NAME` before tagged packaging, and creates or updates the GitHub
+    Release as a **prerelease** only after all six platform jobs have passed.
+12. Document the selected Core/SDK/Node versions and fresh enrollment procedure
+    from [README.md](./README.md#candidate-build-identity-and-test-only-enrollment).
+    This policy is only for test deployments without real users: settle the old
+    Attempts and empty spool, stop the old process without deleting state, then
+    use a new NodeID, new unbound active credential and new private SDK DataDir.
+    Existing Node version replacement and automatic rollback are unsupported.
+    The same exact version and DataDir can restart an active Node ordinarily;
+    this is not administrative drain/activate recovery. Do not claim a general
+    migration controller, an in-place upgrade or OS-level isolation.
+13. Before calling an environment verified, record real WebSocket and pull
+    enrollment, task execution, ordinary clean shutdown/restart and a further
+    task, not merely transport reconnect or source tests. Core-controlled
+    upgrade extensions are not a prerequisite for new test enrollment. Source
+    merge, release publication, deployment and online verification remain
+    separate facts; these checks do not themselves authorize publication.
 
 ## Tagging
 
-Use semantic version tags when maintainers publish versioned binaries:
+After explicit publication approval, choose an unused canonical pre-1.0 test
+prerelease tag (the value below is an example, not a reserved next version):
 
 ```bash
-git tag v0.x.y
-git push origin v0.x.y
+tag=v0.1.59-rc.1
+node scripts/check-release-upgrade-readiness.mjs "$tag"
+git tag "$tag"
+git push origin "$tag"
 ```
 
-Pre-1.0 releases may include breaking changes, but they must be called out in
-`CHANGELOG.md`.
+Breaking changes must be called out in `CHANGELOG.md`. Stable pre-1.0 and v1+
+releases remain blocked. Non-tag workflow runs still build exact `sha-...`
+artifacts and adjacent checksums for CI; they do not publish a GitHub Release.
+The builder itself also accepts development and other exact version identities
+for tests; successful local packaging is not release authorization.

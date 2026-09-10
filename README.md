@@ -79,7 +79,7 @@ Prebuilt binaries for Linux, macOS, and Windows, together with adjacent
 Verify the checksum before installing a binary. Contributors can build from
 source with the commands below.
 
-### Unreleased build identity and upgrade gate
+### Candidate build identity and test-only enrollment
 
 This source candidate adds `openlinker-agent-node --version`. It returns the
 same implementation identity used for Runtime enrollment before reading
@@ -87,17 +87,44 @@ configuration, starting a Provider/listener, opening SDK state, or making a
 network request. No arguments starts the configured Worker; unsupported
 arguments fail without startup. Older published binaries do not have this flag.
 
-Source builds report `openlinker-agent-node/dev`; release builds inject the
+Source builds report `openlinker-agent-node/dev`; packaged builds inject the
 exact `v...` tag or `sha-...` identity. The release builder is
 `node scripts/build-agent-node.mjs <version> <output>` (Node.js 22 and Go are
 build tools, not requirements for running a downloaded binary).
 
-**This candidate must not be released or used to upgrade an enrolled Node yet.**
-Existing token-only enrollment binds the old `node_version` and rejects a
-different version on reconnect. A supported, tested Core-controlled upgrade
-and rollback procedure must ship first. Release notes alone, a new local data
-directory, or pretending to be the old version do not satisfy that gate. Do
-not delete state or recreate credentials to work around `ContractMismatch`.
+**This candidate is eligible only for pre-1.0 test prereleases, not an in-place
+upgrade of an enrolled Node.** The release gate accepts only canonical
+`v0.x.y-alpha.N`, `v0.x.y-beta.N`, or `v0.x.y-rc.N` tags. Numeric components are
+nonnegative with no leading zeroes. Stable tags, v1+ tags, and missing or malformed
+arguments are rejected; there is no environment bypass. Non-tag SHA artifacts
+remain available for CI testing but are not GitHub releases.
+
+For a test deployment with no real users, the supported change-of-version path
+is explicit fresh enrollment:
+
+1. Stop new test calls, confirm all old Attempts have settled and the SDK spool
+   is empty, then stop the old test process. Retain its private data directory;
+   do not erase state or run two Workers on one directory.
+2. Obtain a new, unbound, active Agent credential through the existing Core
+   registration/token flow. Use a new `OPENLINKER_NODE_ID` and a new private
+   `OPENLINKER_AGENT_NODE_DATA_DIR`; do not reuse the old binding, identity,
+   certificates, or keys. Discovery still selects token-only or mTLS enrollment.
+3. Start the exact selected binary, verify its `--version` and new Core readiness,
+   then verify a test task. A changed Node identity is intentional; this is not
+   an upgrade of the old enrollment or an automatic rollback mechanism.
+
+An ordinary restart of an **active** Node retains the exact binary version,
+Node identity, credential and SDK DataDir. The SDK rotates the Runtime Session;
+do not create a fresh directory on each restart. This does not cover a revoked
+or administratively drained Node. Changing the version under the original
+enrollment is unsupported and can fail with `ContractMismatch`; never spoof
+the old version to avoid it. No Core-controlled upgrade extension or generic
+migration controller is required for fresh test enrollment.
+
+These are source-level compatibility and release-policy boundaries, not proof
+that this candidate has been published or deployed. Record real WebSocket and
+pull enrollment, task execution and same-DataDir restart results before declaring
+a target environment verified. See [RELEASE.md](./RELEASE.md).
 
 ## Quick start
 

@@ -66,20 +66,39 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 [GitHub Releases](https://github.com/OpenLinker-ai/openlinker-agent-node/releases)。安装前请
 校验 checksum；贡献者可以使用下方命令从源码构建。
 
-### 未发布候选的构建身份与升级门禁
+### 候选构建身份与仅限测试的重新登记
 
 本源码候选新增 `openlinker-agent-node --version`，在读取配置、启动 Provider/监听器、
 打开 SDK 状态或发出网络请求之前，输出与 Runtime 登记相同的实现身份。不带参数仍启动
 配置的 Worker；未知参数不启动服务并报错。旧正式二进制尚无该参数。
 
-源码构建报告 `openlinker-agent-node/dev`，发布构建注入精确 `v...` tag 或 `sha-...`。
+源码构建报告 `openlinker-agent-node/dev`，打包构建注入精确 `v...` tag 或 `sha-...`。
 统一构建入口为 `node scripts/build-agent-node.mjs <version> <output>`，需要 Node.js 22
 与 Go；运行已下载二进制不需要这些构建工具。
 
-**本候选尚不能发布，也不能直接升级已经登记的 Node。** 既有 token-only 登记锁定旧
-`node_version`，重连版本不同会被拒绝。必须先交付、验证 Core 受控升级/回退流程；
-仅加 release notes、新建本地数据目录或伪报旧版本均不算通过。不得删除状态、重新创建
-凭据来绕过 `ContractMismatch`。
+**本候选仅允许 pre-1.0 测试预发布，不支持已经登记的 Node 原地升级。** 发布门禁只
+接受规范的 `v0.x.y-alpha.N`、`v0.x.y-beta.N` 或 `v0.x.y-rc.N` tag，数字均为无前导零的
+非负整数；稳定版、v1+、缺参和格式错误均拒绝，没有环境变量旁路。非 tag 的 SHA 产物
+仍可用于 CI 测试，但不创建 GitHub Release。
+
+对于没有真实用户的测试部署，变更版本采用显式重新登记：
+
+1. 停止新增测试调用，确认旧 Attempt 全部结算且 SDK spool 为空，再停止旧测试进程。
+   保留旧私有数据目录；不得清空状态，不得让两个 Worker 共用一个目录。
+2. 通过 Core 现有登记/Token 流程取得新的、未绑定且有效的 Agent 凭据，使用新的
+   `OPENLINKER_NODE_ID` 和私有 `OPENLINKER_AGENT_NODE_DATA_DIR`；不得复用旧绑定、
+   identity、证书或私钥。发现清单仍决定 token-only 或 mTLS 登记方式。
+3. 启动选定的精确二进制，核验 `--version`、新 Node ready 以及一次任务执行。这里
+   有意改变 Node 身份，不是旧登记的升级，也不提供自动回滚。
+
+**active** Node 的普通重启保留相同精确二进制版本、Node 身份、凭据和 SDK DataDir，
+由 SDK 轮换 Runtime Session；不要每次重启都新建目录。该行为不涵盖已撤销或被行政
+drain 的 Node。原登记直接替换成不同版本不受支持，可能返回 `ContractMismatch`，
+不得伪报旧版本绕过。新的测试登记不依赖 Core 受控升级扩展或通用迁移控制器。
+
+上述是源码兼容性与发布策略边界，不代表本候选已经发布、部署。宣称目标环境通过前，
+仍须记录真实 WebSocket 和 pull 的登记、任务执行及同 DataDir 重启测试结果。
+详见 [RELEASE.zh-CN.md](./RELEASE.zh-CN.md)。
 
 ## 快速开始
 
