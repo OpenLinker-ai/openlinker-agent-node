@@ -299,7 +299,7 @@ passes `--disallowedTools WebSearch,WebFetch`. Explicit `true` removes that
 bridge-level deny for both built-in tools. It does not change `dontAsk`,
 `--safe-mode`, the allowed-tools list, managed policy, Browser or delegation.
 Tool availability is not automatic approval or a guarantee of network access;
-review any required `CLAUDE_ALLOWED_TOOLS` entries separately. This is not an
+review any required `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS` entries separately. This is not an
 OS sandbox or a general network-deny switch.
 
 Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,

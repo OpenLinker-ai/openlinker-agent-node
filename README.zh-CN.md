@@ -260,7 +260,7 @@ OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
 `OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` 默认 **false**，桥接器传入
 `--disallowedTools WebSearch,WebFetch`。显式 true 只取消桥接层对这两个内置网页工具的
 禁止，不改变 `dontAsk`、`--safe-mode`、允许工具列表、管理策略、Browser 或委派。
-工具可用不等于自动批准或联网必然成功；需要的 `CLAUDE_ALLOWED_TOOLS` 仍须单独审核。
+工具可用不等于自动批准或联网必然成功；需要的 `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS` 仍须单独审核。
 此开关不是 OS 沙箱或通用网络封禁。
 
 取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；空值为 false。
