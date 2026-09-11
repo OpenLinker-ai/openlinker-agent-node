@@ -7,6 +7,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+### Fixed
+
+- Wire `OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` through the native Claude
+  environment entry. Default false preserves the WebSearch/WebFetch deny;
+  explicit true removes only that deny, without widening other permissions.
+  Invalid values fail before startup. The rc.1 binary lacked this mapping;
+  follow fresh-enrollment rules when changing the registered binary version.
+
 ### Local Claude bridge candidate — test prereleases only
 
 - Build-injected Node identity (`dev`, exact release tag, or commit) and a

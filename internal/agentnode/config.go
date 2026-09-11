@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	openlinker "github.com/OpenLinker-ai/openlinker-go"
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 type Env map[string]string
@@ -145,6 +145,16 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Unlike legacy boolOption, reject typos in this explicit tool-policy
+		// opt-in before constructing a Worker or starting the provider.
+		webSearch := false
+		switch strings.ToLower(strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH"))) {
+		case "", "0", "false", "no", "off":
+		case "1", "true", "yes", "on":
+			webSearch = true
+		default:
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH must be a boolean")
+		}
 		allowed, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS"), "OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS")
 		if err != nil {
 			return nil, err
@@ -158,6 +168,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
 			Model:        get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
 			Permission:   defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
+			WebSearch:    webSearch,
 			AllowedTools: allowed, Timeout: time.Duration(nativeTimeout) * time.Millisecond,
 			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"), false),
 			SessionStore: get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_STORE"), EnvAllowlist: envAllowlist,

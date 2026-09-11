@@ -254,7 +254,19 @@ OPENLINKER_AGENT_NODE_ADAPTER=claude
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
 ```
+
+`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` 默认 **false**，桥接器传入
+`--disallowedTools WebSearch,WebFetch`。显式 true 只取消桥接层对这两个内置网页工具的
+禁止，不改变 `dontAsk`、`--safe-mode`、允许工具列表、管理策略、Browser 或委派。
+工具可用不等于自动批准或联网必然成功；需要的 `CLAUDE_ALLOWED_TOOLS` 仍须单独审核。
+此开关不是 OS 沙箱或通用网络封禁。
+
+取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；空值为 false。
+其他值在启动前报配置错误，不回显原值。配置在 Node 生命周期内固定，不支持热更新。
+`v0.1.57-rc.1` 二进制尚未读取此开关，单设环境变量不能修复旧版本。应使用包含本修复
+的发布物，并遵循上方版本变更的新身份登记流程，不得将新代码伪标成 rc.1。
 
 两端均使用本仓库的 `pkg/adapters`，共同协议解析、私有会话存储和进程机制在公开叶子包内。
 SDK 固定为 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`。

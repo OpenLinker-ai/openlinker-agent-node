@@ -291,7 +291,23 @@ OPENLINKER_AGENT_NODE_ADAPTER=claude
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
 ```
+
+`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` defaults to **false**: the bridge
+passes `--disallowedTools WebSearch,WebFetch`. Explicit `true` removes that
+bridge-level deny for both built-in tools. It does not change `dontAsk`,
+`--safe-mode`, the allowed-tools list, managed policy, Browser or delegation.
+Tool availability is not automatic approval or a guarantee of network access;
+review any required `CLAUDE_ALLOWED_TOOLS` entries separately. This is not an
+OS sandbox or a general network-deny switch.
+
+Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,
+on/off; empty is false. Other values fail configuration before startup without
+echoing the value. Configuration is fixed for the Node lifetime, not hot-reloaded.
+The `v0.1.57-rc.1` binary did not read this setting; setting an environment
+variable cannot repair that binary. Use a release containing this fix and follow
+the fresh-enrollment version-change procedure above; do not relabel it as rc.1.
 
 Both native adapters use this repository's `pkg/adapters`; shared protocol
 parsing, private session storage and process mechanisms live in its public
