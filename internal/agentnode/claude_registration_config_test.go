@@ -90,6 +90,9 @@ func TestClaudeFreshRegistrationExampleUsesNativeConfiguration(t *testing.T) {
 	if !adapter.Config.SessionReuse || env["OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"] != "true" {
 		t.Fatal("this example must explicitly opt into retained Claude sessions")
 	}
+	if adapter.Config.WebSearch || env["OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH"] != "false" {
+		t.Fatal("fresh registration must not implicitly enable built-in web tools")
+	}
 	for _, retained := range []string{adapter.Config.Workspace, filepath.Dir(adapter.Config.SessionStore)} {
 		if node.DataDir == retained || strings.HasPrefix(retained, node.DataDir+string(filepath.Separator)) ||
 			strings.HasPrefix(node.DataDir, retained+string(filepath.Separator)) {
