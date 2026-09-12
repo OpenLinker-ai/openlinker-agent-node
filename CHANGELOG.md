@@ -9,6 +9,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Added
 
+- Opt-in native session isolation for macOS and Linux using the pinned
+  sandbox runtime. One Agent Node manages concurrent conversation sandboxes;
+  each Run launches an isolated client, with persistent scoped workspace and
+  native history, exclusive session ownership and independent cancellation.
+  The default remains off. Enabling this mode requires dedicated API-key
+  authentication, explicit runtime/network grants and successful OS enforcement
+  probes; personal login/history, Browser and host delegation are not imported.
+  See `docs/native-session-isolation.md` for configuration and limitations.
 - Share the complete Codex app-server turn lifecycle in `pkg/adapters/codexturn`.
   Native command preparation, protocol ordering, scoped events, cancellation
   and shutdown now have one implementation with command-factory, pre-thread

@@ -20,6 +20,7 @@ Agent cutover. Existing Docker PR #31 was not changed.
 | Release build-identity tests | 6/6 passed |
 | Isolated module/package graphs, negative boundary controls, RPC generation check, `go mod verify`, `go vet`, whitespace check | Passed |
 | Plugin host consumer tests using a temporary workspace with this Node candidate and the pinned SDK | Passed |
+| Gitleaks 8.28.0 current-source scan before PR | No findings in changed files; three existing test-fixture findings reviewed (synthetic environment values and frozen session hashes/JSON) |
 
 The Linux environment was a dedicated isolated VM (no host file sharing or SSH
 agent forwarding), not a Docker container. Its kernel was
