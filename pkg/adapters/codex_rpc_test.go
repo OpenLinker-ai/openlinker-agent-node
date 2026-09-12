@@ -18,10 +18,6 @@ func writeCodexRPCFixture(t *testing.T, path, scenario string) {
 // Keep the fake-process seam available to this package's delegation regressions.
 type rpcFixture = providertest.RPCFixture
 
-func startRPCFixture(scenario string) *rpcFixture {
-	return providertest.StartRPCFixture(scenario)
-}
-
 func TestCodexRPCFixtureProcess(t *testing.T) {
 	providertest.CodexRPCFixtureProcess()
 }

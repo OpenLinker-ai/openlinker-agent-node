@@ -459,3 +459,15 @@ See [SECURITY.md](./SECURITY.md), [SUPPORT.md](./SUPPORT.md), and
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).
+
+## Shared file mechanisms and Handler compatibility
+
+The `pkg/adapters/appfiles` leaf owns strict JSON decoding, private file and secret
+I/O, atomic replacement and cross-process app locks. Node consumes it for helper
+request decoding and native credential files; Plugin can reuse it without a Node
+process. Product defaults, persistent paths and lock lifetime remain with callers.
+
+The published `adapters.NewHandler` and `adapters.Handler` API remains available in
+`handler_compat.go` for source compatibility, with regression coverage. It is
+deprecated for new integrations: use `NewProvider` and compose the SDK handler in
+the host. Node itself uses `NativeAdapter`.

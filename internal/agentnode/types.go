@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	openlinker "github.com/OpenLinker-ai/openlinker-go"
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 const DefaultShutdownTimeout = 10 * time.Second
@@ -80,10 +80,4 @@ type CallAgentOptions struct {
 
 type Adapter interface {
 	Run(ctx context.Context, input any, runCtx RunContext) (any, error)
-}
-
-type AdapterFunc func(ctx context.Context, input any, runCtx RunContext) (any, error)
-
-func (f AdapterFunc) Run(ctx context.Context, input any, runCtx RunContext) (any, error) {
-	return f(ctx, input, runCtx)
 }

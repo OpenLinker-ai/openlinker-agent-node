@@ -10,17 +10,10 @@ import (
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-type Env map[string]string
 type EnvLookup func(string) string
 
 func NewFromEnv() (*Node, error) {
 	return NewFromLookup(os.Getenv)
-}
-
-func NewFromEnvMap(env Env) (*Node, error) {
-	return NewFromLookup(func(key string) string {
-		return env[key]
-	})
 }
 
 func NewFromLookup(get EnvLookup) (*Node, error) {
