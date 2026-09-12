@@ -272,6 +272,9 @@ OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
 两端均使用本仓库的 `pkg/adapters`，共同协议解析、私有会话存储和进程机制在公开叶子包内。
 SDK 固定为 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`。
 启动前检查原生 CLI 版本及所需参数，当前验证基线是 Codex 0.153.0、Claude 2.1.259。
+Codex app-server 的完整轮次流程通过公开叶子
+[`codexturn`](pkg/adapters/codexturn/README.md) 共享；Node/Plugin 各自保留启动、工具和
+会话策略，共用取消与进程退出逻辑。
 Codex 从有界 JSONL 读取最终答复，Claude 持续发送标准化进度。
 `OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE`（同前缀）及
 各自的 `*_SESSION_STORE` 配置会话复用，恢复时补入 Core 历史增量。

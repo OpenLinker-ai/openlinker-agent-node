@@ -68,6 +68,18 @@ func StartRPCFixture(scenario string) *RPCFixture {
 		case "initialize":
 			f.reply(message, map[string]any{"userAgent": "fixture"})
 		case "initialized":
+		case "plugin/install":
+			if !strings.HasPrefix(scenario, "plugin-install") {
+				os.Exit(3)
+			}
+			switch scenario {
+			case "plugin-install-failed":
+				_ = f.encoder.Encode(codexrpc.Message{ID: message.ID, Error: &codexrpc.Error{Code: -32000, Message: "installation failed"}})
+			case "plugin-install-auth":
+				f.reply(message, map[string]any{"appsNeedingAuth": []any{map[string]any{"id": "unexpected-app", "name": "unexpected"}}})
+			default:
+				f.reply(message, map[string]any{"appsNeedingAuth": []any{}})
+			}
 		case "thread/start", "thread/resume":
 			if message.Method == "thread/resume" {
 				f.mode = "resume"
@@ -169,6 +181,18 @@ func CodexRPCDrainsShutdownBeforeWaiting(t *testing.T, runRPC func(context.Conte
 				t.Fatal("shutdown exceeded its process-tree kill bound")
 			}
 		})
+	}
+}
+
+// Exercise the consuming production RPC entry, not a second provider or a fake
+// cancellation implementation. Cancellation must win before workspace/home I/O.
+func CodexRPCAlreadyCanceledDoesNotLaunch(t *testing.T, runRPC func(context.Context, string, string) (string, error)) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := runRPC(ctx, filepath.Join(t.TempDir(), "absent-client"), filepath.Join(t.TempDir(), "absent-workspace"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled request reached native preparation: %v", err)
 	}
 }
 func CodexRPCFixtureProcess() {
