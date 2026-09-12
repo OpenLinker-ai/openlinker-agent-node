@@ -25,11 +25,23 @@ type claudeResponse struct {
 	SessionID string   `json:"session_id"`
 }
 
-func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlinker.RuntimeResult, error) {
+func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultValue openlinker.RuntimeResult, resultErr error) {
 	if run.Emit != nil {
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Claude Code is processing the task."})
 	}
 	config := provider.Config
+	config.Provider = "claude"
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	config, closeSandbox, err := prepareIsolatedSession(requestCtx, config, run)
+	if err != nil {
+		return openlinker.RuntimeResult{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
 	config = providerConfigForDelegationRun(config, run)
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
@@ -43,12 +55,6 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	if permission == "" {
 		permission = "dontAsk"
 	}
-	timeout := config.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Minute
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "claude", workspace)
@@ -56,8 +62,10 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	clientMode := providerSessionClientMode(config)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
-		unlock := lockSession("claude", workspace, sessionKey)
-		defer unlock()
+		if config.sandbox == nil {
+			unlock := lockSession("claude", workspace, sessionKey)
+			defer unlock()
+		}
 		sessionID, clientModeGeneration, _ = loadSessionForClientMode(
 			sessionPath,
 			"claude",
@@ -81,6 +89,13 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 		}
 		allowlist := append([]string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"}, config.EnvAllowlist...)
 		command.Env = append(sanitizedEnvironment(environment, allowlist), "LC_ALL=C", "LANG=C")
+		if config.sandbox != nil {
+			var err error
+			command, err = config.sandbox.Command(requestCtx, bin, args, config.Env)
+			if err != nil {
+				return openlinker.RuntimeResult{}, err
+			}
+		}
 		command.Stdin = strings.NewReader(
 			buildPrompt(
 				"Claude Code",
@@ -146,6 +161,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	result := map[string]any{
 		"handled_by": "claude", "claude_permission": permission,
 		"claude_model": modelLabel(config.Model), "summary": summary,
+	}
+	if config.sandbox != nil {
+		result["session_isolation"] = "docker"
 	}
 	if successfulResumeSessionID != "" {
 		result["claude_resume_session_id_sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(successfulResumeSessionID)))

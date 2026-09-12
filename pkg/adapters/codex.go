@@ -14,11 +14,23 @@ import (
 
 type CodexProvider struct{ Config ProviderConfig }
 
-func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlinker.RuntimeResult, error) {
+func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultValue openlinker.RuntimeResult, resultErr error) {
 	if run.Emit != nil {
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Codex is processing the task."})
 	}
 	config := provider.Config
+	config.Provider = "codex"
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	config, closeSandbox, err := prepareIsolatedSession(requestCtx, config, run)
+	if err != nil {
+		return openlinker.RuntimeResult{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
 	config = providerConfigForDelegationRun(config, run)
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
@@ -32,12 +44,6 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlink
 	if sandbox == "" {
 		sandbox = "read-only"
 	}
-	timeout := config.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Minute
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "codex", workspace)
@@ -45,8 +51,10 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlink
 	clientMode := "codex_rpc_v1:" + providerSessionClientMode(config)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
-		unlock := lockSession("codex", workspace, sessionKey)
-		defer unlock()
+		if config.sandbox == nil {
+			unlock := lockSession("codex", workspace, sessionKey)
+			defer unlock()
+		}
 		sessionID, clientModeGeneration, _ = loadSessionForClientMode(
 			sessionPath,
 			"codex",
@@ -90,6 +98,9 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlink
 	result := map[string]any{
 		"handled_by": "codex", "codex_sandbox": sandbox,
 		"codex_model": modelLabel(config.Model), "summary": summary,
+	}
+	if config.sandbox != nil {
+		result["session_isolation"] = "docker"
 	}
 	if config.SessionReuse && sessionKey != "" {
 		result["codex_session_reuse"] = true
