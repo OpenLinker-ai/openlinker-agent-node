@@ -12,6 +12,7 @@ func sessionIsolationFromEnv(get EnvLookup) (sessionsandbox.Config, error) {
 	c := sessionsandbox.Config{
 		Mode: strings.ToLower(strings.TrimSpace(get("OPENLINKER_AGENT_NODE_SESSION_ISOLATION"))),
 		Root: get("OPENLINKER_AGENT_NODE_SESSION_ROOT"), RuntimeBin: get("OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN"),
+		TempRoot: get("OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"),
 	}
 	var err error
 	c.ReadPaths, err = parseJSONStringArray(get("OPENLINKER_AGENT_NODE_SESSION_READ_PATHS"), "OPENLINKER_AGENT_NODE_SESSION_READ_PATHS")

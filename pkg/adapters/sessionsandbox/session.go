@@ -52,6 +52,19 @@ func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 		return nil, err
 	}
 	c.Root = root
+	tempRoot := "/tmp"
+	if c.TempRoot != "" {
+		tempRoot, err = privateRoot(c.TempRoot)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SESSION_TEMP_ROOT: %w", err)
+		}
+		// Reserve room for olns-<random>/claude-socks-<random>.sock under
+		// the platform's short AF_UNIX path limit. Count bytes, not runes.
+		if len(tempRoot) > 40 {
+			return nil, errors.New("resolved SESSION_TEMP_ROOT must be at most 40 bytes for sandbox sockets")
+		}
+		c.TempRoot = tempRoot
+	}
 	control, err := privateDirectory(root, Scope(c.Namespace, scope))
 	if err != nil {
 		return nil, err
@@ -87,14 +100,16 @@ func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 	}
 	// AF_UNIX socket paths are limited to about 100 bytes. Persistent roots
 	// can be much longer, so each invocation gets a short, private temp root.
-	temp, err := os.MkdirTemp("/tmp", "olns-")
+	temp, err := os.MkdirTemp(tempRoot, "olns-")
 	if err != nil {
 		_ = os.Remove(policy.Name())
 		return nil, errors.New("cannot create private sandbox temporary directory")
 	}
+	createdTemp := temp
 	temp, err = filepath.EvalSymlinks(temp)
 	if err != nil {
 		_ = os.Remove(policy.Name())
+		_ = os.RemoveAll(createdTemp)
 		return nil, errors.New("cannot resolve sandbox temporary directory")
 	}
 	return &Session{config: c, control: control, data: data, policy: policy.Name(), runtimeBin: bin, temp: temp, lock: lock}, nil

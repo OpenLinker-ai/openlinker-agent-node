@@ -69,6 +69,7 @@ jobs:
         run: |
           go test ./...
           node --test scripts/build-agent-node.test.mjs
+          node --test scripts/stage-native-sandbox.test.mjs
 
       - name: Package binary
         id: package
@@ -94,6 +95,7 @@ jobs:
             node scripts/build-agent-node.mjs "${version}" "${work_dir}/${binary_name}"
 
           cp README.md LICENSE "${work_dir}/" 2>/dev/null || true
+          node scripts/stage-native-sandbox.mjs "${work_dir}"
 
           if [[ "${{ matrix.goos }}" == "windows" ]]; then
             archive="${dist_dir}/${artifact_base}.zip"

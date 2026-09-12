@@ -1,5 +1,20 @@
 # macOS／Linux 原生会话隔离
 
+**实验性功能，仅供可信调用方使用。** `ProviderConfig.SessionIsolation`、公开
+`sessionsandbox` 包和 `OPENLINKER_AGENT_NODE_SESSION_*` 参数暂不承诺稳定兼容；
+升级须同时核对二进制、依赖锁及适配器验收。
+
+允许调用这个 Agent 的用户必须可信，且可以接触服务方的模型 API key。客户端或工具
+读到凭据后，可以直接写入最终答复或流式 Run 事件；网络白名单挡不住这个返回通道。
+从子进程环境里移除 key，也不保证它不能读取父进程的凭据。不能把当前模式开放给
+不应知道该 key 的公开或不可信调用方。应在 Core 限制调用者，并使用专用且权限受限
+的模型 key；Node 不会自动判断调用方是否满足这一信任条件。
+
+2026-09-12 的 Linux 真实沙箱验收已确认这条返回路径：通过两种生产适配器运行
+确定性客户端替身时，不带合成 key 的子进程都读到了父进程的 `/proc/<pid>/environ`，
+匹配的 key 摘要成功进入 Run 输出。macOS 上 `ps eww` 在执行时被拒绝；这不能证明
+客户端凭据保密，所以两个系统都保留可信调用方要求。验收未使用真实凭据或模型请求。
+
 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native` 把整个 Codex／Claude Code
 客户端和子工具放进系统沙箱，不依赖 Docker。macOS 使用 Seatbelt，Linux 使用
 bubblewrap、PID／网络命名空间和 seccomp。客户端使用本机已安装的程序，无需打进镜像。
@@ -45,9 +60,19 @@ npm ci --prefix tools/native-sandbox --ignore-scripts
 export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/tools/native-sandbox/node_modules/.bin/srt"
 ```
 
-这条命令适用于 Node 源码仓库。使用二进制安装时，可显式执行
-`npm install --global @anthropic-ai/sandbox-runtime@0.0.76`，让 `srt` 位于 PATH。
-Node 会核验包版本，运行任务时不会自动下载工具。
+这条命令适用于 Node 源码仓库。由本次代码构建的二进制归档还会附带
+`native-sandbox/`，含同一份 manifest、lock 和安装器。验证整个归档 SHA-256 后，
+在解压目录显式执行：
+
+```sh
+sh ./native-sandbox/install.sh
+export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/native-sandbox/node_modules/.bin/srt"
+```
+
+安装器执行 `npm ci --ignore-scripts`，固定直接和传递依赖并验证下载完整性，不执行
+生命周期脚本。旧发布包可能没有这些文件，不能混用不同版本的二进制和锁。
+修改打包流程不代表新包已发布。启动时仅检查顶层包身份和版本，并不证明安装后
+文件未被修改；配置的安装目录仍是可信宿主输入。Run 期间不会自动下载依赖。
 
 Linux 还需要 `bubblewrap`、`socat` 和内核允许的非特权命名空间；macOS 需要
 `/usr/bin/sandbox-exec`。Node 必须以非 root 用户运行。任何依赖、系统能力或真实
@@ -83,6 +108,7 @@ Claude 对应设置 `ADAPTER=claude`、`CLAUDE_SESSION_REUSE=true`，联网域�
 | --- | --- |
 | `SESSION_ISOLATION` | `off` 或 `native` |
 | `SESSION_ROOT` | 持久会话数据的绝对路径 |
+| `SESSION_TEMP_ROOT` | 可选私有临时目录父路径，默认 `/tmp`；解析后路径最多 40 字节 |
 | `SESSION_SANDBOX_BIN` | 固定版本的 `srt`，默认从 PATH 查找 |
 | `SESSION_READ_PATHS` | 额外只读代码／运行库路径的 JSON 数组，默认空 |
 | `SESSION_NETWORK_DOMAINS` | 允许访问的精确公网域名 JSON 数组，只开放 HTTPS 443；默认空，即断网 |
@@ -115,6 +141,23 @@ Codex 内层显示 `danger-full-access` 是为了避免嵌套沙箱；仅在外�
 仍须单独配置 Provider 的工具开关与权限。
 
 ## 限定范围
+
+持久目录和每轮临时数据均没有 Node 强制执行的字节／inode 配额。默认每轮可写
+`/tmp/olns-*`；单个调用方可以耗尽宿主文件系统，`/tmp` 为 tmpfs 时还可能挤占内存。
+目录私有、任务超时和退出后清理，都不能防止运行期间耗尽资源。
+
+可设置 `OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT`，使用管理员事先配置了配额的
+独立文件系统目录。其父目录需存在，目录必须私有且非符号链接，解析后路径最多
+40 字节以容纳 Unix socket 名称。Node 在 srt 包装后、启动客户端时恢复私有
+TMPDIR／TMP／TEMP，确保客户端实际使用所选目录。结束时只删除本轮子目录。
+
+迁移目录不等于容量限制；持久和临时数据都需要底层存储实施限额。共享分区限额
+可以保护宿主其他存储，但不能防止一个会话挤占该分区中的其他会话。每会话硬配额
+仍未实现，不能据此开放给对抗性调用方；Node 不会自动挂载、设置配额或修改主机策略。
+
+关键回环、未指定地址、链路本地／元数据、私网和组播范围已在 Node 中显式拒绝。
+Linux 外层启动命令严格解析为 argv 后直接执行 bubblewrap，不再经宿主 `bash -c`；
+沙箱内的代理／seccomp 脚本仍由固定版本 srt 生成，未知格式或缺少命名空间会停止执行。
 
 同一系统用户下的所有不可信会话都必须启用隔离。一个会话的沙箱无法限制另一个仍以
 普通进程运行的会话，也不限制可信宿主程序、Node 自身、管理员或内核。模型客户端

@@ -23,6 +23,7 @@ func isolationValues(t *testing.T, provider string) map[string]string {
 func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		values := isolationValues(t, name)
+		values["OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"] = "/tmp/ol-private-temp"
 		adapter, err := adapterFromEnv(func(k string) string { return values[k] }, name)
 		if err != nil {
 			t.Fatal(err)
@@ -36,7 +37,7 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 		default:
 			t.Fatalf("unexpected adapter %T", adapter)
 		}
-		if !native.Config.SessionIsolation.Enabled() || native.Config.SessionIsolation.Namespace != "https://core.example" || !native.Config.SessionReuse {
+		if !native.Config.SessionIsolation.Enabled() || native.Config.SessionIsolation.Namespace != "https://core.example" || !native.Config.SessionReuse || native.Config.SessionIsolation.TempRoot != values["OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"] {
 			t.Fatal("isolation settings lost")
 		}
 		// No personal login can turn an invalid startup into a green result.

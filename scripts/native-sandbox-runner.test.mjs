@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { quotedArgv, hardenMacCommand } from '../pkg/adapters/sessionsandbox/runner.mjs';
+import { quotedArgv, hardenMacCommand, linuxCommand } from '../pkg/adapters/sessionsandbox/runner.mjs';
 
 const quote = args => args.map(s => `'${s.replaceAll("'", `'"'"'`)}'`).join(' ');
 test('generated argv preserves quotes, newlines and shell-looking bytes without evaluation', () => {
@@ -9,6 +9,17 @@ test('generated argv preserves quotes, newlines and shell-looking bytes without 
   for (const value of ['env x; touch bad','env $(id)', 'env "$HOME"', "env 'unclosed", 'env x\ny']) {
     assert.throws(()=>quotedArgv(value));
   }
+});
+test('Linux decodes outer argv without a host shell and requires isolated namespaces', () => {
+  const args = ['/usr/bin/bwrap','--new-session','--die-with-parent','--unshare-net','--unshare-pid','--unshare-user',
+    '--ro-bind',"/tmp/a'b", "/tmp/a'b", '--proc','/proc','--','/bin/bash','-c',`printf '%s' '$(touch INJECTED)'`];
+  assert.deepEqual(linuxCommand(quote(args)),args);
+  assert.throws(()=>linuxCommand(quote(args)+'; touch INJECTED'));
+  assert.throws(()=>linuxCommand(quote(['/bin/bash','-c','echo bypass'])));
+  for(const flag of ['--new-session','--die-with-parent','--unshare-net','--unshare-pid','--unshare-user','--proc']) {
+    assert.throws(()=>linuxCommand(quote(args.filter(v=>v!==flag))));
+  }
+  assert.throws(()=>linuxCommand(quote([...args.slice(0,2),'--share-net',...args.slice(2)])));
 });
 test('macOS adds IPC denials and symlink metadata to one original Seatbelt profile',()=>{
   const original='(version 1)\n(deny default)\n(allow process-exec)';

@@ -53,6 +53,14 @@ Document notable changes under `Unreleased` in `CHANGELOG.md`.
 
 ## Tagging
 
+Native isolation is experimental and restricted to callers trusted to receive
+the provider model key. Archives now stage `native-sandbox/` (manifest, lock,
+installer and instructions) and both native-isolation guides with the binary;
+the existing archive checksum covers those files. Run
+`node --test scripts/stage-native-sandbox.test.mjs` before packaging. Installed
+runtime content is not attested by the binary. Credential proxying and resource
+quotas remain open work; do not label a prerelease safe for untrusted callers.
+
 After explicit publication approval, choose an unused canonical pre-1.0 test
 prerelease tag (the value below is an example, not a reserved next version):
 

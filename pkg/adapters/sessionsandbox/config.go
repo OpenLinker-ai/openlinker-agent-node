@@ -1,6 +1,7 @@
 // Package sessionsandbox isolates an entire native client process, including
 // its tools, using the OS sandbox through a pinned Anthropic sandbox runtime.
 // It does not start a Worker or infer identity from model-controlled input.
+// Experimental: this package/configuration has no stable compatibility promise.
 package sessionsandbox
 
 import (
@@ -14,10 +15,11 @@ import (
 
 const RuntimeVersion = "0.0.76"
 
-// Config is opt-in. Existing native workspaces and personal client histories
+// Config is experimental and opt-in. Existing native workspaces and personal client histories
 // are never imported. Namespace must identify the trusted Core installation.
 type Config struct {
 	Mode, Root, Namespace, RuntimeBin string
+	TempRoot                          string
 	ReadPaths, AllowedDomains         []string
 }
 
@@ -25,7 +27,7 @@ func (c Config) Enabled() bool { return c.Mode == "native" }
 
 func (c Config) Validate() error {
 	if c.Mode == "" || c.Mode == "off" {
-		if c.Root != "" || c.RuntimeBin != "" || len(c.ReadPaths)+len(c.AllowedDomains) != 0 {
+		if c.Root != "" || c.TempRoot != "" || c.RuntimeBin != "" || len(c.ReadPaths)+len(c.AllowedDomains) != 0 {
 			return errors.New("session options require SESSION_ISOLATION=native")
 		}
 		return nil
@@ -44,6 +46,9 @@ func (c Config) Validate() error {
 	}
 	if !safePath(c.Root) || filepath.Clean(c.Root) == "/" || strings.TrimSpace(c.Namespace) == "" {
 		return errors.New("native isolation requires an absolute private SESSION_ROOT and stable Core namespace")
+	}
+	if c.TempRoot != "" && (!safePath(c.TempRoot) || filepath.Clean(c.TempRoot) == "/") {
+		return errors.New("SESSION_TEMP_ROOT must be an absolute private directory")
 	}
 	for _, p := range c.ReadPaths {
 		if !safePath(p) {

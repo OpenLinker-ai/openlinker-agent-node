@@ -40,6 +40,12 @@ OpenLinker Agent Node 从 `main` 发布，前提是 CI 和本地发布检查都�
 
 ## 打 tag
 
+原生沙箱仍属实验性功能，仅供可信且可以接触服务方模型 key 的调用方使用。
+归档现在会附带 `native-sandbox/`（manifest、lock、安装器及说明）和中英文指南，
+原有归档 checksum 同时覆盖这些文件。打包前运行
+`node --test scripts/stage-native-sandbox.test.mjs`。二进制不证明安装后的运行库未被修改。
+凭据代理和资源硬配额仍未实现，不得将预发布描述为可安全开放给不可信调用方。
+
 明确获准发布后，选择未占用的规范 pre-1.0 测试预发布 tag（下列仅为示例，非预定版本）：
 
 ```bash

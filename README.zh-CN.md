@@ -406,6 +406,10 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 
 ## 不依赖 Docker 的会话隔离
 
+**实验性，仅供可信调用方使用。** 调用方必须可以接触服务方模型 key：可读凭据
+可能通过 Run 输出返回，网络白名单无法阻止。当前也没有每会话资源硬配额。
+公开沙箱配置／包和 `SESSION_*` 参数暂不承诺稳定兼容。
+
 macOS/Linux 上可显式设置 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`。
 Codex／Claude 整个客户端及子工具在系统沙箱内运行，各会话独享持久工作区和原生历史，
 一个常驻 Node 管理多个会话，仅执行中的 Run 启动沙箱内客户端子进程，空闲会话保留数据。
@@ -414,3 +418,4 @@ Codex／Claude 整个客户端及子工具在系统沙箱内运行，各会话�
 OAuth／钥匙串登录或旧会话。开启前请阅读[完整配置与边界](docs/native-session-isolation.zh-CN.md)。
 这不等于 CPU／磁盘配额或容器级孤儿进程回收；当前是源码实现，不代表安装版本或运行中
 Agent 已升级。Plugin 的产品入口不会自动启用本策略。
+由本次源码构建的新归档会附带依赖锁及显式的 `npm ci --ignore-scripts` 安装器。

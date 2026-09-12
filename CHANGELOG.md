@@ -9,6 +9,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Added
 
+- Mark native session isolation and its public/configuration surfaces
+  **experimental, trusted-callers-only**. Readable provider keys can return in
+  Run output; network filtering is not credential isolation. Add real-OS
+  parent-environment probes using synthetic keys and record exposure separately.
+- Binary archive packaging now carries the same optional sandbox manifest/lock
+  and explicit `npm ci --ignore-scripts` installer as source installs.
+- Optional `SESSION_TEMP_ROOT` selects private storage on an administrator's
+  quota-backed filesystem. No byte/inode/memory quota is enforced by Node.
 - Opt-in native session isolation for macOS and Linux using the pinned
   sandbox runtime. One Agent Node manages concurrent conversation sandboxes;
   each Run launches an isolated client, with persistent scoped workspace and
@@ -24,6 +32,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Fixed
 
+- Decode the Linux outer sandbox command to argv and execute bubblewrap directly;
+  reject unexpected command formats or missing required namespaces. Restore the
+  private client TMPDIR/TMP/TEMP after SRT's override, and explicitly deny
+  loopback, link-local/metadata and other reserved address ranges.
 - Node now owns its agent-host v1 delegation commands and uses its own
   executable by default. No runtime dependency on the platform CLI or Plugin
   host is needed; Browser is not advertised. Tests build the real Node binary,
