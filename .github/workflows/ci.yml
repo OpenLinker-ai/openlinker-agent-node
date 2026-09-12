@@ -29,7 +29,16 @@ jobs:
           node-version: "22"
       - name: Install Linux OS sandbox dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep curl
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep curl apparmor
+      - name: Authorize only bubblewrap user namespaces on the disposable runner
+        if: runner.os == 'Linux'
+        run: |
+          native_ci_userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [ "$native_ci_userns" = 1 ]; then
+            sudo apparmor_parser -r scripts/ci-bwrap.apparmor
+            test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = "$native_ci_userns"
+          fi
+          bwrap --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc --dev /dev -- /bin/true
       - name: Install macOS sandbox dependency
         if: runner.os == 'macOS'
         run: command -v rg || brew install ripgrep

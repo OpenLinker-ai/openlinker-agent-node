@@ -66,6 +66,14 @@ Installed official client checks made no model request.
 
 ## Findings resolved during verification
 
+- The first GitHub Linux job on Ubuntu 24.04/bubblewrap 0.9.0 failed during
+  network namespace setup (`Failed RTM_NEWADDR`). macOS and the general test
+  job passed. The follow-up provisions an AppArmor userns authorization for
+  the exact distro `/usr/bin/bwrap` on the disposable runner, following Ubuntu's
+  application-specific policy model. CI asserts that the global userns
+  restriction remains unchanged and runs a namespace startup probe before
+  the full enforcement suite. This does not alter product sandbox policy or
+  weaken the required tests; the follow-up GitHub result is recorded separately.
 - macOS's short Unix-socket path limit required a short per-invocation private
   temporary directory rather than a nested persistent path.
 - A second nested Seatbelt invocation is rejected by macOS. Additional IPC

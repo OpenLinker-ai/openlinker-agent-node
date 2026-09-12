@@ -55,6 +55,18 @@ installed bubblewrap executable. Do not disable a host-wide security policy or
 enable SRT's weaker nesting mode to make the probe pass. Unsupported hosts fail
 closed. macOS requires `/usr/bin/sandbox-exec`.
 
+Ubuntu 24.04 can additionally deny bubblewrap's namespace setup through
+AppArmor, including `loopback: Failed RTM_NEWADDR: Operation not permitted`.
+An administrator must explicitly authorize the distro-owned `/usr/bin/bwrap`
+executable in the host's AppArmor policy when user namespaces are restricted.
+Use Ubuntu's documented [application-specific namespace authorization](https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890),
+reviewing any existing site profile; do not disable the global restriction,
+run the Node as root, or share the host network as a workaround. The CI-only
+`scripts/ci-bwrap.apparmor` demonstrates this prerequisite on a disposable
+runner. Node never installs that profile or changes host security settings.
+This AppArmor authorization enables the trusted launcher; the actual per-session
+filesystem/network boundary is still imposed by bubblewrap and seccomp.
+
 From a source checkout, install the locked optional dependency:
 
 ```sh

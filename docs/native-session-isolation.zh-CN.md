@@ -53,6 +53,14 @@ Linux 还需要 `bubblewrap`、`socat` 和内核允许的非特权命名空间�
 `/usr/bin/sandbox-exec`。Node 必须以非 root 用户运行。任何依赖、系统能力或真实
 隔离探针失败都会阻止启动，不会退回无沙箱运行，也不启用较弱的嵌套模式。
 
+Ubuntu 24.04 还可能因 AppArmor 限制用户命名空间而在 bubblewrap 启动时出现
+`loopback: Failed RTM_NEWADDR: Operation not permitted`。管理员需要按 Ubuntu 的
+[应用级命名空间授权说明](https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890)，
+审核已有策略并明确授权发行版安装的 `/usr/bin/bwrap`。不要关闭全局限制、让 Node
+以 root 运行或改用主机网络来绕过。`scripts/ci-bwrap.apparmor` 只供临时 CI 机器示范，
+Node 不会自动安装策略或修改主机设置；授权启动器后，会话的文件／网络隔离仍由
+bubblewrap 与 seccomp 执行。
+
 保留已有 Node 身份和连接配置，以 Codex 为例增加：
 
 ```sh
