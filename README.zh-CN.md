@@ -403,3 +403,13 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 
 已发布的 `adapters.NewHandler` / `adapters.Handler` 保留在 `handler_compat.go` 并增加兼容回归。
 该 API 标记为弃用，新接入使用 `NewProvider` 并在宿主组装 SDK Handler；Node 本身使用 `NativeAdapter`。
+
+## 不依赖 Docker 的会话隔离
+
+macOS/Linux 上可显式设置 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`。
+Codex／Claude 整个客户端及子工具在系统沙箱内运行，各会话独享持久工作区和原生历史，
+会话映射、锁和策略位于客户端不可读的控制目录。缺少沙箱能力时启动失败，不降级；
+未开启时默认行为不变。需要专用 API key、明确的运行库读取路径和联网域名，不导入个人
+OAuth／钥匙串登录或旧会话。开启前请阅读[完整配置与边界](docs/native-session-isolation.zh-CN.md)。
+这不等于 CPU／磁盘配额或容器级孤儿进程回收；当前是源码实现，不代表安装版本或运行中
+Agent 已升级。Plugin 的产品入口不会自动启用本策略。

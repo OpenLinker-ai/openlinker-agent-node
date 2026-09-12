@@ -471,3 +471,14 @@ The published `adapters.NewHandler` and `adapters.Handler` API remains available
 `handler_compat.go` for source compatibility, with regression coverage. It is
 deprecated for new integrations: use `NewProvider` and compose the SDK handler in
 the host. Node itself uses `NativeAdapter`.
+
+## Native session isolation without Docker
+
+Codex and Claude can opt into `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`
+on macOS/Linux. The entire client runs under a system sandbox with a private,
+persistent per-conversation workspace and native history. Missing sandbox support
+fails startup; the existing default remains off. Dedicated API-key authentication,
+explicit readable runtime paths and network domains are required. See
+[native session isolation](docs/native-session-isolation.md) for setup, migration,
+actual guarantees and verification boundaries. This is source implementation,
+not an automatic upgrade of installed Node binaries or running Agents.

@@ -10,6 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  native-session-isolation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      GOWORK: "off"
+      GOFLAGS: "-mod=readonly"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Linux OS sandbox dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep curl
+      - name: Install macOS sandbox dependency
+        if: runner.os == 'macOS'
+        run: command -v rg || brew install ripgrep
+      - name: Install pinned sandbox runtime without lifecycle scripts
+        run: npm ci --prefix tools/native-sandbox --ignore-scripts --no-audit --no-fund
+      - name: Verify real OS enforcement and both provider continuation paths
+        run: |
+          export OPENLINKER_TEST_NATIVE_SANDBOX_BIN="$PWD/tools/native-sandbox/node_modules/.bin/srt"
+          bash scripts/test-native-session-isolation.sh
+
   test:
     runs-on: ubuntu-latest
     env:

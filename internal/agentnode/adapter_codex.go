@@ -6,12 +6,14 @@ import (
 	"time"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/sessionsandbox"
 )
 
 // CodexAdapter preserves the Agent Node configuration surface. Native process,
 // prompt, progress, session security, and recovery are owned only by agentexec.
 // Legacy Node session maps are not imported; Core history seeds a new session.
 type CodexAdapter struct {
+	SessionIsolation     sessionsandbox.Config
 	CodexBin             string
 	Workspace            string
 	Sandbox              string
@@ -34,7 +36,8 @@ func (a *CodexAdapter) native() *NativeAdapter {
 	a.once.Do(func() {
 		a.adapter = &NativeAdapter{Config: agentexec.ProviderConfig{
 			Provider: "codex", Bin: a.CodexBin, Workspace: a.Workspace,
-			Sandbox: a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
+			SessionIsolation: a.SessionIsolation,
+			Sandbox:          a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
 			Timeout: a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,

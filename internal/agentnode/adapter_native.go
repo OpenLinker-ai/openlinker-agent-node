@@ -46,6 +46,9 @@ func (adapter *NativeAdapter) Preflight(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := agentexec.CheckSessionIsolation(ctx, config); err != nil {
+		return err
+	}
 	if _, err := agentexec.CheckProviderCLI(ctx, config); err != nil {
 		return err
 	}

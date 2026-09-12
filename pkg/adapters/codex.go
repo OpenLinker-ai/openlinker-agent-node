@@ -14,12 +14,20 @@ import (
 
 type CodexProvider struct{ Config ProviderConfig }
 
-func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlinker.RuntimeResult, error) {
+func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultValue openlinker.RuntimeResult, resultErr error) {
 	if run.Emit != nil {
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Codex is processing the task."})
 	}
 	config := provider.Config
 	config = providerConfigForDelegationRun(config, run)
+	if config.SessionIsolation.Enabled() {
+		config.Provider = "codex"
+	}
+	config, closeSandbox, isolationErr := prepareIsolatedSession(ctx, config, run)
+	if isolationErr != nil {
+		return openlinker.RuntimeResult{}, isolationErr
+	}
+	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
 		bin = "codex"
@@ -45,8 +53,10 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlink
 	clientMode := "codex_rpc_v1:" + providerSessionClientMode(config)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
-		unlock := lockSession("codex", workspace, sessionKey)
-		defer unlock()
+		if config.sandbox == nil {
+			unlock := lockSession("codex", workspace, sessionKey)
+			defer unlock()
+		}
 		sessionID, clientModeGeneration, _ = loadSessionForClientMode(
 			sessionPath,
 			"codex",
@@ -91,6 +101,10 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (openlink
 		"handled_by": "codex", "codex_sandbox": sandbox,
 		"codex_model": modelLabel(config.Model), "summary": summary,
 	}
+	if config.sandbox != nil {
+		result["session_isolation"] = "native"
+	}
+
 	if config.SessionReuse && sessionKey != "" {
 		result["codex_session_reuse"] = true
 		result["codex_session_key_hash"] = sessionKeyHash("codex", workspace, sessionKey)
@@ -143,6 +157,12 @@ func codexLaunchConfiguration(config ProviderConfig, sandbox string) []string {
 			"-c", `shell_environment_policy.inherit="none"`,
 			"-c", "shell_environment_policy.set="+codexCommandEnvironment(config.Env),
 		)
+		if config.sandbox != nil {
+			// SRT creates its per-invocation proxy environment after Go builds
+			// these arguments. Inherit that constrained environment for tools,
+			// excluding model keys, so permitted tools can reach the same proxy.
+			args = append(args, "-c", `shell_environment_policy.inherit="all"`, "-c", `shell_environment_policy.exclude=["CODEX_API_KEY","ANTHROPIC_API_KEY","OPENAI_API_KEY"]`)
+		}
 	}
 	return args
 }

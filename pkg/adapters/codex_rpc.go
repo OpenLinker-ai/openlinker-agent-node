@@ -14,6 +14,10 @@ var errCodexSessionMissing = codexturn.ErrSessionMissing
 func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
 	return codexturn.Run(ctx, codexturn.Config{
 		Prepare: func(processCtx context.Context) (codexturn.PreparedCommand, error) {
+			if config.sandbox != nil {
+				command, err := config.sandbox.Command(processCtx, bin, codexAppServerArguments(config, workspace, sandbox), config.Env)
+				return codexturn.PreparedCommand{Command: command, Workspace: workspace}, err
+			}
 			return codexturn.PrepareNative(processCtx, codexturn.NativeCommand{
 				Bin: bin, Workspace: workspace, Env: config.Env, EnvAllowlist: config.EnvAllowlist,
 				Arguments: func(cwd string) []string { return codexAppServerArguments(config, cwd, sandbox) },
