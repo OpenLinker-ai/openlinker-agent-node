@@ -313,7 +313,10 @@ the fresh-enrollment version-change procedure above; do not relabel it as rc.1.
 
 Both native adapters use this repository's `pkg/adapters`; shared protocol
 parsing, private session storage and process mechanisms live in its public
-leaf packages. The pinned SDK is
+leaf packages. The complete Codex app-server turn lifecycle is shared through
+[`codexturn`](pkg/adapters/codexturn/README.md); Node and Plugin keep their own
+launch/tool/session policy and use the same cancellation and shutdown flow.
+The pinned SDK is
 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`. Startup checks the installed
 CLI version and required flags (tested baselines: Codex 0.153.0, Claude 2.1.259).
 Codex uses bounded JSONL final messages; Claude streams normalized progress.

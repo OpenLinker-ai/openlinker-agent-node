@@ -7,6 +7,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+### Added
+
+- Share the complete Codex app-server turn lifecycle in `pkg/adapters/codexturn`.
+  Native command preparation, protocol ordering, scoped events, cancellation
+  and shutdown now have one implementation with command-factory, pre-thread
+  and progress hooks. Product launch/session/tool policy stays in each caller.
+
 ### Fixed
 
 - Node now owns its agent-host v1 delegation commands and uses its own

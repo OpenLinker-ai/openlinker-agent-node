@@ -48,6 +48,13 @@ func TestCodexRPCDrainsShutdownBeforeWaiting(t *testing.T) {
 	})
 }
 
+func TestCodexRPCAlreadyCanceledDoesNotLaunch(t *testing.T) {
+	providertest.CodexRPCAlreadyCanceledDoesNotLaunch(t, func(ctx context.Context, bin, dir string) (string, error) {
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "canceled", false, ProviderConfig{}, nil)
+		return answer, err
+	})
+}
+
 func TestCodexRPCCancellationInterruptsScopedTurn(t *testing.T) {
 	providertest.CodexRPCCancellationInterruptsScopedTurn(t, runCodexFixture)
 }
