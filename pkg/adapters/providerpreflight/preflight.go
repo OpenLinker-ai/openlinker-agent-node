@@ -37,10 +37,7 @@ var providerVersionPattern = regexp.MustCompile(`^(?:codex-cli )?(\d+)\.(\d+)\.(
 // releases and wrappers that merely print a supported version.
 func Check(ctx context.Context, config Config) (string, error) {
 	provider := strings.ToLower(strings.TrimSpace(config.Provider))
-	minimum := MinimumCodexVersion
-	if provider == "claude" {
-		minimum = MinimumClaudeVersion
-	} else if provider != "codex" {
+	if provider != "claude" && provider != "codex" {
 		return "", fmt.Errorf("unknown provider %q", provider)
 	}
 	if provider == "codex" && !codexhome.Supported {
@@ -74,7 +71,20 @@ func Check(ctx context.Context, config Config) (string, error) {
 		}
 		return strings.TrimSpace(stdout.String()), nil
 	}
-	raw, err := probe("--version")
+	return CheckProbe(ctx, provider, func(_ context.Context, args ...string) (string, error) { return probe(args...) })
+}
+
+// CheckProbe validates the same native version/capability contract through a
+// caller-owned isolated transport. The probe must bound output and never run a
+// model task. Native Check continues to use its existing local process policy.
+func CheckProbe(ctx context.Context, provider string, probe func(context.Context, ...string) (string, error)) (string, error) {
+	minimum := MinimumCodexVersion
+	if provider == "claude" {
+		minimum = MinimumClaudeVersion
+	} else if provider != "codex" {
+		return "", fmt.Errorf("unknown provider %q", provider)
+	}
+	raw, err := probe(ctx, "--version")
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +97,7 @@ func Check(ctx context.Context, config Config) (string, error) {
 	if provider == "codex" {
 		// Version alone cannot identify distributions or wrappers that omit the
 		// app-server surface. Probe help without starting a server or a session.
-		help, err := probe("app-server", "--help")
+		help, err := probe(ctx, "app-server", "--help")
 		if err != nil {
 			return "", err
 		}
@@ -100,7 +110,7 @@ func Check(ctx context.Context, config Config) (string, error) {
 	args := []string{"--help"}
 	flags := []string{"--safe-mode", "--bare", "--no-chrome", "--disable-slash-commands", "--permission-mode", "--resume", "stream-json", "--verbose", "--include-partial-messages", "--strict-mcp-config"}
 
-	help, err := probe(args...)
+	help, err := probe(ctx, args...)
 	if err != nil {
 		return "", err
 	}

@@ -14,6 +14,16 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   and shutdown now have one implementation with command-factory, pre-thread
   and progress hooks. Product launch/session/tool policy stays in each caller.
 
+- Opt-in Docker isolation for persistent native Codex/Claude conversations.
+  Core caller/Agent/conversation scopes own separate workspace and native-home
+  mounts; private maps and SDK state remain outside the client container.
+  Cross-process ownership, cancellation and orphan-container fencing prevent
+  simultaneous reuse. The default native launch path is unchanged. This mode
+  requires a local Linux container image, non-root Node user, dedicated model
+  API credentials and explicit online network policy; personal OAuth/keychain
+  import and host MCP delegation are not supported. See
+  [session isolation](docs/session-isolation.md) for configuration and verification.
+
 ### Fixed
 
 - Node now owns its agent-host v1 delegation commands and uses its own

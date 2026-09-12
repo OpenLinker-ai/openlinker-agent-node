@@ -332,6 +332,13 @@ behavior. Workspace and session-store paths must remain stable for reuse.
 Separate directories alone do not isolate processes running under the same OS
 identity from local files or other sessions.
 
+For persistent conversations with a whole-process filesystem boundary, opt in
+to [Docker session isolation](docs/session-isolation.md). Each trusted Core
+conversation gets its own workspace, native HOME and private mapping. This mode
+requires an installed Linux client image, dedicated model API credentials and
+explicit network configuration; it does not import personal OAuth/keychain login.
+The existing native mode remains the default.
+
 Successful Claude results provide two optional, long-lived diagnostics:
 
 - `claude_resume_session_id_sha256`: SHA256 of the exact ID passed to `--resume`
@@ -382,7 +389,8 @@ startup and only transports MCP over its private socket. Restart Node
 after rotating the key. This checks configuration, not remote key validity.
 Ordinary Claude without delegation keeps its existing native authentication;
 the optional file source is also supported there. Codex delegation does not
-gain a Claude API-key requirement.
+gain a Claude API-key requirement. Docker session isolation still rejects host
+delegation sockets; see its separate credential requirements above.
 
 ## Events and delegated Agent calls
 

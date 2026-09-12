@@ -89,6 +89,10 @@ func NewFromLookup(get EnvLookup) (*Node, error) {
 }
 
 func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
+	isolation, err := sessionIsolationFromEnv(get)
+	if err != nil {
+		return nil, err
+	}
 	timeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 15*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
 	if err != nil {
 		return nil, err
@@ -96,6 +100,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 	envAllowlist := parseCommaList(get("OPENLINKER_AGENT_NODE_ENV_ALLOWLIST"))
 	switch mode {
 	case "http", "openclaw":
+		if isolation.Enabled() {
+			return nil, fmt.Errorf("SESSION_ISOLATION=docker supports only codex and claude adapters")
+		}
 		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_HTTP_HEADERS"), "OPENLINKER_AGENT_NODE_HTTP_HEADERS")
 		if err != nil {
 			return nil, err
@@ -106,6 +113,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout: time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "a2a":
+		if isolation.Enabled() {
+			return nil, fmt.Errorf("SESSION_ISOLATION=docker supports only codex and claude adapters")
+		}
 		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_A2A_HEADERS"), "OPENLINKER_AGENT_NODE_A2A_HEADERS")
 		if err != nil {
 			return nil, err
@@ -125,6 +135,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout:             time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "command":
+		if isolation.Enabled() {
+			return nil, fmt.Errorf("SESSION_ISOLATION=docker supports only codex and claude adapters")
+		}
 		args, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_ARGS"), "OPENLINKER_AGENT_NODE_ARGS")
 		if err != nil {
 			return nil, err
@@ -141,6 +154,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout:      time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "claude":
+		isolation, err := sessionIsolationForProvider(get, "claude", isolation)
+		if err != nil {
+			return nil, err
+		}
 		nativeTimeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 30*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
 		if err != nil {
 			return nil, err
@@ -164,7 +181,8 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			return nil, err
 		}
 		return &NativeAdapter{Config: agentexec.ProviderConfig{
-			Provider: "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
+			SessionIsolation: isolation,
+			Provider:         "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
 			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
 			Model:        get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
 			Permission:   defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
@@ -176,6 +194,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 		}}, nil
 	case "codex":
+		isolation, err := sessionIsolationForProvider(get, "codex", isolation)
+		if err != nil {
+			return nil, err
+		}
 		targets, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_DELEGATION_TARGETS"), "OPENLINKER_AGENT_NODE_DELEGATION_TARGETS")
 		if err != nil {
 			return nil, err
@@ -185,6 +207,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			return nil, err
 		}
 		return &CodexAdapter{
+			SessionIsolation:  isolation,
 			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 			CodexBin:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),

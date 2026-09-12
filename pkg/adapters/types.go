@@ -8,10 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/sessionsandbox"
+
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 type ProviderConfig struct {
+	SessionIsolation     sessionsandbox.Config
+	sandbox              *sessionsandbox.Session
 	DelegationTargets    []string
 	DelegationProxyBin   string
 	DelegationBrokerRoot string
@@ -90,6 +94,9 @@ func NewHandler(config ProviderConfig) (Handler, error) {
 }
 
 func NewProvider(config ProviderConfig) (Provider, error) {
+	if err := validateSessionIsolation(config); err != nil {
+		return nil, err
+	}
 	var provider Provider
 	switch strings.ToLower(strings.TrimSpace(config.Provider)) {
 	case "codex":

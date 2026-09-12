@@ -323,7 +323,12 @@ Worker 之前要求 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_API_KEY_FILE`。文件必
 文件路径；委派代理启动时清除继承的 API key 和平台 token，仅经私有 socket 转发 MCP。
 轮换 key 后须重启 Node。该检查验证本地配置，不验证
 远端 key 是否有效。未开委派的普通 Claude 保留原生认证方式，也可显式使用文件来源。
-Codex 委派不要求 Claude API key。
+Codex 委派不要求 Claude API key。Docker 会话隔离仍拒绝宿主委派 socket，另有自己的凭据要求。
+
+需要会话持续复用并隔离宿主文件、其他会话时，可显式启用
+[Docker 会话隔离](docs/session-isolation.zh-CN.md)。每个 Core 可信会话独享工作目录、
+原生 HOME 和私有映射。该模式需要已安装的 Linux 客户端镜像、专用模型 API 凭据和
+明确的联网配置；不导入个人 OAuth/钥匙串登录。默认仍保留原有原生启动模式。
 
 ## Event 与 Agent 子调用
 

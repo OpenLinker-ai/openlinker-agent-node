@@ -56,5 +56,8 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
+      - name: Verify session isolation with real Docker containers
+        run: sh scripts/test-session-isolation.sh
+
       - name: Build
         run: go build ./cmd/openlinker-agent-node
