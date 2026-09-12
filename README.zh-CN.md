@@ -394,3 +394,12 @@ OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 ## 许可证
 
 Apache-2.0。详见 [LICENSE](./LICENSE)。
+
+## 共享文件机制与 Handler 兼容
+
+`pkg/adapters/appfiles` 负责严格 JSON 解码、私有文件与凭据读取、原子替换和跨进程 app 锁。
+Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 可编译期复用，无需 Node 进程。
+产品默认值、持久路径与锁生命周期仍由调用方维护。
+
+已发布的 `adapters.NewHandler` / `adapters.Handler` 保留在 `handler_compat.go` 并增加兼容回归。
+该 API 标记为弃用，新接入使用 `NewProvider` 并在宿主组装 SDK Handler；Node 本身使用 `NativeAdapter`。

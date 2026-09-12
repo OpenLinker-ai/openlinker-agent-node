@@ -1,48 +1,15 @@
 package agentnode
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/appfiles"
 )
-
-func decodeStrictJSON(raw []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("unexpected trailing JSON value")
-		}
-		return err
-	}
-	return nil
-}
-
-func stripTrailingSlash(value string) string {
-	return strings.TrimRight(value, "/")
-}
-
-func joinAPIPath(apiBase, pathName string) string {
-	if strings.HasPrefix(pathName, "http://") || strings.HasPrefix(pathName, "https://") {
-		return pathName
-	}
-	base := stripTrailingSlash(apiBase)
-	if strings.HasPrefix(pathName, "/") {
-		return base + pathName
-	}
-	return base + "/" + pathName
-}
 
 func readJSONResponse(res *http.Response) (any, error) {
 	defer res.Body.Close()
@@ -107,19 +74,6 @@ func parseJSONMap(raw, label string) (map[string]string, error) {
 	return value, nil
 }
 
-func normalizeMetadata(value any) JSONMap {
-	switch typed := value.(type) {
-	case nil:
-		return JSONMap{}
-	case JSONMap:
-		return typed
-	case map[string]any:
-		return JSONMap(typed)
-	default:
-		return JSONMap{}
-	}
-}
-
 func jsonMapFromAny(value any) JSONMap {
 	switch typed := value.(type) {
 	case nil:
@@ -158,21 +112,6 @@ func trustedConversationContext(value any) *ConversationContext {
 	return &conversation
 }
 
-func sleepContext(ctx context.Context, duration time.Duration) error {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func stringFromMap(value JSONMap, key string) string {
-	raw, ok := value[key]
-	if !ok || raw == nil {
-		return ""
-	}
-	return fmt.Sprint(raw)
+func decodeStrictJSON(raw []byte, target any) error {
+	return appfiles.DecodeStrictJSON(raw, target)
 }

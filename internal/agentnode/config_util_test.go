@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -238,7 +237,7 @@ func TestNewFromEnvMapA2AAdapterLegacyDialect(t *testing.T) {
 	}
 }
 
-func TestOptionsParsersAndURLHelpers(t *testing.T) {
+func TestOptionsParsersAndJSONResponse(t *testing.T) {
 	if !boolOption("YES", false) || boolOption("off", true) || !boolOption("maybe", true) {
 		t.Fatal("boolOption returned an unexpected value")
 	}
@@ -261,18 +260,6 @@ func TestOptionsParsersAndURLHelpers(t *testing.T) {
 	}
 	if _, err := parseJSONMap("not-json", "TEST_HEADERS"); err == nil {
 		t.Fatal("expected parseJSONMap invalid JSON error")
-	}
-	if got := joinAPIPath("https://example.test/", "agents"); got != "https://example.test/agents" {
-		t.Fatalf("joinAPIPath relative = %q", got)
-	}
-	if got := joinAPIPath("https://example.test", "https://other.test/run"); got != "https://other.test/run" {
-		t.Fatalf("joinAPIPath absolute = %q", got)
-	}
-	if stringFromMap(JSONMap{"answer": 123}, "answer") != "123" {
-		t.Fatal("stringFromMap should stringify values")
-	}
-	if stringFromMap(JSONMap{"answer": nil}, "answer") != "" || stringFromMap(JSONMap{}, "missing") != "" {
-		t.Fatal("stringFromMap should return empty string for nil or missing values")
 	}
 	body, err := readJSONResponse(&http.Response{Body: io.NopCloser(strings.NewReader("not-json"))})
 	if err != nil || len(body.(JSONMap)) != 0 {
@@ -334,18 +321,6 @@ func TestNormalizeAdapterResultBranches(t *testing.T) {
 	if len(eventsFromAny("not-events")) != 0 {
 		t.Fatal("eventsFromAny should ignore unsupported values")
 	}
-	if len(normalizeMetadata(nil)) != 0 {
-		t.Fatal("normalizeMetadata nil should return an empty map")
-	}
-	if got := normalizeMetadata(JSONMap{"x": "y"}); got["x"] != "y" {
-		t.Fatalf("normalizeMetadata JSONMap = %#v", got)
-	}
-	if got := normalizeMetadata(map[string]any{"x": "y"}); got["x"] != "y" {
-		t.Fatalf("normalizeMetadata map = %#v", got)
-	}
-	if len(normalizeMetadata("not-a-map")) != 0 {
-		t.Fatal("normalizeMetadata should return an empty map for unsupported values")
-	}
 }
 
 func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
@@ -394,70 +369,6 @@ func TestSmallAdapterAndRuntimeBranches(t *testing.T) {
 		return ""
 	}, "http"); err == nil || !strings.Contains(err.Error(), "OPENLINKER_AGENT_NODE_HELPER_PORT") {
 		t.Fatalf("invalid helper port error = %v", err)
-	}
-	if err := sleepContext(context.Background(), time.Nanosecond); err != nil {
-		t.Fatalf("sleepContext short duration = %v", err)
-	}
-	cancelCtx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := sleepContext(cancelCtx, time.Second); err == nil {
-		t.Fatal("expected canceled sleep")
-	}
-}
-
-func TestPublicA2AClientSendMessage(t *testing.T) {
-	var received map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/a2a/agents/sluggy" {
-			t.Fatalf("path = %s", r.URL.Path)
-		}
-		if r.Header.Get("authorization") != "Bearer ol_public" || r.Header.Get("a2a-version") != "1.0" {
-			t.Fatalf("headers = %#v", r.Header)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
-			t.Fatal(err)
-		}
-		writeJSON(w, http.StatusOK, JSONMap{
-			"jsonrpc": "2.0",
-			"id":      received["id"],
-			"result": JSONMap{
-				"task": JSONMap{
-					"id":     "task-public",
-					"status": JSONMap{"state": "completed"},
-				},
-			},
-		})
-	}))
-	defer server.Close()
-
-	client := PublicA2AClient{APIBase: server.URL, Token: "ol_public"}
-	result, err := client.SendMessage(context.Background(), "sluggy", "hello")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if received["method"] != "SendMessage" {
-		t.Fatalf("body = %#v", received)
-	}
-	params := received["params"].(map[string]any)
-	message := params["message"].(map[string]any)
-	if message["role"] != "ROLE_USER" {
-		t.Fatalf("message role = %#v", message)
-	}
-	task, ok := result.(*openlinker.A2ATask)
-	if !ok || task.ID != "task-public" {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
-func TestPublicA2AClientReportsErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, JSONMap{"error": JSONMap{"code": "BAD", "message": "bad"}})
-	}))
-	defer server.Close()
-
-	client := PublicA2AClient{APIBase: server.URL, Token: "ol_public"}
-	if _, err := client.SendMessage(context.Background(), "sluggy", "hello"); err == nil {
-		t.Fatal("expected json-rpc error")
 	}
 }
 

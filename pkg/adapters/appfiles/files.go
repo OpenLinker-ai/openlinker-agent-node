@@ -1,4 +1,4 @@
-// Package appfiles preserves the shared CLI/Plugin app-file mechanisms. Callers
+// Package appfiles preserves shared app-file mechanisms for Node and Plugin. Callers
 // own configuration types, defaults, paths, identity decisions, and lock lifetime.
 // These helpers do not start a Worker or read product/global configuration.
 package appfiles

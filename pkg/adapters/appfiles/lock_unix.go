@@ -16,7 +16,7 @@ import (
 type Lock struct{ file *os.File }
 
 // AcquireLock opens the exact caller-selected path without creating its parent.
-// Legacy app errors are retained so existing CLI/Plugin consumers stay compatible.
+// Legacy app errors are retained so existing app consumers stay compatible.
 func AcquireLock(path string) (*Lock, error) {
 	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
