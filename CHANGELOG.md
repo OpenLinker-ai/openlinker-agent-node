@@ -9,6 +9,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Fixed
 
+- Node now owns its agent-host v1 delegation commands and uses its own
+  executable by default. No runtime dependency on the platform CLI or Plugin
+  host is needed; Browser is not advertised. Tests build the real Node binary,
+  exercise both provider transports, and verify default self-host startup.
+- Claude delegation fails before provider probes and Worker startup when
+  `--bare` lacks an API key. Direct and private-file sources share one resolved
+  configuration for preflight and execution; errors redact values and paths.
+  Ordinary Claude native authentication and Codex defaults are preserved.
 - Wire `OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` through the native Claude
   environment entry. Default false preserves the WebSearch/WebFetch deny;
   explicit true removes only that deny, without widening other permissions.

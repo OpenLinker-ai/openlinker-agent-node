@@ -46,8 +46,8 @@ the AgentNode listener. Cancellation reaches an Adapter through the SDK handler
 context; command and native provider Adapters terminate their own process trees before
 returning.
 
-The public `pkg/adapters` packages also provide protocol leaves that CLI and
-Plugin can reuse at compile time; that does not require running a Node process.
+The public `pkg/adapters` packages also provide protocol leaves that Plugin
+can reuse at compile time; that does not require running a Node process.
 Neither the Node module nor its package graph depends on CLI or Plugin. Plugin
 keeps its independent deep execution policy and Browser/Viewer/Profile products.
 
@@ -85,7 +85,9 @@ This source candidate adds `openlinker-agent-node --version`. It returns the
 same implementation identity used for Runtime enrollment before reading
 configuration, starting a Provider/listener, opening SDK state, or making a
 network request. No arguments starts the configured Worker; unsupported
-arguments fail without startup. Older published binaries do not have this flag.
+arguments fail without startup. The internal agent-host v1 commands described
+under native delegation also bypass Worker startup. Older published binaries
+do not necessarily have these entry points; check the selected artifact.
 
 Source builds report `openlinker-agent-node/dev`; packaged builds inject the
 exact `v...` tag or `sha-...` identity. The release builder is
@@ -343,13 +345,41 @@ not added to the result. The existing `claude_session_reuse` field is emitted
 only when reuse is enabled and a trusted session key is available.
 
 To enable native delegation, set `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS` to a
-JSON array of allowed Agent UUIDs and `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`
-to a compatible OpenLinker CLI. The host must pass `plugin capabilities`.
+JSON array of allowed Agent UUIDs. The default transport host is the running
+`openlinker-agent-node` executable itself. No OpenLinker CLI or Plugin install
+is required. `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN` is an optional explicit
+host override; it must implement the frozen `openlinker.agent-host.v1` contract.
+Node implements `plugin capabilities` and
+`plugin delegation-proxy --host codex|claude`. The `plugin` prefix is the v1
+protocol name, not a dependency on Plugin. Node advertises `delegation_proxy`
+only and rejects Browser commands. These subprocess commands never start a
+Worker or read Node serving configuration. Check the installed binary with:
+
+```bash
+openlinker-agent-node plugin capabilities
+# {"protocol":"openlinker.agent-host.v1","browser_proxy":false,"delegation_proxy":true}
+```
+
 `OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT` optionally selects a private
 socket directory. Delegation is disabled by default and requires the SDK/Core
 `delegated_run_read.v1` extension. `CLAUDE_ALLOWED_TOOLS` with the same Node
 prefix takes a JSON string array; `OPENLINKER_AGENT_NODE_TIMEOUT_MS` applies to
 both providers. Native providers receive scoped MCP tools, not helper tokens.
+
+**Claude delegation uses `--bare`**, which does not use OAuth/Keychain login.
+Startup requires `ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY_FILE`, before probing
+Claude or starting the SDK Worker. The file must be a nonempty regular file
+owned by the Node user, inaccessible to group/other users (for example mode
+`0600`), at most 64 KiB, and not a symlink. The file source requires POSIX;
+Windows users must use the direct key until DACL checks are implemented.
+Setting both sources is an error.
+Node resolves the key once and passes the value to Claude without the file
+path. The delegation proxy clears inherited API keys and platform tokens at
+startup and only transports MCP over its private socket. Restart Node
+after rotating the key. This checks configuration, not remote key validity.
+Ordinary Claude without delegation keeps its existing native authentication;
+the optional file source is also supported there. Codex delegation does not
+gain a Claude API-key requirement.
 
 ## Events and delegated Agent calls
 

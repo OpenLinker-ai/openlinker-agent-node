@@ -4,31 +4,52 @@ import (
 	"context"
 	"sync"
 
-	openlinker "github.com/OpenLinker-ai/openlinker-go"
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
 // NativeAdapter embeds the canonical Codex/Claude execution backend. Agent Node
 // owns hosting and SDK lifecycle, and never reimplements a provider protocol.
 type NativeAdapter struct {
-	Config      agentexec.ProviderConfig
-	once        sync.Once
-	provider    agentexec.Provider
-	providerErr error
+	Config         agentexec.ProviderConfig
+	once           sync.Once
+	provider       agentexec.Provider
+	providerErr    error
+	configOnce     sync.Once
+	preparedConfig agentexec.ProviderConfig
+	configErr      error
+}
+
+func (adapter *NativeAdapter) configuration() (agentexec.ProviderConfig, error) {
+	adapter.configOnce.Do(func() {
+		adapter.preparedConfig, adapter.configErr = prepareNativeCredentials(adapter.Config)
+	})
+	return adapter.preparedConfig, adapter.configErr
 }
 
 // Configuration is fixed for the adapter lifetime. Reuse the provider (and its
 // verified transport host) across Attempts; per-Attempt state stays in Run.
 func (adapter *NativeAdapter) backend() (agentexec.Provider, error) {
-	adapter.once.Do(func() { adapter.provider, adapter.providerErr = agentexec.NewProvider(adapter.Config) })
+	adapter.once.Do(func() {
+		config, err := adapter.configuration()
+		if err != nil {
+			adapter.providerErr = err
+			return
+		}
+		adapter.provider, adapter.providerErr = agentexec.NewProvider(config)
+	})
 	return adapter.provider, adapter.providerErr
 }
 
 func (adapter *NativeAdapter) Preflight(ctx context.Context) error {
-	if _, err := agentexec.CheckProviderCLI(ctx, adapter.Config); err != nil {
+	config, err := adapter.configuration()
+	if err != nil {
 		return err
 	}
-	_, err := adapter.backend()
+	if _, err := agentexec.CheckProviderCLI(ctx, config); err != nil {
+		return err
+	}
+	_, err = adapter.backend()
 	return err
 }
 

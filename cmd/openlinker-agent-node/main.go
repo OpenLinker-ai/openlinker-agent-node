@@ -15,11 +15,16 @@ import (
 func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	if len(os.Args) > 1 {
-		if len(os.Args) != 2 || os.Args[1] != "--version" {
-			logger.Fatal("usage: openlinker-agent-node [--version]; configure serving through environment variables")
+		if len(os.Args) == 2 && os.Args[1] == "--version" {
+			if _, err := fmt.Fprintln(os.Stdout, agentnode.AgentNodeVersion); err != nil {
+				logger.Fatal("openlinker agent node version output failed")
+			}
+			return
 		}
-		if _, err := fmt.Fprintln(os.Stdout, agentnode.AgentNodeVersion); err != nil {
-			logger.Fatal("openlinker agent node version output failed")
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runTransportCommand(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
+			logger.Fatal(err)
 		}
 		return
 	}

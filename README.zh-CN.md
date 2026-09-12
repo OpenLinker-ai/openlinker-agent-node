@@ -38,7 +38,7 @@ Agent Node 不重复实现 Runtime client 或状态机。固定版本的 Go SDK 
 响应仍在本地生成。取消通过 SDK 任务上下文传入适配器；command 和原生 Provider 适配器
 在返回前终止自己的进程树。
 
-本仓库还维护 `pkg/adapters` 公开协议叶子，CLI/Plugin 可编译期复用，不要求另启 Node
+本仓库还维护 `pkg/adapters` 公开协议叶子，Plugin 可编译期复用，不要求另启 Node
 进程。Node 的模块图与包图均不依赖 CLI/Plugin；Plugin 仍保留独立深度执行策略及
 Browser/Viewer/Profile 产品能力。
 
@@ -70,7 +70,8 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 
 本源码候选新增 `openlinker-agent-node --version`，在读取配置、启动 Provider/监听器、
 打开 SDK 状态或发出网络请求之前，输出与 Runtime 登记相同的实现身份。不带参数仍启动
-配置的 Worker；未知参数不启动服务并报错。旧正式二进制尚无该参数。
+配置的 Worker；未知参数不启动服务并报错。原生委派一节列出的内部 agent-host v1 命令
+同样不会启动 Worker。旧发布物未必包含这些入口，须检查实际选用的二进制。
 
 源码构建报告 `openlinker-agent-node/dev`，打包构建注入精确 `v...` tag 或 `sha-...`。
 统一构建入口为 `node scripts/build-agent-node.mjs <version> <output>`，需要 Node.js 22
@@ -293,12 +294,33 @@ missing-session 回退清除失败调用的证据，重新建立会话不算 res
 不能视为两会话相同。哈希仍可关联，沿用 Run 结果的访问/保留规则，不新增原始 session ID。
 既有 `claude_session_reuse` 只在启用复用且存在可信 session key 时输出。
 
-原生委派使用 `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS`（允许的 Agent UUID 的 JSON 数组）
-和 `OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN`（兼容的 OpenLinker CLI 路径），宿主必须
-通过 `plugin capabilities` 握手。可选 `OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT`
+原生委派使用 `OPENLINKER_AGENT_NODE_DELEGATION_TARGETS`（允许的 Agent UUID 的 JSON 数组）。
+默认以当前运行的 `openlinker-agent-node` 自身作为委派宿主，无需安装 OpenLinker CLI 或 Plugin。
+`OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN` 仅用于显式覆盖宿主，选中的程序必须实现冻结的
+`openlinker.agent-host.v1` 协议。Node 实现 `plugin capabilities` 和
+`plugin delegation-proxy --host codex|claude`；这里的 `plugin` 是 v1 协议命令名，不是
+Plugin 依赖。Node 只声明 `delegation_proxy`，拒绝 Browser 命令。这两个子进程入口不读取
+Node 服务配置，也不启动 Worker。可用以下命令检查实际安装的二进制；旧发布物未必有此入口：
+
+```bash
+openlinker-agent-node plugin capabilities
+# {"protocol":"openlinker.agent-host.v1","browser_proxy":false,"delegation_proxy":true}
+```
+
+可选 `OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT`
 指定私有 socket 目录。默认关闭委派，启用需要 SDK / Core 的 `delegated_run_read.v1` 扩展。
 Claude 工具列表为 `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS`（JSON 字符串数组）；
 两端超时都使用 `OPENLINKER_AGENT_NODE_TIMEOUT_MS`。原生 Provider 接收受限 MCP 工具。
+
+**Claude 委派使用 `--bare`，不读取 OAuth/钥匙串登录。** Node 在探测 Claude、启动 SDK
+Worker 之前要求 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_API_KEY_FILE`。文件必须由 Node 用户
+持有、非空、不超过 64 KiB，且为其他用户不可访问的普通文件（例如权限 `0600`），不能是
+符号链接。文件来源仅支持 POSIX；Windows 未实现 DACL 校验，须使用直接 key。
+两种来源不能同时配置。Node 只解析一次，将值传给 Claude，不向 Provider 传递
+文件路径；委派代理启动时清除继承的 API key 和平台 token，仅经私有 socket 转发 MCP。
+轮换 key 后须重启 Node。该检查验证本地配置，不验证
+远端 key 是否有效。未开委派的普通 Claude 保留原生认证方式，也可显式使用文件来源。
+Codex 委派不要求 Claude API key。
 
 ## Event 与 Agent 子调用
 
