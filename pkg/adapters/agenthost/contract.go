@@ -81,7 +81,7 @@ func Resolve(ctx context.Context, configured, capability string) (string, error)
 	command.WaitDelay = time.Second
 	command.Stdout = output
 	if err := command.Run(); err != nil {
-		return "", errors.New("Agent transport host lacks plugin capabilities; configure a compatible OpenLinker CLI binary")
+		return "", errors.New("Agent transport host lacks plugin capabilities; select the embedding product's host binary implementing openlinker.agent-host.v1 (Agent Node uses openlinker-agent-node)")
 	}
 	var capabilities Capabilities
 	if json.Unmarshal(output.Bytes(), &capabilities) != nil || capabilities.Protocol != contract.Protocol ||
