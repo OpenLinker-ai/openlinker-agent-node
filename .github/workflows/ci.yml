@@ -81,7 +81,7 @@ jobs:
         run: go test ./...
 
       - name: Test release build identity
-        run: node --test scripts/build-agent-node.test.mjs
+        run: node --test scripts/build-agent-node.test.mjs scripts/stage-native-sandbox.test.mjs
 
       - name: Check isolated adapter boundaries and negative controls
         run: |

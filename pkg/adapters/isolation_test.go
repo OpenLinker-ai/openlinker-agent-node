@@ -2,7 +2,9 @@ package adapters
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -270,6 +272,60 @@ func TestNativeSandboxInstalledProviderCLI(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("sandboxed %s CLI compatibility: %s", name, version)
+		})
+	}
+}
+
+func TestNativeSandboxCredentialReadThroughRunOutput(t *testing.T) {
+	if os.Getenv("OPENLINKER_TEST_NATIVE_SANDBOX_BIN") == "" {
+		t.Skip("set OPENLINKER_TEST_NATIVE_SANDBOX_BIN for real OS acceptance")
+	}
+	if runtime.GOOS == "darwin" {
+		// Establish that the same OS binary works outside the sandbox. On some
+		// macOS versions Seatbelt rejects ps at exec, before even -L can run.
+		keywords, err := exec.Command("/bin/ps", "-L").Output()
+		if err != nil || !strings.Contains(string(keywords), "command") {
+			t.Fatal("host ps positive control failed")
+		}
+	}
+	for _, name := range []string{"codex", "claude"} {
+		t.Run(name, func(t *testing.T) {
+			c := isolationConfig(t, name)
+			c.Bin = filepath.Join(t.TempDir(), name)
+			build := exec.Command("go", "build", "-o", c.Bin, "./testdata/session-client")
+			build.Env = append(os.Environ(), "GOWORK=off")
+			if out, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("build credential peer: %v %s", err, out)
+			}
+			// Synthetic per-test value: no installed client or real credential is read.
+			canary := "test-only-parent-key-" + strings.ReplaceAll(t.Name(), "/", "-")
+			key := "CODEX_API_KEY"
+			if name == "claude" {
+				key = "ANTHROPIC_API_KEY"
+			}
+			c.Env = []string{"PATH=" + os.Getenv("PATH"), key + "=" + canary}
+			r := isolationRun("credential-audit")
+			raw, _ := json.Marshal(map[string]any{"Credentials": true})
+			r.Input = "fixture_spec=" + base64.StdEncoding.EncodeToString(raw)
+			report := fixtureReport(t, nativeWorker(t, c, r))
+			probe, ok := report["credential_probe"].(map[string]any)
+			deniedAtExec := runtime.GOOS == "darwin" && probe["exec_permission_denied"] == true && probe["probe_executable_present"] == true
+			if !ok || probe["child_has_key"] != false || probe["positive_control"] != true && !deniedAtExec {
+				t.Fatalf("credential probe lacked a clean child or positive control: %#v", probe)
+			}
+			digest, ok := probe["parent_key_sha256"].(string)
+			if !ok {
+				t.Fatal("missing credential probe result")
+			}
+			if digest != "" {
+				sum := sha256.Sum256([]byte(canary))
+				if digest != hex.EncodeToString(sum[:]) || probe["read_permitted"] != true {
+					t.Fatal("unexpected parent credential evidence")
+				}
+				t.Logf("KNOWN EXPOSURE: %s child with no API key read the parent's key via %s; digest reached Run output", runtime.GOOS, probe["method"])
+			} else {
+				t.Logf("%s: no parent key recovered via %s (read permitted=%v, exec denied=%v); this does not establish credential secrecy", runtime.GOOS, probe["method"], probe["read_permitted"], deniedAtExec)
+			}
 		})
 	}
 }

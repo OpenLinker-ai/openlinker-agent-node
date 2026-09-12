@@ -8,4 +8,4 @@ fi
 : "${OPENLINKER_TEST_NATIVE_SANDBOX_BIN:?Set this to the installed pinned srt executable (no automatic install or fallback).}"
 export GOWORK=off
 node --test scripts/native-sandbox-runner.test.mjs
-go test -race -count=1 ./pkg/adapters/sessionsandbox ./pkg/adapters ./internal/agentnode
+go test -race -count=1 -v ./pkg/adapters/sessionsandbox ./pkg/adapters ./internal/agentnode

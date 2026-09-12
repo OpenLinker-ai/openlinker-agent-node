@@ -1,5 +1,19 @@
 # Native session isolation (macOS and Linux)
 
+**Experimental; trusted callers only.** `ProviderConfig.SessionIsolation`, the
+`sessionsandbox` package and `OPENLINKER_AGENT_NODE_SESSION_*` options do not
+carry a stable compatibility promise. Upgrade the Node binary, bundled runtime
+lock and adapter tests together.
+
+Every caller allowed to use this Agent must be trusted to receive the provider's
+model API key. A client or tool can copy a readable credential into the final
+answer or streamed Run events; the network allowlist cannot stop that return
+channel. Removing a key from a child's environment alone is not a credential
+boundary against parent-process inspection. Do not expose this mode to public
+or otherwise untrusted callers who must not know that key. Use a dedicated,
+limited provider key and restrict callers through Core; this mode does not add
+an authorization policy or enforce that trust judgment automatically.
+
 This opt-in mode runs the **entire Codex or Claude Code client and its child
 tools** under an OS sandbox. Docker is not required. It uses Anthropic's
 [sandbox runtime](https://github.com/anthropics/sandbox-runtime), pinned to
@@ -74,11 +88,22 @@ npm ci --prefix tools/native-sandbox --ignore-scripts
 export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/tools/native-sandbox/node_modules/.bin/srt"
 ```
 
-For binary installations, explicitly install
-`npm install --global @anthropic-ai/sandbox-runtime@0.0.76` and make `srt` available
-on PATH. The executable validates the installed package identity/version, not
-SRT's unrelated CLI `--version` output. Agent Node never downloads a backend
-during a Run.
+Binary archives built from this change also include `native-sandbox/` with the
+same `package.json`, `package-lock.json` and `install.sh`. After verifying the
+archive SHA-256, from the extracted archive directory explicitly run:
+
+```sh
+sh ./native-sandbox/install.sh
+export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/native-sandbox/node_modules/.bin/srt"
+```
+
+This uses `npm ci --ignore-scripts`, fixing all transitive versions and verifying
+tarball integrity without lifecycle scripts. Older published archives may not
+contain this bundle; do not mix their binaries with an unrelated release's lock.
+These packaging changes do not themselves publish an artifact. Startup validates
+the top-level package identity/version, not the integrity of a subsequently
+modified installation or SRT's unrelated CLI `--version`. The configured package
+is a trusted host input. Node never downloads a backend during a Run.
 
 Example for Codex (retain your existing Node registration/connection settings):
 
@@ -107,6 +132,7 @@ sticky-bit protection are rejected. Existing state is never chmodded or moved.
 | --- | --- |
 | `OPENLINKER_AGENT_NODE_SESSION_ISOLATION` | `off` (default) or `native`; unknown values rejected |
 | `OPENLINKER_AGENT_NODE_SESSION_ROOT` | Absolute private persistent storage root |
+| `OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT` | Optional private temporary-storage parent; default `/tmp`; resolved path at most 40 bytes |
 | `OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN` | Pinned `srt` installation; defaults to PATH lookup |
 | `OPENLINKER_AGENT_NODE_SESSION_READ_PATHS` | JSON array of additional read-only code/library paths; default empty |
 | `OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS` | JSON array of exact public DNS names, HTTPS port 443 only; default empty (offline) |
@@ -129,6 +155,36 @@ proxy enforces exact domains/port and rejects loopback, link-local, host-local,
 private and configured reserved address ranges; raw network/socket bypass is
 blocked by the OS boundary. Browser and host MCP delegation sockets are not
 supported in this mode and cannot be silently forwarded through it.
+
+Critical loopback, unspecified, link-local/metadata, private, multicast and
+selected cloud-platform addresses are explicitly denied in addition to the
+pinned runtime's default resolved-address guard. Linux's outer command is
+strictly decoded to argv and executed directly as bubblewrap; only the trusted
+proxy/seccomp script inside the sandbox uses a shell. Unexpected generated
+command syntax or missing required namespaces stops execution.
+
+## Temporary storage and resource exhaustion
+
+Neither the persistent root nor per-Run temporary data has a Node-enforced
+byte/inode quota. By default each Run can write its private `/tmp/olns-*`
+directory. A single caller can exhaust the underlying host filesystem; where
+`/tmp` is tmpfs, this can also consume host memory. Private directories, cleanup
+on ordinary exit and execution timeouts do not prevent exhaustion during a Run.
+
+Set `OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT` to a dedicated quota-backed
+filesystem directory provisioned by the administrator. Its parent must exist,
+it must be owner-only and not a symlink, and the resolved path must be at most
+40 bytes to leave room for Unix socket names. Node restores TMPDIR/TMP/TEMP at
+client exec after SRT's wrapper so both clients actually use the private path.
+Only the invocation subdirectory is removed on close; the configured parent
+and persistent session state remain.
+
+Moving storage alone is not a quota. Put both persistent and temporary roots
+on storage with enforced limits, accounting for all concurrent sessions. A
+shared volume limit protects the host's other storage but does not fairly
+divide space between sessions. Hard per-session disk/inode/memory limits remain
+an open requirement before admitting adversarial callers; Node does not create
+mounts, set quotas or change host resource policy automatically.
 
 ## Persistence and protection
 

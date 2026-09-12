@@ -54,6 +54,22 @@ export function hardenMacCommand(wrapped) {
   return argv;
 }
 
+export function linuxCommand(wrapped) {
+  const argv = quotedArgv(wrapped);
+  const end = argv.indexOf('--');
+  const options = argv.slice(1, end);
+  if (!(argv[0] === 'bwrap' || path.isAbsolute(argv[0] ?? '') && path.basename(argv[0]) === 'bwrap') ||
+      end < 1 || argv[end+1] !== '/bin/bash' || argv[end+2] !== '-c' || argv.length !== end+4 ||
+      ['--new-session','--die-with-parent','--unshare-net','--unshare-pid','--unshare-user'].some(flag => !options.includes(flag)) ||
+      ['--share-net','--share-pid','--share-user'].some(flag => options.includes(flag)) ||
+      !options.some((v,i) => v === '--proc' && options[i+1] === '/proc')) {
+    throw new Error('unsupported generated Linux sandbox command');
+  }
+  // SRT's inner proxy/seccomp script executes after entering bwrap. Never
+  // evaluate the outer generated command in a host-side shell.
+  return argv;
+}
+
 async function main() {
   const [runtimeEntry, policy, bin, ...args] = process.argv.slice(2);
   if (!runtimeEntry || !policy || !bin) throw new Error('missing sandbox launch arguments');
@@ -67,8 +83,13 @@ async function main() {
   try {
     const settings = SandboxRuntimeConfigSchema.parse(JSON.parse(fs.readFileSync(policy,'utf8')));
     await SandboxManager.initialize(settings);
-    const wrapped = await SandboxManager.wrapWithSandbox(quote([bin,...args]), '/bin/bash');
-    const argv = process.platform === 'darwin' ? hardenMacCommand(wrapped) : ['/bin/bash','-c',wrapped];
+    const temp = process.env.TMPDIR;
+    if (!temp || !path.isAbsolute(temp)) throw new Error('private temporary directory is required');
+    // SRT sets its own TMPDIR inside the sandbox. Restore the Node-selected
+    // private directory at client exec, after that wrapper, on both platforms.
+    const client = ['/usr/bin/env',`TMPDIR=${temp}`,`TMP=${temp}`,`TEMP=${temp}`,bin,...args];
+    const wrapped = await SandboxManager.wrapWithSandbox(quote(client), '/bin/bash');
+    const argv = process.platform === 'darwin' ? hardenMacCommand(wrapped) : linuxCommand(wrapped);
     const child = spawn(argv[0],argv.slice(1),{shell:false,stdio:'inherit'});
     const code = await new Promise((resolve,reject) => {
       child.once('error',reject);

@@ -72,7 +72,8 @@ func (s *Session) settings(bin string) (map[string]any, error) {
 	}
 	for _, p := range s.config.ReadPaths {
 		resolved, err := filepath.EvalSymlinks(p)
-		if err != nil || !safePath(resolved) || contains(resolved, s.config.Root) || contains(s.config.Root, resolved) || contains(resolved, home) {
+		if err != nil || !safePath(resolved) || contains(resolved, s.config.Root) || contains(s.config.Root, resolved) || contains(resolved, home) ||
+			s.config.TempRoot != "" && (contains(resolved, s.config.TempRoot) || contains(s.config.TempRoot, resolved)) {
 			return nil, errors.New("SESSION_READ_PATHS must exist and cannot expose HOME, session/control state or their ancestors")
 		}
 		read = append(read, resolved)
@@ -84,7 +85,11 @@ func (s *Session) settings(bin string) (map[string]any, error) {
 	return map[string]any{
 		"filesystem": map[string]any{"denyRead": []string{"/"}, "allowRead": read, "allowWrite": []string{s.data, s.temp}, "denyWrite": []string{"/tmp/claude", "/private/tmp/claude", "/dev/tty", "/dev/dtracehelper", "/dev/autofs_nowait"}},
 		"network": map[string]any{"allowedDomains": domains, "deniedDomains": []string{}, "strictAllowlist": true, "allowLocalBinding": false, "allowAllUnixSockets": false, "allowUnixSockets": []string{},
-			"deniedResolvedAddresses": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"}},
+			"deniedResolvedAddresses": []string{
+				"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "::/128", "::1/128", "fe80::/10",
+				"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7",
+				"224.0.0.0/4", "255.255.255.255/32", "ff00::/8", "168.63.129.16/32", "192.0.0.192/32",
+			}},
 		"enableWeakerNestedSandbox": false, "enableWeakerNetworkIsolation": false, "allowAppleEvents": false,
 	}, nil
 }

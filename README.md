@@ -474,6 +474,11 @@ the host. Node itself uses `NativeAdapter`.
 
 ## Native session isolation without Docker
 
+**Experimental, for trusted callers only.** Callers must be allowed to receive
+the provider's model API key: readable credentials can return through Run output,
+which network filtering does not block. There are no per-session resource quotas.
+The public sandbox configuration/package and `SESSION_*` options are not stable APIs.
+
 Codex and Claude can opt into `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`
 on macOS/Linux. The entire client runs under a system sandbox with a private,
 persistent per-conversation workspace and native history. One long-lived Node
@@ -484,3 +489,5 @@ explicit readable runtime paths and network domains are required. See
 [native session isolation](docs/native-session-isolation.md) for setup, migration,
 actual guarantees and verification boundaries. This is source implementation,
 not an automatic upgrade of installed Node binaries or running Agents.
+Future archives built from this source include the locked optional dependency
+bundle and explicit `npm ci --ignore-scripts` installer alongside the binary.
