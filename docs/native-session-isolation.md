@@ -14,6 +14,13 @@ or otherwise untrusted callers who must not know that key. Use a dedicated,
 limited provider key and restrict callers through Core; this mode does not add
 an authorization policy or enforce that trust judgment automatically.
 
+The 2026-09-12 real Linux sandbox probe confirmed this return path in both
+production provider adapters using deterministic client peers: a child without
+the synthetic key read its parent's `/proc/<pid>/environ`, and the matching key
+digest reached Run output. On macOS, `ps eww` was denied at exec. That specific
+denial does not establish credential secrecy; the trusted-caller requirement
+applies on both systems. No real client credential or model request was used.
+
 This opt-in mode runs the **entire Codex or Claude Code client and its child
 tools** under an OS sandbox. Docker is not required. It uses Anthropic's
 [sandbox runtime](https://github.com/anthropics/sandbox-runtime), pinned to

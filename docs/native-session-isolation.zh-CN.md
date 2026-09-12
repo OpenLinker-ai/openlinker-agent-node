@@ -10,6 +10,11 @@
 不应知道该 key 的公开或不可信调用方。应在 Core 限制调用者，并使用专用且权限受限
 的模型 key；Node 不会自动判断调用方是否满足这一信任条件。
 
+2026-09-12 的 Linux 真实沙箱验收已确认这条返回路径：通过两种生产适配器运行
+确定性客户端替身时，不带合成 key 的子进程都读到了父进程的 `/proc/<pid>/environ`，
+匹配的 key 摘要成功进入 Run 输出。macOS 上 `ps eww` 在执行时被拒绝；这不能证明
+客户端凭据保密，所以两个系统都保留可信调用方要求。验收未使用真实凭据或模型请求。
+
 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native` 把整个 Codex／Claude Code
 客户端和子工具放进系统沙箱，不依赖 Docker。macOS 使用 Seatbelt，Linux 使用
 bubblewrap、PID／网络命名空间和 seccomp。客户端使用本机已安装的程序，无需打进镜像。

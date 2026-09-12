@@ -10,6 +10,11 @@ receive it because final answers and streamed Run events are return channels.
 Environment filtering and a network allowlist do not close those channels;
 string redaction is not a solution to arbitrary encoding/chunking of a key.
 
+The real Linux sandbox acceptance on 2026-09-12 reproduced parent-environment
+key access in both provider-adapter paths with deterministic client peers: the
+key-free child returned the matching synthetic-key digest through Run output.
+macOS rejected ps at exec, which is only evidence about that one probe.
+
 Candidate design: a per-Run broker outside the sandbox authenticates approved
 model API requests and supplies the real provider header upstream. The client
 receives only a scoped placeholder or broker capability, never the real key.

@@ -52,6 +52,29 @@ bundle staging/installer invocation. The unchanged Plugin consumer passed
 candidate. Full-tree secret scanning reported only three previously reviewed
 fixture values in unchanged tests; no new finding was introduced.
 
-Linux credential outcomes will be appended after the real OS CI run.
+## Real OS CI evidence
+
+All three jobs (Linux/macOS native sandbox and full test/build checks) passed
+for implementation commit `e6672948` in
+[CI run 34701952222](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34701952222).
+
+| System | Codex adapter + deterministic peer | Claude adapter + deterministic peer |
+| --- | --- | --- |
+| Linux / bubblewrap | **Known exposure:** child with no key read parent environ; matching digest reached Run output | **Known exposure:** same result |
+| macOS / Seatbelt | `ps eww` denied at exec; no parent key recovered | Same result |
+
+Linux logs explicitly mark `KNOWN EXPOSURE` in both credential subtests. Their
+passing result means the probe ran, verified a key-free child and classified
+the observed behavior; it does **not** mean credentials were protected. The
+macOS result matches the local probe and does not rule out other return paths.
+These tests use synthetic keys and deterministic protocol peers through the
+actual production adapters, never authenticated Codex/Claude model calls.
+
+Configured temporary storage writes, generated-command parsing, actual OS
+filesystem/network/process checks and both provider continuation paths passed
+on both systems. P1 remains open for untrusted callers, as do hard resource
+quotas. This source candidate is still a draft PR, with no binary release or
+running deployment change.
+
 Remaining broker/resource work is tracked in
 [native-session-isolation-follow-ups.md](native-session-isolation-follow-ups.md).
