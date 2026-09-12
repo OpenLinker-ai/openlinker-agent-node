@@ -26,8 +26,25 @@ The Linux environment was a dedicated isolated VM (no host file sharing or SSH
 agent forwarding), not a Docker container. Its kernel was
 `7.0.14-orbstack-00380-ga7e0a2dc9535`, with bubblewrap `0.11.1`, Node `22.22.1`
 and sandbox-runtime `0.0.76`. No weaker nesting/network setting was enabled.
-CI now contains a macOS/Linux real-enforcement job; this local record does not
-claim that the new GitHub Actions job has already run.
+CI contains a macOS/Linux real-enforcement job. The local evidence above was
+collected before the GitHub runs; the subsequent remote results follow.
+
+## GitHub PR #33 verification
+
+Implementation and CI prerequisite commit `91230102bef0618b9e93b170300cca9e00967c1f`
+passed all three jobs in [GitHub CI run 34698379448](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34698379448):
+
+- `native-session-isolation (ubuntu-latest)`: passed, including the single-Node
+  concurrent-session tests, with the per-executable AppArmor prerequisite and
+  the global userns restriction retained on Ubuntu 24.04.
+- `native-session-isolation (macos-latest)`: passed, including the same tests.
+- `test`: passed (full Node tests/race, boundary checks, vet and build).
+
+The first run `34698155445` failed the Linux OS prerequisite and is retained
+as failure evidence; its macOS and general jobs passed. These remote results
+add both-platform coverage of the concurrency follow-up that was previously
+tested locally only on macOS. They still do not establish authenticated model,
+WebSearch, binary publication or an enrolled Agent cutover.
 
 ## What was exercised
 
