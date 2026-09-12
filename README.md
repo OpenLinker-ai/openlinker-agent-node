@@ -476,7 +476,9 @@ the host. Node itself uses `NativeAdapter`.
 
 Codex and Claude can opt into `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`
 on macOS/Linux. The entire client runs under a system sandbox with a private,
-persistent per-conversation workspace and native history. Missing sandbox support
+persistent per-conversation workspace and native history. One long-lived Node
+manages multiple conversations; each active Run gets a sandboxed client process,
+and idle sessions retain data without retaining a client process. Missing sandbox support
 fails startup; the existing default remains off. Dedicated API-key authentication,
 explicit readable runtime paths and network domains are required. See
 [native session isolation](docs/native-session-isolation.md) for setup, migration,

@@ -408,6 +408,7 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 
 macOS/Linux 上可显式设置 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`。
 Codex／Claude 整个客户端及子工具在系统沙箱内运行，各会话独享持久工作区和原生历史，
+一个常驻 Node 管理多个会话，仅执行中的 Run 启动沙箱内客户端子进程，空闲会话保留数据。
 会话映射、锁和策略位于客户端不可读的控制目录。缺少沙箱能力时启动失败，不降级；
 未开启时默认行为不变。需要专用 API key、明确的运行库读取路径和联网域名，不导入个人
 OAuth／钥匙串登录或旧会话。开启前请阅读[完整配置与边界](docs/native-session-isolation.zh-CN.md)。

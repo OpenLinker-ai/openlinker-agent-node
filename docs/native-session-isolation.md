@@ -9,8 +9,43 @@ there is no automatic unsandboxed fallback or weaker nested-sandbox mode.
 
 This is a new source implementation, not a published Agent Node release or a
 change to any running deployment. Plugin does not acquire this product policy
-automatically by importing the shared packages. The separate Docker draft must
-be rebased onto the shared session scope/storage work before integration.
+automatically by importing the shared packages. Plugin's Provider/Browser
+container delivery and the separate Node Docker draft are not part of this
+host-binary path. A deployed Provider container is not, by itself, evidence of
+a separate container for every conversation.
+
+## One Node, multiple session sandboxes
+
+Start one long-lived `openlinker-agent-node` for the configured Agent/provider.
+Its single SDK Runtime Worker dispatches Runs to the same adapter instance;
+the adapter selects a sandbox from the trusted Core conversation scope.
+No extra Agent Node process, registration or SDK DataDir is needed per chat.
+
+```text
+One Agent Node process (one SDK Runtime Worker, one configured provider)
+  ├─ conversation A → sandbox A → client + child tools → A's workspace/history
+  └─ conversation B → sandbox B → client + child tools → B's workspace/history
+```
+
+OS sandboxes apply to processes, not to Go goroutines or an ID inside a shared
+client. Each executing Run therefore starts a separate sandboxed Codex/Claude
+client process and the backend's helpers. The Node stays outside those
+sandboxes as their trusted coordinator. A single client process is never used
+to host mutually untrusted conversations with different filesystem rights.
+
+Only session state is persistent: a later Run for A opens A's private storage
+and resumes its native ID in a new client process. The sandbox invocation is
+closed after the Run; an idle conversation does not retain a client process.
+`OPENLINKER_AGENT_NODE_CAPACITY` controls Worker execution capacity; set it to
+`2` or more to allow different sessions to overlap when Core dispatches them.
+A busy session's exclusive lock rejects another simultaneous Run for that same
+scope; Node does not add its own assignment queue or duplicate SDK scheduling.
+Canceling one Run terminates that Run's ordinary process group, not the Node or
+another session's client.
+
+One Node currently selects one adapter/provider configuration. Multiple chats
+on that provider share the Node; this mode does not introduce per-chat provider
+selection or turn a Node into a combined Codex/Claude service.
 
 ## Installation and configuration
 
@@ -133,7 +168,11 @@ bash scripts/test-native-session-isolation.sh
 
 The provider continuation peers are deterministic Codex/Claude protocol clients
 that perform real filesystem/process operations under the real OS sandbox.
-They prove wiring and A→B→A persistence across Node-side process restarts; they
-do not prove authenticated model or WebSearch success. Optional installed-client
+They prove concurrent sessions through one Node's production Runtime handler,
+same-session ownership rejection, cancellation without stopping another session,
+and A→B→A persistence across Node-side process restarts. The restart helpers are
+additional recovery tests, not a requirement to launch a Node for every chat.
+These tests do not exercise Core transport/scheduling or prove authenticated
+model or WebSearch success. Optional installed-client
 probes use `OPENLINKER_TEST_NATIVE_CODEX_BIN`, `OPENLINKER_TEST_NATIVE_CLAUDE_BIN`
 and JSON `OPENLINKER_TEST_NATIVE_READ_PATHS`, without sending a model request.

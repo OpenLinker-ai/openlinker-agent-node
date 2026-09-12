@@ -7,6 +7,35 @@ bubblewrap、PID／网络命名空间和 seccomp。客户端使用本机已安�
 这是新的 Node 源码功能，尚不代表已发布二进制或运行中 Agent 已升级。默认仍为
 `off`，Plugin 也不会因为引用 Node 的共享包就自动启用该策略。
 
+## 一个 Node 管理多个会话沙箱
+
+对于同一个 Agent／Provider 配置，只启动一个常驻 `openlinker-agent-node`。
+进程内唯一的 SDK Runtime Worker 把任务交给同一个适配器，由适配器按 Core 可信会话
+作用域选择沙箱。每个聊天不需要另开 Agent Node、重新登记或创建新的 SDK DataDir。
+
+```text
+一个 Agent Node 进程（一个 SDK Runtime Worker，一种 Provider 配置）
+  ├─ 会话 A → 沙箱 A → 客户端及子工具 → A 的工作区和历史
+  └─ 会话 B → 沙箱 B → 客户端及子工具 → B 的工作区和历史
+```
+
+系统沙箱约束的是进程，不能给同一客户端进程内的不同会话 ID 分别设置互不相通的
+文件权限。因此每个正在执行的 Run 仍会启动独立的 Codex／Claude 客户端子进程及
+沙箱辅助进程；Agent Node 留在外部统一管理，不能让互不信任的会话共用一个客户端进程。
+
+持久化的是会话数据：A 的下一轮用新客户端进程打开 A 的私有目录、恢复 A 的原生
+会话 ID。Run 结束后关闭本轮沙箱，空闲会话不常驻客户端进程。
+`OPENLINKER_AGENT_NODE_CAPACITY` 控制 Worker 执行容量，设为 `2` 或以上可在 Core
+下发任务时并发执行不同会话。同一会话已有 Run 执行时，排他锁拒绝另一个重叠 Run；
+Node 不另建任务队列或重复实现 SDK 调度。取消 A 只终止 A 本轮的普通进程组，
+不会停止 Agent Node 或 B 的客户端。
+
+单个 Node 当前选择一种适配器／Provider 配置；该 Provider 的多个聊天共享这个 Node。
+本功能没有增加按聊天切换 Codex／Claude 的复合服务入口。
+
+Plugin 已有 Provider／Browser 的容器交付；一个 Provider 容器本身并不代表每个聊天
+都有独立容器。这些发布物及另存的 Node Docker 草稿均不接入本机二进制沙箱路径。
+
 ## 开启方式
 
 先安装 Node.js 20.11+、ripgrep，以及固定版本的 Anthropic sandbox runtime：
@@ -93,6 +122,9 @@ export OPENLINKER_TEST_NATIVE_SANDBOX_BIN="$PWD/tools/native-sandbox/node_module
 bash scripts/test-native-session-isolation.sh
 ```
 
-会话续接测试使用执行真实文件／进程操作的确定性 Codex／Claude 协议对端，并非模型
-调用。真实客户端的版本和能力检查也不等于模型、WebSearch 已通过。完整技术说明及
+测试通过同一个 Node 的生产 Runtime handler 并发执行两个会话，检查同会话排他、
+单独取消和续接；另外的 Node 侧进程重启测试用于验证恢复，不代表每个会话要启动一个
+Node。测试使用执行真实文件／进程操作的确定性 Codex／Claude 协议对端，不覆盖 Core
+网络传输和调度，也不是模型调用。真实客户端的版本和能力检查也不等于模型、WebSearch
+已通过。完整技术说明及
 上游来源见[英文说明](native-session-isolation.md)。

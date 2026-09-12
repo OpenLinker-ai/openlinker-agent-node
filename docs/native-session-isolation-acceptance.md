@@ -11,6 +11,7 @@ Agent cutover. Existing Docker PR #31 was not changed.
 | --- | --- |
 | macOS arm64 / Go 1.27.1: full Node `go test -race ./...` with real sandbox tests enabled | Passed |
 | macOS final affected provider/preflight and sandbox race checks | Passed |
+| macOS follow-up: one configured Node's production Runtime handler, overlapping A/B sessions, per-session cancellation/ownership and resume, both provider peers under `-race` | Passed |
 | Linux arm64 / Ubuntu 26.04 / Go 1.26.4: native sandbox, provider and Node internal race suite | Passed |
 | Linux final sandbox race check after runtime-library policy adjustment | Passed |
 | Real macOS Codex 0.153.0 and Claude Code 2.1.259, sandboxed version/help probes | Both passed |
@@ -31,6 +32,15 @@ claim that the new GitHub Actions job has already run.
 
 - A→B→A native-ID and file-history persistence, with a separate Node-side OS
   process per turn and a new Runtime Session/epoch on A's continuation.
+- An additional macOS follow-up uses one Node object, one shared adapter and its
+  production Runtime handler in one host process. Both clients must reach
+  independent file barriers before either is released, proving overlap. A
+  duplicate A Run is rejected while A owns its lock; canceling A leaves B able
+  to finish; both later resume their own native IDs and private file histories
+  without reading each other. This new test is in the existing OS CI suite but
+  was only locally rerun on macOS; it does not claim Core transport/scheduling
+  acceptance. The earlier restart checks are extra recovery coverage, not a
+  per-conversation Node deployment model.
 - Core namespace, provider, Agent, principal and conversation scope separation.
   Forged input/metadata, missing authority and legacy fallback IDs cannot select
   a session or reach its persistent storage.

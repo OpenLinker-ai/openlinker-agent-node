@@ -127,6 +127,8 @@ func probe(prompt, id string) string {
 	var spec struct {
 		Denied []string
 		Host   string
+		Memory string
+		Wait   bool
 	}
 	if match := regexp.MustCompile(`fixture_spec=([A-Za-z0-9+/=]+)`).FindStringSubmatch(prompt); len(match) == 2 {
 		raw, _ := base64.StdEncoding.DecodeString(match[1])
@@ -144,6 +146,28 @@ func probe(prompt, id string) string {
 	previous, _ := os.ReadFile("memory")
 	if strings.Contains(prompt, "fixture:remember") {
 		_ = os.WriteFile("memory", []byte("conversation-private-canary"), 0o600)
+	}
+	if spec.Memory != "" {
+		if err := os.WriteFile("memory", []byte(spec.Memory), 0o600); err != nil {
+			panic(err)
+		}
+	}
+	if spec.Wait {
+		// The trusted test driver releases each sandbox independently. Requiring
+		// both ready files before either release proves actual overlapping Runs.
+		if err := os.WriteFile("ready", []byte(id), 0o600); err != nil {
+			panic(err)
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			if _, err := os.Stat("release"); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				panic("sandbox barrier was not released")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 	report := map[string]any{"id": id, "previous": string(previous), "uid": os.Geteuid(), "home": os.Getenv("HOME"), "codex_home": os.Getenv("CODEX_HOME"), "claude_home": os.Getenv("CLAUDE_CONFIG_DIR")}
 	blocked := make(map[string]bool)
