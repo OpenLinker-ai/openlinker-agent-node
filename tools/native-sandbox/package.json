@@ -1,0 +1,8 @@
+{
+  "name": "openlinker-native-sandbox-dependencies",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned optional OS sandbox dependency for Agent Node native session isolation",
+  "engines": { "node": ">=20.11.0" },
+  "dependencies": { "@anthropic-ai/sandbox-runtime": "0.0.76" }
+}

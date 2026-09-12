@@ -25,6 +25,8 @@ const MinimumClaudeVersion = "2.1.259"
 // Config contains only the executable identity and candidate environment needed
 // for a compatibility probe. Environment filtering remains fail-closed.
 type Config struct {
+	// Prepare optionally applies an outer process sandbox to every read-only probe.
+	Prepare  func(context.Context, string, []string) (*exec.Cmd, error)
 	Provider string
 	Bin      string
 	Env      []string
@@ -57,13 +59,25 @@ func Check(ctx context.Context, config Config) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	probe := func(args ...string) (string, error) {
-		command := exec.CommandContext(ctx, path, args...) // #nosec G204 -- operator-configured CLI, fixed read-only probe arguments.
-		providerprocess.Configure(command)
-		environment := config.Env
-		if environment == nil {
-			environment = os.Environ()
+		var command *exec.Cmd
+		if config.Prepare != nil {
+			var err error
+			command, err = config.Prepare(ctx, path, args)
+			if err != nil {
+				return "", err
+			}
+			if command == nil {
+				return "", fmt.Errorf("%s CLI probe factory returned no command", provider)
+			}
+		} else {
+			command = exec.CommandContext(ctx, path, args...) // #nosec G204 -- operator-configured CLI, fixed read-only probe arguments.
+			providerprocess.Configure(command)
+			environment := config.Env
+			if environment == nil {
+				environment = os.Environ()
+			}
+			command.Env = append(providerprocess.Environment(environment, nil), "LC_ALL=C", "LANG=C")
 		}
-		command.Env = append(providerprocess.Environment(environment, nil), "LC_ALL=C", "LANG=C")
 		stdout, stderr := provideroutput.NewLimitedBuffer(cancel), provideroutput.NewLimitedBuffer(cancel)
 		command.Stdout, command.Stderr = stdout, stderr
 		if err := command.Run(); err != nil {

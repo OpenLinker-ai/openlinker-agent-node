@@ -25,12 +25,20 @@ type claudeResponse struct {
 	SessionID string   `json:"session_id"`
 }
 
-func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlinker.RuntimeResult, error) {
+func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultValue openlinker.RuntimeResult, resultErr error) {
 	if run.Emit != nil {
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Claude Code is processing the task."})
 	}
 	config := provider.Config
 	config = providerConfigForDelegationRun(config, run)
+	if config.SessionIsolation.Enabled() {
+		config.Provider = "claude"
+	}
+	config, closeSandbox, isolationErr := prepareIsolatedSession(ctx, config, run)
+	if isolationErr != nil {
+		return openlinker.RuntimeResult{}, isolationErr
+	}
+	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
 		bin = "claude"
@@ -56,8 +64,10 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	clientMode := providerSessionClientMode(config)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
-		unlock := lockSession("claude", workspace, sessionKey)
-		defer unlock()
+		if config.sandbox == nil {
+			unlock := lockSession("claude", workspace, sessionKey)
+			defer unlock()
+		}
 		sessionID, clientModeGeneration, _ = loadSessionForClientMode(
 			sessionPath,
 			"claude",
@@ -72,7 +82,16 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	var successfulResumeSessionID string
 	for attempt := 0; attempt < 2; attempt++ {
 		args := claudeArguments(config, permission, sessionID)
-		command := exec.CommandContext(requestCtx, bin, args...) // #nosec G204 -- operator-configured official provider binary, no shell.
+		var command *exec.Cmd
+		if config.sandbox != nil {
+			var err error
+			command, err = config.sandbox.Command(requestCtx, bin, args, config.Env)
+			if err != nil {
+				return openlinker.RuntimeResult{}, err
+			}
+		} else {
+			command = exec.CommandContext(requestCtx, bin, args...) // #nosec G204 -- operator-configured binary, no shell.
+		}
 		configureProviderProcess(command)
 		command.Dir = workspace
 		environment := config.Env
@@ -80,7 +99,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 			environment = os.Environ()
 		}
 		allowlist := append([]string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"}, config.EnvAllowlist...)
-		command.Env = append(sanitizedEnvironment(environment, allowlist), "LC_ALL=C", "LANG=C")
+		if config.sandbox == nil {
+			command.Env = append(sanitizedEnvironment(environment, allowlist), "LC_ALL=C", "LANG=C")
+		}
 		command.Stdin = strings.NewReader(
 			buildPrompt(
 				"Claude Code",
@@ -153,6 +174,10 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 	if response.SessionID != "" {
 		result["claude_session_id_sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(response.SessionID)))
 	}
+	if config.sandbox != nil {
+		result["session_isolation"] = "native"
+	}
+
 	if config.SessionReuse && sessionKey != "" {
 		result["claude_session_reuse"] = true
 		result["claude_session_key_hash"] = sessionKeyHash("claude", workspace, sessionKey)
@@ -167,7 +192,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (openlin
 
 func claudeArguments(config ProviderConfig, permission, sessionID string) []string {
 	args := []string{"--safe-mode", "--no-chrome", "--disable-slash-commands"}
-	if config.DelegationSocket != "" {
+	if config.sandbox != nil {
+		args = []string{"--bare", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`}
+	} else if config.DelegationSocket != "" {
 		args = []string{"--bare", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config)}
 	}
 	args = append(args, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", permission)

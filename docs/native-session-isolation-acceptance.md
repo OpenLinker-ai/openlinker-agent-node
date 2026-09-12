@@ -1,0 +1,124 @@
+# Native session isolation acceptance — 2026-09-12
+
+Source base: Agent Node `9054ba8d2d1ea3675a6a6e91c21808f9081bfbd7`.
+Candidate branch: `codex/native-session-isolation`. This record covers local
+source validation, not a merged/published module, binary, deployment or live
+Agent cutover. Existing Docker PR #31 was not changed.
+
+## Environments and results
+
+| Check | Result |
+| --- | --- |
+| macOS arm64 / Go 1.27.1: full Node `go test -race ./...` with real sandbox tests enabled | Passed |
+| macOS final affected provider/preflight and sandbox race checks | Passed |
+| macOS follow-up: one configured Node's production Runtime handler, overlapping A/B sessions, per-session cancellation/ownership and resume, both provider peers under `-race` | Passed |
+| Linux arm64 / Ubuntu 26.04 / Go 1.26.4: native sandbox, provider and Node internal race suite | Passed |
+| Linux final sandbox race check after runtime-library policy adjustment | Passed |
+| Real macOS Codex 0.153.0 and Claude Code 2.1.259, sandboxed version/help probes | Both passed |
+| Real Linux Codex 0.153.0 and Claude Code 2.1.259, sandboxed version/help probes | Both passed |
+| Generated command quoting and macOS profile hardening tests | 2/2 passed |
+| Release build-identity tests | 6/6 passed |
+| Isolated module/package graphs, negative boundary controls, RPC generation check, `go mod verify`, `go vet`, whitespace check | Passed |
+| Plugin host consumer tests using a temporary workspace with this Node candidate and the pinned SDK | Passed |
+| Gitleaks 8.28.0 current-source scan before PR | No findings in changed files; three existing test-fixture findings reviewed (synthetic environment values and frozen session hashes/JSON) |
+
+The Linux environment was a dedicated isolated VM (no host file sharing or SSH
+agent forwarding), not a Docker container. Its kernel was
+`7.0.14-orbstack-00380-ga7e0a2dc9535`, with bubblewrap `0.11.1`, Node `22.22.1`
+and sandbox-runtime `0.0.76`. No weaker nesting/network setting was enabled.
+CI contains a macOS/Linux real-enforcement job. The local evidence above was
+collected before the GitHub runs; the subsequent remote results follow.
+
+## GitHub PR #33 verification
+
+Implementation and CI prerequisite commit `91230102bef0618b9e93b170300cca9e00967c1f`
+passed all three jobs in [GitHub CI run 34698379448](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34698379448):
+
+- `native-session-isolation (ubuntu-latest)`: passed, including the single-Node
+  concurrent-session tests, with the per-executable AppArmor prerequisite and
+  the global userns restriction retained on Ubuntu 24.04.
+- `native-session-isolation (macos-latest)`: passed, including the same tests.
+- `test`: passed (full Node tests/race, boundary checks, vet and build).
+
+The first run `34698155445` failed the Linux OS prerequisite and is retained
+as failure evidence; its macOS and general jobs passed. These remote results
+add both-platform coverage of the concurrency follow-up that was previously
+tested locally only on macOS. They still do not establish authenticated model,
+WebSearch, binary publication or an enrolled Agent cutover.
+
+## What was exercised
+
+- A→B→A native-ID and file-history persistence, with a separate Node-side OS
+  process per turn and a new Runtime Session/epoch on A's continuation.
+- An additional macOS follow-up uses one Node object, one shared adapter and its
+  production Runtime handler in one host process. Both clients must reach
+  independent file barriers before either is released, proving overlap. A
+  duplicate A Run is rejected while A owns its lock; canceling A leaves B able
+  to finish; both later resume their own native IDs and private file histories
+  without reading each other. This new test is in the existing OS CI suite but
+  was only locally rerun on macOS; it does not claim Core transport/scheduling
+  acceptance. The earlier restart checks are extra recovery coverage, not a
+  per-conversation Node deployment model.
+- Core namespace, provider, Agent, principal and conversation scope separation.
+  Forged input/metadata, missing authority and legacy fallback IDs cannot select
+  a session or reach its persistent storage.
+- Direct reads, child-process reads, symlink and hardlink attempts against host
+  canaries, the other session's workspace/history, native-ID mappings and policy.
+  Host/control files were compared before and after attempted writes.
+- Exact-scope concurrent ownership rejection and private/symlink state checks.
+- Allowed writes/reads within the current session and temporary directory.
+- Local TCP endpoint access denied both through the configured proxy and with
+  explicit proxy bypass. The curl executable was positively checked first.
+- Command argument quoting, missing/wrong runtime rejection, cancellation before
+  launch, and ordinary descendant termination after cancellation.
+- Fixed wrapper environment, removal of host proxy/loader/platform variables,
+  and dedicated credential requirements on both production adapters.
+- Installed official client compatibility probes run inside the same sandbox;
+  Claude probes and Runs use bare mode, without personal login import.
+
+Provider continuation peers implement the real Codex app-server/Claude stream
+protocol boundaries and perform real OS probes, but their answers are
+deterministic. Only synthetic credentials/canaries were used in those tests.
+Installed official client checks made no model request.
+
+## Findings resolved during verification
+
+- The first GitHub Linux job on Ubuntu 24.04/bubblewrap 0.9.0 failed during
+  network namespace setup (`Failed RTM_NEWADDR`). macOS and the general test
+  job passed. The follow-up provisions an AppArmor userns authorization for
+  the exact distro `/usr/bin/bwrap` on the disposable runner, following Ubuntu's
+  application-specific policy model. CI asserts that the global userns
+  restriction remains unchanged and runs a namespace startup probe before
+  the full enforcement suite. This does not alter product sandbox policy or
+  weaken the required tests; the follow-up GitHub result is recorded separately.
+- macOS's short Unix-socket path limit required a short per-invocation private
+  temporary directory rather than a nested persistent path.
+- A second nested Seatbelt invocation is rejected by macOS. Additional IPC
+  denials are appended to SRT's single generated profile before its launch;
+  the decoder rejects unexpected generated shell syntax instead of evaluating
+  it. Symlink metadata is allowed for runtime path traversal, not target content.
+- Public ICU data and Debian/Ubuntu's externalized Node built-ins are necessary
+  runtime inputs. The policy grants those specific system library locations,
+  not personal HOME or all host configuration directories.
+- Linux's final seccomp init must itself be readable inside bubblewrap; its
+  exact executable from the pinned package is granted and checked.
+- Linux can create a harmless private placeholder at an otherwise hidden host
+  pathname. Tests check that original contents cannot be read and that the
+  actual host/control file remains unchanged, rather than treating writes into
+  the private namespace as writes to the host.
+- The Linux source-copy harness initially omitted example fixtures and retained
+  macOS archive metadata. A complete source-only archive corrected the harness;
+  production assertions were not removed to accommodate those failures.
+
+## Not established by this acceptance
+
+Authenticated model, WebSearch and arbitrary tool end-to-end success; resource
+quotas; protection from trusted host programs/admins/kernel; container-equivalent
+daemonized descendant/crash cleanup; Windows support; Browser or host delegation
+socket support. All untrusted sessions under the same host user must use the
+sandbox; legacy unsandboxed sessions are outside its protection.
+
+No Node registration, token, running process, SDK spool or pre-existing personal
+session was replaced. Defaults remain off. See the
+[configuration and boundaries](native-session-isolation.md) and
+[Chinese guide](native-session-isolation.zh-CN.md).

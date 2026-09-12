@@ -8,6 +8,7 @@ bin/
 /openlinker-agent-node
 coverage.out
 *.cover.out
+node_modules/
 
 # Editor / OS
 .DS_Store

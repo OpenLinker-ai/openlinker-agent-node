@@ -1,0 +1,9 @@
+# Provision only on the disposable Ubuntu CI runner. This authorizes the
+# distro-owned namespace launcher, not arbitrary Node/client executables.
+# See Ubuntu 24.04 release notes, "Unprivileged user namespace restrictions".
+abi <abi/4.0>,
+include <tunables/global>
+
+profile openlinker-ci-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}

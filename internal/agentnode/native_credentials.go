@@ -31,7 +31,7 @@ func prepareNativeCredentials(config agentexec.ProviderConfig) (agentexec.Provid
 			path = strings.TrimSpace(value)
 		}
 	}
-	required := len(config.DelegationTargets) > 0
+	required := len(config.DelegationTargets) > 0 || config.SessionIsolation.Enabled()
 	if !required && path == "" {
 		// Preserve the existing ordinary Claude authentication/environment path.
 		return config, nil
@@ -52,7 +52,7 @@ func prepareNativeCredentials(config agentexec.ProviderConfig) (agentexec.Provid
 		}
 	}
 	if key == "" && required {
-		return config, errors.New("Claude delegation uses --bare and requires ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE; OAuth/Keychain login is not used")
+		return config, errors.New("Claude delegation/native isolation uses --bare and requires ANTHROPIC_API_KEY or ANTHROPIC_API_KEY_FILE; OAuth/Keychain login is not used")
 	}
 	// Pin the same effective environment for the probe and all Runs. Do not
 	// forward the secret-file location, even if the caller allowlisted it.
