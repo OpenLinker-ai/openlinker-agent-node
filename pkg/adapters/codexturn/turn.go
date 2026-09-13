@@ -38,6 +38,11 @@ type Config struct {
 	Prepare                                     func(context.Context) (PreparedCommand, error)
 	SessionID, Prompt, Sandbox, Model, Approval string
 	Persistent                                  bool
+	// UseConfiguredPermissions omits the legacy sandbox override on both start
+	// and resume. The product must supply an enforced named permission profile.
+	UseConfiguredPermissions bool
+	// ThreadConfig supplies product overrides, optionally populated by BeforeThread.
+	ThreadConfig map[string]json.RawMessage
 	// BeforeThread runs after initialized and before thread/start or resume.
 	// Any error prevents thread/turn creation and closes the app-server.
 	BeforeThread func(context.Context, *codexrpc.Client) error
@@ -139,6 +144,10 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 		approval = raw
 	}
 	mode := codexrpc.SandboxMode(sandbox)
+	modeOverride := &mode
+	if config.UseConfiguredPermissions {
+		modeOverride = nil
+	}
 	model := strings.TrimSpace(config.Model)
 	var modelOverride *string
 	if model != "" {
@@ -146,7 +155,7 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 	}
 	if sessionID != "" {
 		var resumed codexrpc.ThreadResumeResponse
-		err := client.Call(ctx, "thread/resume", codexrpc.ThreadResumeParams{ThreadID: sessionID, Cwd: &workspace, Sandbox: &mode, ApprovalPolicy: &approval, Model: modelOverride, ExcludeTurns: boolPtr(true)}, &resumed)
+		err := client.Call(ctx, "thread/resume", codexrpc.ThreadResumeParams{Config: config.ThreadConfig, ThreadID: sessionID, Cwd: &workspace, Sandbox: modeOverride, ApprovalPolicy: &approval, Model: modelOverride, ExcludeTurns: boolPtr(true)}, &resumed)
 		if err != nil {
 			var rpcErr *codexrpc.Error
 			if errors.As(err, &rpcErr) && rpcErr.Code == -32600 && (rpcErr.Message == "no rollout found for thread id "+sessionID || rpcErr.Message == "thread not found: "+sessionID) {
@@ -160,7 +169,7 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 		}
 	} else {
 		var started codexrpc.ThreadStartResponse
-		if err := client.Call(ctx, "thread/start", codexrpc.ThreadStartParams{Cwd: &workspace, Sandbox: &mode, ApprovalPolicy: &approval, Model: modelOverride, Ephemeral: boolPtr(!persistent)}, &started); err != nil {
+		if err := client.Call(ctx, "thread/start", codexrpc.ThreadStartParams{Config: config.ThreadConfig, Cwd: &workspace, Sandbox: modeOverride, ApprovalPolicy: &approval, Model: modelOverride, Ephemeral: boolPtr(!persistent)}, &started); err != nil {
 			return "", "", err
 		}
 		threadID = started.Thread.ID

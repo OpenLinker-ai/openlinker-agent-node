@@ -1,42 +1,23 @@
-// A deterministic protocol peer for native sandbox isolation acceptance. It does real
-// filesystem/process probes and synthetic-key inspection, never model calls or
-// real credential loading.
+// Trusted deterministic protocol peer for session routing/cancellation tests.
+// This fixture does not establish a sandbox boundary.
 package main
 
 import (
 	"bufio"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 )
 
 func main() {
 	provider := filepath.Base(os.Args[0])
-	if hasArgument("credential-child") {
-		credentialChild()
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "child" {
-		for {
-			_ = os.WriteFile("heartbeat", []byte(time.Now().String()), 0o600)
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
 	if hasArgument("--version") {
 		if provider == "codex" {
 			fmt.Println("codex-cli 0.153.0")
@@ -71,11 +52,7 @@ func argument(key string) string {
 }
 
 func sessionID(provider, resume string) string {
-	home := os.Getenv("CODEX_HOME")
-	if provider == "claude" {
-		home = os.Getenv("CLAUDE_CONFIG_DIR")
-	}
-	path := filepath.Join(home, "native-id")
+	path := "native-id"
 	if resume != "" {
 		stored, _ := os.ReadFile(path)
 		if string(stored) != resume {
@@ -93,6 +70,25 @@ func sessionID(provider, resume string) string {
 }
 
 func codex() {
+	// Mirror only the official client's helper-alias layout for Linux bridge
+	// tests; these peers do not prove OS sandbox enforcement.
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		home = filepath.Join(os.Getenv("HOME"), ".codex")
+	}
+	root := filepath.Join(home, "tmp", "arg0")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		panic(err)
+	}
+	helper, err := os.MkdirTemp(root, "codex-arg0")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(helper)
+	self, _ := os.Executable()
+	if err := os.Symlink(self, filepath.Join(helper, "codex-linux-sandbox")); err != nil {
+		panic(err)
+	}
 	encoder := json.NewEncoder(os.Stdout)
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
@@ -135,38 +131,21 @@ func codex() {
 
 func probe(prompt, id string) string {
 	var spec struct {
-		Denied      []string
-		Host        string
-		Memory      string
-		Wait        bool
-		Credentials bool
+		Memory string
+		Wait   bool
 	}
 	if match := regexp.MustCompile(`fixture_spec=([A-Za-z0-9+/=]+)`).FindStringSubmatch(prompt); len(match) == 2 {
 		raw, _ := base64.StdEncoding.DecodeString(match[1])
 		_ = json.Unmarshal(raw, &spec)
 	}
-	if strings.Contains(prompt, "fixture:hang") {
-		child := exec.Command(os.Args[0], "child")
-		if err := child.Start(); err != nil {
-			panic(err)
-		}
-		for {
-			time.Sleep(time.Hour)
-		}
-	}
 	previous, _ := os.ReadFile("memory")
-	if strings.Contains(prompt, "fixture:remember") {
-		_ = os.WriteFile("memory", []byte("conversation-private-canary"), 0o600)
-	}
 	if spec.Memory != "" {
-		if err := os.WriteFile("memory", []byte(spec.Memory), 0o600); err != nil {
+		if err := os.WriteFile("memory", []byte(spec.Memory), 0600); err != nil {
 			panic(err)
 		}
 	}
 	if spec.Wait {
-		// The trusted test driver releases each sandbox independently. Requiring
-		// both ready files before either release proves actual overlapping Runs.
-		if err := os.WriteFile("ready", []byte(id), 0o600); err != nil {
+		if err := os.WriteFile("ready", []byte(id), 0600); err != nil {
 			panic(err)
 		}
 		deadline := time.Now().Add(30 * time.Second)
@@ -175,122 +154,21 @@ func probe(prompt, id string) string {
 				break
 			}
 			if time.Now().After(deadline) {
-				panic("sandbox barrier was not released")
+				panic("routing barrier timed out")
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	report := map[string]any{"id": id, "previous": string(previous), "uid": os.Geteuid(), "home": os.Getenv("HOME"), "codex_home": os.Getenv("CODEX_HOME"), "claude_home": os.Getenv("CLAUDE_CONFIG_DIR")}
-	report["model_endpoint"] = os.Getenv("ANTHROPIC_BASE_URL")
-	for _, arg := range os.Args {
-		if strings.HasPrefix(arg, "model_providers.openlinker_proxy.base_url=") {
-			endpoint, _ := strconv.Unquote(strings.TrimPrefix(arg, "model_providers.openlinker_proxy.base_url="))
-			report["model_endpoint"] = endpoint
-		}
-	}
-	if spec.Credentials {
-		child := exec.Command(os.Args[0], "credential-child")
-		for _, entry := range os.Environ() {
-			key, _, _ := strings.Cut(entry, "=")
-			if key != "CODEX_API_KEY" && key != "ANTHROPIC_API_KEY" {
-				child.Env = append(child.Env, entry)
-			}
-		}
-		raw, err := child.Output()
-		if err != nil {
-			panic("credential child failed to execute")
-		}
-		var probe map[string]any
-		if json.Unmarshal(raw, &probe) != nil {
-			panic("credential child returned invalid evidence")
-		}
-		report["credential_probe"] = probe
-	}
-	blocked := make(map[string]bool)
-	for _, path := range spec.Denied {
-		if path == "" {
-			continue
-		}
-		_, err := os.ReadFile(path)
-		blocked[path] = err != nil
-	}
-	// A symlink cannot cross the mount boundary into a real host directory.
-	if target := spec.Host; target != "" {
-		_ = os.Remove("escape")
-		_ = os.Symlink(target, "escape")
-		_, err := os.ReadFile("escape")
-		report["symlink_blocked"] = err != nil
-	}
-	_, socketErr := os.Stat("/var/run/docker.sock")
-	report["docker_socket_blocked"] = socketErr != nil
-	writeErr := os.WriteFile("/host-write-probe", []byte("no"), 0o600)
-	report["root_write_blocked"] = writeErr != nil
-	report["agent_token"] = os.Getenv("OPENLINKER_AGENT_TOKEN")
-	report["loader_env"] = os.Getenv("NODE_OPTIONS")
-	report["bare"] = false
-	for _, arg := range os.Args {
-		if arg == "--bare" {
-			report["bare"] = true
-		}
-	}
-	report["blocked"] = blocked
-	interfaces, _ := net.Interfaces()
-	nonLoopback := 0
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagLoopback == 0 {
-			nonLoopback++
-		}
-	}
-	report["non_loopback_interfaces"] = nonLoopback
-	child := exec.Command(os.Args[0], "--version")
-	report["child_process_works"] = child.Run() == nil
-	raw, _ := json.Marshal(report)
+	cwd, _ := os.Getwd()
+	raw, _ := json.Marshal(map[string]any{"id": id, "workspace": cwd, "previous": string(previous), "home": os.Getenv("HOME")})
 	return string(raw)
 }
 
 func hasArgument(want string) bool {
-	for _, v := range os.Args[1:] {
-		if v == want {
+	for _, arg := range os.Args[1:] {
+		if arg == want {
 			return true
 		}
 	}
 	return false
-}
-
-// Only called by the synthetic protocol fixture. Never print an environment or
-// credential: return a digest of any parent value through the normal Run output.
-func credentialChild() {
-	report := map[string]any{"child_has_key": os.Getenv("CODEX_API_KEY") != "" || os.Getenv("ANTHROPIC_API_KEY") != ""}
-	var raw []byte
-	var err error
-	var entries []string
-	if runtime.GOOS == "linux" {
-		_, selfErr := os.ReadFile("/proc/self/environ")
-		report["positive_control"] = selfErr == nil
-		report["method"] = "proc-parent-environ"
-		raw, err = os.ReadFile("/proc/" + strconv.Itoa(os.Getppid()) + "/environ")
-		entries = strings.Split(string(raw), "\x00")
-	} else {
-		// Listing format keywords proves ps can launch without requiring the
-		// very process-information permission this probe is investigating.
-		keywords, keywordErr := exec.Command("/bin/ps", "-L").Output()
-		report["positive_control"] = keywordErr == nil && strings.Contains(string(keywords), "command")
-		info, statErr := os.Stat("/bin/ps")
-		report["probe_executable_present"] = statErr == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
-		report["method"] = "ps-parent-eww"
-		raw, err = exec.Command("/bin/ps", "eww", "-p", strconv.Itoa(os.Getppid()), "-o", "command=").Output()
-		report["exec_permission_denied"] = errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES)
-		entries = strings.Fields(string(raw))
-	}
-	report["read_permitted"] = err == nil
-	digest := ""
-	for _, entry := range entries {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok && (key == "CODEX_API_KEY" || key == "ANTHROPIC_API_KEY") && value != "" {
-			sum := sha256.Sum256([]byte(value))
-			digest = hex.EncodeToString(sum[:])
-		}
-	}
-	report["parent_key_sha256"] = digest
-	_ = json.NewEncoder(os.Stdout).Encode(report)
 }

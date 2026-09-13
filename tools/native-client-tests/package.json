@@ -1,0 +1,10 @@
+{
+  "name": "openlinker-native-client-acceptance",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Official clients pinned for synthetic host-auth and tool-sandbox CI only",
+  "dependencies": {
+    "@openai/codex": "0.153.0",
+    "@anthropic-ai/claude-code": "2.1.259"
+  }
+}

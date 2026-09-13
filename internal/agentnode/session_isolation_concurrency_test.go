@@ -16,13 +16,9 @@ import (
 )
 
 // One configured Node and its real Runtime handler share one cached adapter.
-// No per-session Node process or fake sandbox backend is involved. Core's
-// transport/scheduling is outside this test; the clients are protocol peers.
-func TestNativeIsolationOneNodeConcurrentConversations(t *testing.T) {
-	runtimeBin := os.Getenv("OPENLINKER_TEST_NATIVE_SANDBOX_BIN")
-	if runtimeBin == "" {
-		t.Skip("set OPENLINKER_TEST_NATIVE_SANDBOX_BIN for real OS acceptance")
-	}
+// Clients are trusted protocol peers: this checks routing, locks and cancellation,
+// not OS enforcement. The real official-client suite checks the tool boundary.
+func TestNativeIsolationOneNodeConcurrentSessionRouting(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		t.Run(name, func(t *testing.T) {
 			values := isolationValues(t, name)
@@ -35,7 +31,6 @@ func TestNativeIsolationOneNodeConcurrentConversations(t *testing.T) {
 				t.Fatalf("build protocol peer: %v %s", err, out)
 			}
 			values["OPENLINKER_AGENT_NODE_"+strings.ToUpper(name)+"_BIN"] = bin
-			values["OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN"] = runtimeBin
 			values["OPENLINKER_AGENT_NODE_CAPACITY"] = "2"
 			node, err := NewFromLookup(func(k string) string { return values[k] })
 			if err != nil {
@@ -44,7 +39,7 @@ func TestNativeIsolationOneNodeConcurrentConversations(t *testing.T) {
 			if node.Capacity != 2 {
 				t.Fatal("configured concurrency lost")
 			}
-			env := []string{"PATH=" + os.Getenv("PATH"), "CODEX_API_KEY=fixture-key", "ANTHROPIC_API_KEY=fixture-key"}
+			env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
 			switch adapter := node.Adapter.(type) {
 			case *CodexAdapter:
 				adapter.Env = env
@@ -97,14 +92,13 @@ func TestNativeIsolationOneNodeConcurrentConversations(t *testing.T) {
 			}
 			a := report(invoke("a", "a-1", JSONMap{"Memory": "private-A"}))
 			b := report(invoke("b", "b-1", JSONMap{"Memory": "private-B"}))
-			if a["home"] == b["home"] || a["id"] == b["id"] || a["previous"] != "" || b["previous"] != "" {
+			if a["workspace"] == b["workspace"] || a["id"] == b["id"] || a["previous"] != "" || b["previous"] != "" {
 				t.Fatal("new sessions shared workspace or native history")
 			}
 			workspace := func(r JSONMap) string {
-				return filepath.Join(filepath.Dir(r["home"].(string)), "workspace")
+				return r["workspace"].(string)
 			}
-			adenied := []string{filepath.Join(workspace(b), "memory"), filepath.Join(filepath.Dir(b["home"].(string)), name, "native-id")}
-			bdenied := []string{filepath.Join(workspace(a), "memory"), filepath.Join(filepath.Dir(a["home"].(string)), name, "native-id")}
+			adenied, bdenied := []string{}, []string{}
 			actx, cancelA := context.WithCancel(ctx)
 			bctx, cancelB := context.WithCancel(ctx)
 			var wg sync.WaitGroup

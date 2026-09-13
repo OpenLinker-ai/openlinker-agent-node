@@ -1,294 +1,137 @@
-# Native session isolation (macOS and Linux)
+# Native sessions with host authentication
 
-**Experimental; trusted callers only.** `ProviderConfig.SessionIsolation`, the
-`sessionsandbox` package and `OPENLINKER_AGENT_NODE_SESSION_*` options do not
-carry a stable compatibility promise. Upgrade the Node binary, bundled runtime
-lock and adapter tests together.
+**Experimental, opt-in, macOS and Linux.** Node bridges the installed Codex or
+Claude Code client. Authenticate/configure that client once as the OS user that
+runs Node. `SESSION_ISOLATION=native` does not require another login or a new API
+key. Node does not parse, copy, refresh or proxy subscription tokens.
 
-Every caller allowed to use this Agent must be trusted to receive the provider's
-model API key. A client or tool can copy a readable credential into the final
-answer or streamed Run events; the network allowlist cannot stop that return
-channel. Removing a key from a child's environment alone is not a credential
-boundary against parent-process inspection. Do not expose this mode to public
-or otherwise untrusted callers who must not know that key. Use a dedicated,
-limited provider key and restrict callers through Core; this mode does not add
-an authorization policy or enforce that trust judgment automatically.
+## Boundary
 
-The 2026-09-12 real Linux sandbox probe confirmed this return path in both
-production provider adapters using deterministic client peers: a child without
-the synthetic key read its parent's `/proc/<pid>/environ`, and the matching key
-digest reached Run output. On macOS, `ps eww` was denied at exec. That specific
-denial does not establish credential secrecy; the trusted-caller requirement
-applies on both systems. No real client credential or model request was used.
+The official client remains a trusted host process and owns authentication.
+Its model-controlled tools are restricted separately:
 
-This opt-in mode runs the **entire Codex or Claude Code client and its child
-tools** under an OS sandbox. Docker is not required. It uses Anthropic's
-[sandbox runtime](https://github.com/anthropics/sandbox-runtime), pinned to
-`0.0.76`: Seatbelt on macOS and bubblewrap, PID/network namespaces and seccomp
-on Linux. Missing dependencies or a failed enforcement probe stop startup;
-there is no automatic unsandboxed fallback or weaker nested-sandbox mode.
+- Codex uses a named filesystem permission profile, a clean tool environment,
+  and its native OS sandbox. Legacy thread/start and thread/resume sandbox
+  overrides are omitted so they cannot replace that profile.
+- Claude retains its normal authentication home, uses `--safe-mode --restricted`
+  (not `--bare`), a strict empty MCP configuration and an explicit tool set.
+  Read/Edit/Write/Glob/Grep use client permission checks. Bash uses the built-in
+  OS sandbox with `failIfUnavailable=true`, no excluded commands and no
+  unsandboxed retry. Credentials are denied to command environments. macOS also
+  enables global subprocess scrubbing; Linux uses the normal Bash sandbox's
+  credential deny rules and PID/proc namespaces. The global scrub switch in
+  Claude 2.1.259 adds broad Linux writable roots and must not be enabled here.
+- Authentication directories, other sessions and Node control files are outside
+  tool grants. Shells receive no platform token or ambient loader configuration.
+  Codex tool HOME is private; Claude keeps its auth home in the trusted client
+  and denies it to tools. A network filter is not used as a substitute for
+  preventing readable credentials from returning in Run output.
+- Host plugins, custom MCP servers, hooks and cross-session/desktop/browser
+  tools are not part of this mode. Node does not implement another model loop.
 
-This is a new source implementation, not a published Agent Node release or a
-change to any running deployment. Plugin does not acquire this product policy
-automatically by importing the shared packages. Plugin's Provider/Browser
-container delivery and the separate Node Docker draft are not part of this
-host-binary path. A deployed Provider container is not, by itself, evidence of
-a separate container for every conversation.
+The official binary, OS user/admin, client settings delivered by an administrator
+and allowed code/library paths are trusted. This is not isolation from a hostile
+host process, compromised official client or administrator policy that weakens
+its sandbox. It is not a blanket claim that arbitrary client versions are safe.
+Do not expose an operator's personal subscription as a shared public service.
+Account authorization, provider terms, spending limits and access control remain
+separate requirements. Use with trusted callers while this feature is experimental.
 
-## One Node, multiple session sandboxes
+## Session lifetime
 
-Start one long-lived `openlinker-agent-node` for the configured Agent/provider.
-Its single SDK Runtime Worker dispatches Runs to the same adapter instance;
-the adapter selects a sandbox from the trusted Core conversation scope.
-No extra Agent Node process, registration or SDK DataDir is needed per chat.
+One Node serves multiple conversations. Each active Run starts its client process;
+its tools execute in that session's sandbox. Idle sessions retain data without
+keeping client processes alive. Core's trusted principal, Agent, conversation
+key and Node's Core namespace select the storage scope. Payload fields cannot
+select a native session. A cross-process lock prevents overlapping writes to the
+same conversation; cancellation of A does not stop B.
 
-```text
-One Agent Node process (one SDK Runtime Worker, one configured provider)
-  ├─ conversation A → sandbox A → client + child tools → A's workspace/history
-  └─ conversation B → sandbox B → client + child tools → B's workspace/history
-```
+A → B → A resumes A's native session. Host personal transcripts are not imported
+as conversation history. Codex controls the resumed thread ID; Claude additionally
+partitions its project transcripts using `CLAUDE_CODE_PROJECT_DIR_NAME`, while
+keeping `CLAUDE_CONFIG_DIR` unchanged for authentication.
 
-OS sandboxes apply to processes, not to Go goroutines or an ID inside a shared
-client. Each executing Run therefore starts a separate sandboxed Codex/Claude
-client process and the backend's helpers. The Node stays outside those
-sandboxes as their trusted coordinator. A single client process is never used
-to host mutually untrusted conversations with different filesystem rights.
+## Setup
 
-Only session state is persistent: a later Run for A opens A's private storage
-and resumes its native ID in a new client process. The sandbox invocation is
-closed after the Run; an idle conversation does not retain a client process.
-`OPENLINKER_AGENT_NODE_CAPACITY` controls Worker execution capacity; set it to
-`2` or more to allow different sessions to overlap when Core dispatches them.
-A busy session's exclusive lock rejects another simultaneous Run for that same
-scope; Node does not add its own assignment queue or duplicate SDK scheduling.
-Canceling one Run terminates that Run's ordinary process group, not the Node or
-another session's client.
-
-One Node currently selects one adapter/provider configuration. Multiple chats
-on that provider share the Node; this mode does not introduce per-chat provider
-selection or turn a Node into a combined Codex/Claude service.
-
-## Installation and configuration
-
-Install Node.js >= 20.11 and `rg`. Linux also requires `bwrap`, `socat` and
-unprivileged user/PID/network namespaces; host security policy must permit the
-installed bubblewrap executable. Do not disable a host-wide security policy or
-enable SRT's weaker nesting mode to make the probe pass. Unsupported hosts fail
-closed. macOS requires `/usr/bin/sandbox-exec`.
-
-Ubuntu 24.04 can additionally deny bubblewrap's namespace setup through
-AppArmor, including `loopback: Failed RTM_NEWADDR: Operation not permitted`.
-An administrator must explicitly authorize the distro-owned `/usr/bin/bwrap`
-executable in the host's AppArmor policy when user namespaces are restricted.
-Use Ubuntu's documented [application-specific namespace authorization](https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890),
-reviewing any existing site profile; do not disable the global restriction,
-run the Node as root, or share the host network as a workaround. The CI-only
-`scripts/ci-bwrap.apparmor` demonstrates this prerequisite on a disposable
-runner. Node never installs that profile or changes host security settings.
-This AppArmor authorization enables the trusted launcher; the actual per-session
-filesystem/network boundary is still imposed by bubblewrap and seccomp.
-
-From a source checkout, install the locked optional dependency:
+Install supported official clients (tested baseline: Codex 0.153.0 and Claude Code
+2.1.259). Configure/login to the selected client normally **as the Node OS user**.
+Linux needs functioning unprivileged user/network/PID namespaces; Claude also
+needs `bwrap`, `socat` and `rg`. macOS uses the client's Seatbelt sandbox.
+A separate npm installation of SRT is no longer required for Node's native mode.
+Authentication/session directories must be outside system/code read roots.
+On Linux Codex needs its per-process helper-alias directory and executable;
+Node verifies that the directory contains only known aliases and an empty lock
+before granting read access. It does not grant the authentication home or tmp tree.
 
 ```sh
-npm ci --prefix tools/native-sandbox --ignore-scripts
-export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/tools/native-sandbox/node_modules/.bin/srt"
-```
-
-Binary archives built from this change also include `native-sandbox/` with the
-same `package.json`, `package-lock.json` and `install.sh`. After verifying the
-archive SHA-256, from the extracted archive directory explicitly run:
-
-```sh
-sh ./native-sandbox/install.sh
-export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/native-sandbox/node_modules/.bin/srt"
-```
-
-This uses `npm ci --ignore-scripts`, fixing all transitive versions and verifying
-tarball integrity without lifecycle scripts. Older published archives may not
-contain this bundle; do not mix their binaries with an unrelated release's lock.
-These packaging changes do not themselves publish an artifact. Startup validates
-the top-level package identity/version, not the integrity of a subsequently
-modified installation or SRT's unrelated CLI `--version`. The configured package
-is a trusted host input. Node never downloads a backend during a Run.
-
-Example for Codex (retain your existing Node registration/connection settings):
-
-```sh
-export OPENLINKER_AGENT_NODE_ADAPTER=codex
+export OPENLINKER_AGENT_NODE_ADAPTER=codex # or claude
 export OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native
-export OPENLINKER_AGENT_NODE_SESSION_ROOT=/srv/openlinker/native-sessions
-export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true
-export OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS='["api.openai.com"]'
-# Provision CODEX_API_KEY through your service's dedicated secret environment.
+export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true # CLAUDE_SESSION_REUSE for Claude
+export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
+# Keep your existing HOME and, if configured, CODEX_HOME / CLAUDE_CONFIG_DIR.
+# No additional CODEX_API_KEY or ANTHROPIC_API_KEY is required for cached login.
 ```
 
-Claude uses `OPENLINKER_AGENT_NODE_ADAPTER=claude`,
-`OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE=true`, a domain list containing
-`api.anthropic.com`, and a dedicated `ANTHROPIC_API_KEY` or private
-`ANTHROPIC_API_KEY_FILE`. It runs with `--bare` and an empty strict MCP config.
-Personal OAuth, Keychain login, plugins, hooks and session directories are not
-imported. The client needs its model credential; this mode does not conceal that
-credential from the client or from a trusted host administrator.
+`SESSION_ROOT` must be owner-only and have no unsafe writable ancestors. Do not
+run Node as root. Options use the `OPENLINKER_AGENT_NODE_` prefix:
+
+| Option | Meaning |
+| --- | --- |
+| `SESSION_ISOLATION` | `off` (default) or `native` |
+| `SESSION_ROOT` | Private persistent storage |
+| `SESSION_TEMP_ROOT` | Optional private, short temporary root (resolved path ≤40 bytes) |
+| `SESSION_READ_PATHS` | JSON array of additional read-only code/library paths for shell tools; may not expose auth or session/control directories |
+| `SESSION_NETWORK_DOMAINS` | JSON array of exact public HTTPS hostnames for sandboxed command networking; empty means offline commands |
+| `CLAUDE_ALLOWED_TOOLS` | Optional subset of Read, Edit, Write, Glob, Grep, Bash |
+| `CODEX_WEB_SEARCH` / `CLAUDE_WEB_SEARCH` | Controls the client's native search tool separately |
 
 ### Custom model gateways
 
-Set `OPENLINKER_AGENT_NODE_CODEX_BASE_URL` to the complete Responses API base
-(for example `https://gateway.example/openai/v1`), or
-`OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL` to the Anthropic-compatible service base
-(for example `https://gateway.example/anthropic`; Claude appends `/v1/messages`).
-These are operator configuration, never values taken from a Run. An explicit URL
-must use HTTPS port 443 and a DNS name, with no credentials, query, fragment,
-escapes or ambiguous path segments. Its exact hostname must also appear in
-`OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS`. DNS resolution remains subject
-to the sandbox's private/link-local/loopback address denial.
+Node no longer overwrites the default Codex model endpoint. Codex retains its
+existing model-provider/auth configuration. Claude retains the configured
+`ANTHROPIC_BASE_URL`/standard credential environment or cached login. Explicit
+`CODEX_BASE_URL` and `CLAUDE_BASE_URL` overrides remain supported (HTTPS port 443,
+complete API base path). An explicit Codex gateway uses `CODEX_API_KEY`, as before;
+that optional path does not make a key mandatory for normal cached login.
 
-The full base path reaches the native client. Codex uses a Responses provider
-with WebSockets disabled; Claude receives the explicit `ANTHROPIC_BASE_URL`.
-Ambient host `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` are not imported. With no
-override, the existing official endpoint behavior is unchanged. The same new
-Node base-URL settings also work with isolation disabled, without imposing a
-sandbox network policy on that mode. This wiring does not add gateway protocol
-compatibility, credentials or network grants automatically.
+`SESSION_NETWORK_DOMAINS` restricts **sandboxed command** networking, not the
+trusted client's model API/auth traffic or its server-side WebSearch. Adding a
+model gateway does not automatically grant tools access to it. TLS verification
+is never disabled. Arbitrary environment forwarding remains rejected. Claude's
+restricted mode ignores user/project customization settings; setups depending
+on a settings-only helper or custom/cloud authentication need separate validation,
+not automatic token extraction or a subscription proxy.
 
-### Subscription authentication and credential protection
+## Migration and verification
 
-Subscription OAuth tokens are credentials too. Native isolation does not copy
-personal Claude login files or Keychain entries into a session. Do not export or
-proxy subscription tokens to turn a personal subscription into a shared Agent.
-The [Claude Code rules](https://code.claude.com/docs/en/legal-and-compliance)
-(checked 2026-09-13) distinguish an end user signing into the unmodified binary
-with their own subscription from routing other users through the operator's
-subscription. They also impose conditions on hosting Claude Code, including
-end-user authentication and restrictions on reselling/intermediating usage;
-switching to an operator-owned API key alone does not settle that product question.
+The old whole-client SRT design required dedicated keys and changed authentication
+homes. The new host-auth scope is deliberately separate: old workspaces, native
+history and potentially exposed credentials are neither copied nor deleted.
+Resume starts fresh once when migrating, then persists in the new scope.
+Remove `SESSION_SANDBOX_BIN`; Node rejects this obsolete override instead of
+silently ignoring it. Legacy `SESSION_STORE`, delegation sockets and arbitrary
+`ENV_ALLOWLIST` are not combined with native isolation.
 
-The existing API-key isolation mode remains trusted-callers-only: gateway
-configuration does not hide the key. A future external authentication broker
-must keep the real key out of client environments, files and process inspection,
-and inject it only into verified model API authentication headers. Generic body
-substitution is unsuitable: a placeholder in a prompt could become the real key
-and return through model output. See the [open work](native-session-isolation-follow-ups.md).
+Startup verifies CLI capabilities and OS prerequisites. On macOS Codex also runs
+a real allowed-write/denied-read sandbox probe; Linux probes user/network/PID
+namespace availability. Claude itself must initialize its
+sandbox before a task, with `failIfUnavailable`; a help/version probe alone is
+not evidence of file enforcement. Failures never select an unsandboxed fallback.
 
-### Filesystem and network grants
+Run `scripts/test-native-session-isolation.sh` with both official client paths.
+The acceptance suite uses private synthetic auth homes and local mock model
+responses to exercise actual tools, cached auth, A-B-A recovery, credential-file
+reads, symlinks, cross-session reads, scoped file edits, outside writes,
+environment and parent-process probes. macOS additionally checks a synthetic
+item in an explicitly named temporary keychain, never the login keychain.
+These tests do not spend subscription/API quota and do not establish real model,
+WebSearch or account-policy acceptance. The macOS/Linux CI matrix runs this suite.
 
-The root's parent must already exist. The root must be owned by the non-root
-Node user, private (`0700`) and not a symlink. Shared writable ancestors without
-sticky-bit protection are rejected. Existing state is never chmodded or moved.
+Linux can create an identically named file in an empty private tmpfs overlay.
+The acceptance check verifies that host credential files/directories remain
+unchanged; successful writes to disposable overlays do not imply host access.
 
-| Setting | Behavior |
-| --- | --- |
-| `OPENLINKER_AGENT_NODE_SESSION_ISOLATION` | `off` (default) or `native`; unknown values rejected |
-| `OPENLINKER_AGENT_NODE_SESSION_ROOT` | Absolute private persistent storage root |
-| `OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT` | Optional private temporary-storage parent; default `/tmp`; resolved path at most 40 bytes |
-| `OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN` | Pinned `srt` installation; defaults to PATH lookup |
-| `OPENLINKER_AGENT_NODE_SESSION_READ_PATHS` | JSON array of additional read-only code/library paths; default empty |
-| `OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS` | JSON array of exact public DNS names, HTTPS port 443 only; default empty (offline) |
-
-Only OS binaries/libraries, public system trust/config files, the selected client
-executable and the current session's data/temp directories are readable by
-default. A client installed through npm may also need its package directory and
-Node executable in `SESSION_READ_PATHS`; explicitly grant those code paths, not
-a personal HOME or all of `/opt`/`/usr/local`. The preflight runs the actual
-installed client's version/help inside the same policy and rejects an
-installation missing needed runtime paths. Read grants cannot include the
-session root, another session, control state, HOME itself or their ancestors.
-Additional read grants are shared inputs visible to every session using that
-configuration; do not put secrets or other sessions' files there.
-
-Network grants do not enable WebSearch by themselves. Keep the provider tool
-switches/permissions configured separately. No host proxy settings, SSH agent,
-platform token or arbitrary environment allowlist is inherited. The sandbox
-proxy enforces exact domains/port and rejects loopback, link-local, host-local,
-private and configured reserved address ranges; raw network/socket bypass is
-blocked by the OS boundary. Browser and host MCP delegation sockets are not
-supported in this mode and cannot be silently forwarded through it.
-
-Critical loopback, unspecified, link-local/metadata, private, multicast and
-selected cloud-platform addresses are explicitly denied in addition to the
-pinned runtime's default resolved-address guard. Linux's outer command is
-strictly decoded to argv and executed directly as bubblewrap; only the trusted
-proxy/seccomp script inside the sandbox uses a shell. Unexpected generated
-command syntax or missing required namespaces stops execution.
-
-## Temporary storage and resource exhaustion
-
-Neither the persistent root nor per-Run temporary data has a Node-enforced
-byte/inode quota. By default each Run can write its private `/tmp/olns-*`
-directory. A single caller can exhaust the underlying host filesystem; where
-`/tmp` is tmpfs, this can also consume host memory. Private directories, cleanup
-on ordinary exit and execution timeouts do not prevent exhaustion during a Run.
-
-Set `OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT` to a dedicated quota-backed
-filesystem directory provisioned by the administrator. Its parent must exist,
-it must be owner-only and not a symlink, and the resolved path must be at most
-40 bytes to leave room for Unix socket names. Node restores TMPDIR/TMP/TEMP at
-client exec after SRT's wrapper so both clients actually use the private path.
-Only the invocation subdirectory is removed on close; the configured parent
-and persistent session state remain.
-
-Moving storage alone is not a quota. Put both persistent and temporary roots
-on storage with enforced limits, accounting for all concurrent sessions. A
-shared volume limit protects the host's other storage but does not fairly
-divide space between sessions. Hard per-session disk/inode/memory limits remain
-an open requirement before admitting adversarial callers; Node does not create
-mounts, set quotas or change host resource policy automatically.
-
-## Persistence and protection
-
-The persistent scope combines the stable Core URL, provider, trusted Agent ID,
-Core principal scope and Core conversation key using length-framed hashing.
-Caller payload/metadata, a model-provided path and legacy conversation fallback
-IDs cannot select the scope. A different Run, Runtime Session or epoch does not
-split the same conversation.
-
-Each scope has its own workspace, HOME, CODEX_HOME and CLAUDE_CONFIG_DIR. Its
-native-ID mapping, lock and generated policy live outside the readable client
-tree. A cross-process lock spans execution and mapping updates. Other sessions'
-histories/workspaces and ordinary host private files remain outside the read
-allowlist, including through symlinks and child processes. macOS additionally
-denies user preferences, Keychain Mach access and POSIX shared memory/semaphore
-channels that SRT's general-purpose profile permits.
-
-Enabling isolation creates a fresh protected native session, seeded from the
-trusted Core history. It does not import the old session map or personal native
-history. The normal configured workspace is replaced with this session's empty
-persistent workspace; host projects are not automatically copied or mounted
-writable. Legacy `SESSION_STORE` overrides and arbitrary `ENV_ALLOWLIST` entries
-are rejected while native isolation is enabled. Defaults when isolation is off
-remain unchanged.
-
-Codex's inner sandbox is set to `danger-full-access` **only after** an outer
-sandbox has been constructed. This avoids unsupported nesting; the whole
-app-server and its tools remain behind the outer boundary. The result records
-`session_isolation=native` separately from `codex_sandbox`.
-
-## Scope of the assurance
-
-The boundary protects session/host data against sandboxed client processes.
-All untrusted sessions sharing this OS user must use isolation; a legacy
-unsandboxed session is not constrained by another session's sandbox.
-Trusted same-user host programs, Node, its configured binaries/runtime packages,
-the OS/kernel and administrators remain outside that boundary. This is not a
-per-session CPU, memory, persistent-disk or inode quota system. Process-group
-cancellation covers ordinary client descendants; daemonized descendants and
-crash recovery require separate lifecycle guarantees and must not be described
-as container-equivalent cleanup.
-
-Run the real boundary and continuation suite on each target OS:
-
-```sh
-export OPENLINKER_TEST_NATIVE_SANDBOX_BIN="$PWD/tools/native-sandbox/node_modules/.bin/srt"
-bash scripts/test-native-session-isolation.sh
-```
-
-The provider continuation peers are deterministic Codex/Claude protocol clients
-that perform real filesystem/process operations under the real OS sandbox.
-They prove concurrent sessions through one Node's production Runtime handler,
-same-session ownership rejection, cancellation without stopping another session,
-and A→B→A persistence across Node-side process restarts. The restart helpers are
-additional recovery tests, not a requirement to launch a Node for every chat.
-These tests do not exercise Core transport/scheduling or prove authenticated
-model or WebSearch success. Optional installed-client
-probes use `OPENLINKER_TEST_NATIVE_CODEX_BIN`, `OPENLINKER_TEST_NATIVE_CLAUDE_BIN`
-and JSON `OPENLINKER_TEST_NATIVE_READ_PATHS`, without sending a model request.
+There are still **no per-session disk, memory or process-count hard quotas**.
+`SESSION_TEMP_ROOT` and timeouts do not provide them. A task can exhaust its
+filesystem or account budget without reading credentials. See the
+[follow-up record](native-session-isolation-follow-ups.md).

@@ -40,10 +40,10 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 		if !native.Config.SessionIsolation.Enabled() || native.Config.SessionIsolation.Namespace != "https://core.example" || !native.Config.SessionReuse || native.Config.SessionIsolation.TempRoot != values["OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"] {
 			t.Fatal("isolation settings lost")
 		}
-		// No personal login can turn an invalid startup into a green result.
-		native.Config.Env = []string{"HOME=/personal", "PATH=" + os.Getenv("PATH")}
-		if err := native.Preflight(context.Background()); err == nil || !strings.Contains(err.Error(), "API_KEY") {
-			t.Fatalf("missing isolated credential accepted: %v", err)
+		// Empty explicit environments cannot silently fall back to a personal login.
+		native.Config.Env = []string{"PATH=" + os.Getenv("PATH")}
+		if err := native.Preflight(context.Background()); err == nil || !strings.Contains(err.Error(), "HOME") {
+			t.Fatalf("missing authentication home accepted: %v", err)
 		}
 	}
 }

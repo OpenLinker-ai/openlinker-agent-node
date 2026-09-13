@@ -157,12 +157,6 @@ func codexLaunchConfiguration(config ProviderConfig, sandbox string) []string {
 			"-c", `shell_environment_policy.inherit="none"`,
 			"-c", "shell_environment_policy.set="+codexCommandEnvironment(config.Env),
 		)
-		if config.sandbox != nil {
-			// SRT creates its per-invocation proxy environment after Go builds
-			// these arguments. Inherit that constrained environment for tools,
-			// excluding model keys, so permitted tools can reach the same proxy.
-			args = append(args, "-c", `shell_environment_policy.inherit="all"`, "-c", `shell_environment_policy.exclude=["CODEX_API_KEY","ANTHROPIC_API_KEY","OPENAI_API_KEY"]`)
-		}
 	}
 	return args
 }

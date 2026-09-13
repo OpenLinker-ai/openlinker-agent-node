@@ -98,6 +98,9 @@ func (s *Session) Command(ctx context.Context, bin string, args, environment []s
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if s.runtimeBin == "" {
+		return nil, errors.New("host-client storage requires an explicit client tool sandbox, not the legacy SRT command")
+	}
 	if s.lock == nil {
 		return nil, errors.New("native session sandbox is closed")
 	}

@@ -14,6 +14,7 @@ type ProviderConfig struct {
 	// SessionIsolation is experimental; its configuration is not a stable API.
 	SessionIsolation     sessionsandbox.Config
 	sandbox              *sessionsandbox.Session
+	toolPolicy           *nativeToolPolicy
 	DelegationTargets    []string
 	DelegationProxyBin   string
 	DelegationBrokerRoot string

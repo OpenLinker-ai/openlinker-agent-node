@@ -2,7 +2,9 @@ package codexturn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/codexhome"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/codexrpc"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/providertest"
 )
 
@@ -109,5 +112,50 @@ func TestNativeFactoryCleanupFollowsProcessShutdown(t *testing.T) {
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
 		t.Fatal("temporary native home survived cleanup", err)
+	}
+}
+
+func TestConfiguredPermissionsSurviveStartAndResume(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		for _, resume := range []bool{false, true} {
+			t.Run(fmt.Sprintf("profile=%v/resume=%v", configured, resume), func(t *testing.T) {
+				dir := t.TempDir()
+				bin := filepath.Join(dir, "codex")
+				log := filepath.Join(dir, "rpc")
+				providertest.WriteCodexRPCFixture(t, bin, "ephemeral")
+				session := ""
+				if resume {
+					session = providertest.FixtureThread
+				}
+				overrides := map[string]json.RawMessage{}
+				_, _, err := Run(context.Background(), Config{Sandbox: "workspace-write", UseConfiguredPermissions: configured, SessionID: session, Prompt: "fixture", ThreadConfig: overrides, BeforeThread: func(context.Context, *codexrpc.Client) error {
+					if configured {
+						overrides["permissions.openlinker_session.filesystem"] = json.RawMessage(`{"/literal.path/helper":"read"}`)
+					}
+					return nil
+				}, Prepare: func(ctx context.Context) (PreparedCommand, error) {
+					cmd := exec.CommandContext(ctx, bin)
+					cmd.Env = append(os.Environ(), "TEST_LOG="+log)
+					return PreparedCommand{Command: cmd, Workspace: dir}, nil
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err := os.ReadFile(log + ".requests")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, line := range strings.Split(string(raw), "\n") {
+					if strings.Contains(line, "thread/start") || strings.Contains(line, "thread/resume") {
+						if strings.Contains(line, `"sandbox":"workspace-write"`) == configured {
+							t.Fatalf("wrong legacy sandbox override: %s", line)
+						}
+						if strings.Contains(line, `"/literal.path/helper":"read"`) != configured {
+							t.Fatalf("lost dynamic permission override: %s", line)
+						}
+					}
+				}
+			})
+		}
 	}
 }

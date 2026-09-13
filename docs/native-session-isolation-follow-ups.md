@@ -1,3 +1,20 @@
+# Native isolation follow-up status — host-auth candidate
+
+The new Node candidate uses the installed official client's own authentication
+and tool sandbox, not the historical whole-client SRT/key-broker proposal below.
+Node does not intermediate subscription credentials. File/command tool probes,
+A-B-A and synthetic cached authentication are covered by the official-client
+acceptance suite. This is candidate source work, not a binary release, deployment
+or proof for untrusted public callers. Resource quotas and live account/model
+acceptance remain open. The old SRT package is retained only for its experimental
+leaf API and historical regression; Node native mode no longer uses that runner.
+
+The following record describes the old implementation and investigation. Its
+parent-key exposure result is historical evidence, not a result for the new
+host-auth tool boundary. Its proposed broker is not the current Node plan.
+
+---
+
 # Native isolation: open security and delivery work
 
 Status: experimental, trusted-callers-only. This is a tracking record, not an
