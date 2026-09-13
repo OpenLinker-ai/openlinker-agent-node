@@ -32,6 +32,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ### Fixed
 
+- Wire explicit Codex and Claude model base URLs through the production Node
+  adapters and native sandboxes. Preserve nested API paths, reject ambiguous or
+  credential-bearing URLs, and require an explicit sandbox network grant.
+
 - Decode the Linux outer sandbox command to argv and execute bubblewrap directly;
   reject unexpected command formats or missing required namespaces. Restore the
   private client TMPDIR/TMP/TEMP after SRT's override, and explicitly deny

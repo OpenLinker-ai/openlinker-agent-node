@@ -101,6 +101,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		allowlist := append([]string{"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"}, config.EnvAllowlist...)
 		if config.sandbox == nil {
 			command.Env = append(sanitizedEnvironment(environment, allowlist), "LC_ALL=C", "LANG=C")
+			if config.ClaudeBaseURL != "" {
+				command.Env = append(command.Env, "ANTHROPIC_BASE_URL="+config.ClaudeBaseURL)
+			}
 		}
 		command.Stdin = strings.NewReader(
 			buildPrompt(
