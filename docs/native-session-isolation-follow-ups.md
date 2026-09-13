@@ -40,6 +40,54 @@ Before enabling untrusted callers:
 This PR does not implement that broker. Until these checks pass, retain the
 trusted-caller restriction even if a particular OS blocks the parent-env probe.
 
+### 2026-09-13 design verification
+
+The installed, locked SRT 0.0.76 exposes a TLS-terminating proxy with separate
+`filterRequest`, `mutateHeaders` and `getBodySubstitutions` hooks. Its built-in
+`credentials.envVars[].mode=mask` is **not** sufficient for model-key secrecy:
+`sandbox-manager.js` wires both generic header and request-body substitution.
+A local synthetic-only probe registered a fake key in `SentinelRegistry`, put
+the resulting sentinel in a JSON `input` prompt, and passed it through
+`createBodySubstitutionTransform`. The forwarded prompt contained the fake key
+even though the original did not. This establishes a rewriting hazard, not a
+real model disclosure or a flaw in the currently deployed Node (which does not
+enable that masking feature).
+
+Keep the broker separate from the custom-gateway wiring change. The proposed
+implementation must:
+
+- Reuse the pinned TLS proxy's HTTP parsing and verified upstream TLS, but
+  provide a provider-specific authentication-header injector only. Never
+  register a generic secret substitution for prompts, bodies or other headers.
+- Pass the real key to the outside runner through a bounded, private descriptor,
+  close it before launching sandbox helpers, and pass only a random per-Run
+  capability into the client. Neither the outer helper environment nor generated
+  policy/argv may contain the real value. Test all visible ancestors, not just
+  the immediate provider parent, and keep the macOS process-inspection probe.
+- Bind exact canonical API origins/paths/methods and capabilities to a trusted
+  Run; retain DNS-address denial, upstream certificate verification, streaming
+  and cancellation. A custom gateway receiving authentication is necessarily a
+  trusted credential recipient. Do not add a TLS-verification bypass.
+- Revoke capabilities and close proxy connections at termination, including
+  cancellation before client start and failed provider-session resume. Test
+  cross-Run replay, redirects and model-management endpoint rejection.
+- Use a fresh explicitly selected credential-isolation namespace when migrating
+  from direct-key sessions: old client files/history may already contain a real
+  key. Preserve old storage outside the new client's grants; do not copy or erase
+  it automatically. Resume remains supported within the new namespace.
+- Specify and test bounded request/body/concurrency/lifetime limits. These are
+  not a currency budget or proof of protection from resource exhaustion.
+
+Do not extend this design to extracted Claude subscription OAuth tokens. The
+[current Claude Code authentication and hosting rules](https://code.claude.com/docs/en/legal-and-compliance)
+allow an end user to authenticate to the unmodified binary with their own
+subscription, but restrict developers collecting/intermediating subscription
+credentials or routing other users through an operator's subscription. Hosting
+Claude Code also has end-user credential/billing conditions. Private use and a
+multi-user service need distinct product decisions; using an API key alone does
+not remove those hosting conditions. No subscription migration or broker was
+implemented in the gateway change.
+
 ## P2: enforce per-session resource limits
 
 `SESSION_TEMP_ROOT` permits an administrator-selected quota-backed storage
@@ -53,6 +101,21 @@ limits for persistent bytes/inodes, temporary bytes, memory and orphan cleanup.
 Quota/backend unavailability must fail closed for the selected resource policy.
 Use small dedicated test volumes; do not fill the host's real root or `/tmp` to
 test this. Do not silently change an enrolled Node's storage or mount policy.
+
+Feasibility review (2026-09-13): Linux has a documented process-tree backend in
+[cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html),
+including `memory.max`, `pids.max` and subtree kill. Node needs an operator-
+delegated hierarchy and must place the launcher inside its group before it can
+fork; moving only an already-running parent is insufficient. This is not yet
+wired into Node. Persistent byte/inode quotas also need a supported, provisioned
+filesystem backend, separate from the memory controller.
+
+On macOS, [APFS volume quotas](https://support.apple.com/guide/disk-utility/add-delete-or-erase-apfs-volumes-dskua9e6a110/mac)
+can bound volume storage, but do not give each directory/session its own limit.
+The [documented process resource limits](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/setrlimit.2.html)
+do not establish a hard aggregate memory limit for an arbitrary session process
+tree. A matching native macOS backend has not been established; do not label
+per-process limits or periodic monitoring as equivalent to Linux cgroups.
 
 ## Runtime upgrade gate
 
