@@ -474,6 +474,12 @@ the host. Node itself uses `NativeAdapter`.
 
 ## Native session isolation without Docker
 
+Custom model endpoints can be set with `OPENLINKER_AGENT_NODE_CODEX_BASE_URL`
+(complete Responses base path) and `OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL`
+(Anthropic-compatible base). Native isolation additionally requires the exact
+gateway hostname in `SESSION_NETWORK_DOMAINS`; ambient gateway variables are
+not imported. See the [gateway setup](docs/native-session-isolation.md#custom-model-gateways).
+
 **Experimental, for trusted callers only.** Callers must be allowed to receive
 the provider's model API key: readable credentials can return through Run output,
 which network filtering does not block. There are no per-session resource quotas.

@@ -419,3 +419,11 @@ OAuth／钥匙串登录或旧会话。开启前请阅读[完整配置与边界](
 这不等于 CPU／磁盘配额或容器级孤儿进程回收；当前是源码实现，不代表安装版本或运行中
 Agent 已升级。Plugin 的产品入口不会自动启用本策略。
 由本次源码构建的新归档会附带依赖锁及显式的 `npm ci --ignore-scripts` 安装器。
+
+自定义模型网关可分别使用 `OPENLINKER_AGENT_NODE_CODEX_BASE_URL`（含完整 Responses
+API 基路径）和 `OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL`（Anthropic 兼容服务基路径）。
+原生隔离还要求将网关的精确域名加入 `SESSION_NETWORK_DOMAINS`；不会继承宿主的网关变量。
+详见[网关配置](docs/native-session-isolation.md#custom-model-gateways)。网关配置不等于 key
+已隔离；当前仍要求可信调用方。个人订阅的 OAuth token 也属于密钥，不能作为共享公共
+Agent 的凭据搬入沙箱；[官方托管与认证规则](https://code.claude.com/docs/en/legal-and-compliance)
+需按实际使用者及计费关系确认。

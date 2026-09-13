@@ -18,6 +18,9 @@ func validateSessionIsolation(c ProviderConfig) error {
 	if !c.SessionIsolation.Enabled() {
 		return nil
 	}
+	if err := validateIsolatedModelEndpoint(c); err != nil {
+		return err
+	}
 	if !c.SessionReuse {
 		return errors.New("native session isolation requires SESSION_REUSE=true")
 	}
@@ -54,6 +57,9 @@ func isolatedEnvironment(c ProviderConfig) ([]string, error) {
 	}
 	if values["PATH"] == "" {
 		values["PATH"] = os.Getenv("PATH")
+	}
+	if c.Provider == "claude" && c.ClaudeBaseURL != "" {
+		values["ANTHROPIC_BASE_URL"] = c.ClaudeBaseURL
 	}
 	result := make([]string, 0, len(values))
 	for name, value := range values {

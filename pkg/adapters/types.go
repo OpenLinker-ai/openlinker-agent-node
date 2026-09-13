@@ -33,6 +33,7 @@ type ProviderConfig struct {
 	WebSearch        bool
 	CodexApproval    string
 	CodexBaseURL     string
+	ClaudeBaseURL    string
 	Env              []string
 	EnvAllowlist     []string
 	ExecutionProfile string

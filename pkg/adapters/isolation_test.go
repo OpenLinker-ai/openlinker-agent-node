@@ -183,6 +183,11 @@ func TestNativeSandboxRealProviderResumeAndHostProtection(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		t.Run(name, func(t *testing.T) {
 			c := isolationConfig(t, name)
+			// A nested operator-selected API path must survive the actual OS
+			// wrapper and reach the launched provider, without model/network calls.
+			c.CodexBaseURL = "https://gateway.example/proxy/openai/v1"
+			c.ClaudeBaseURL = "https://gateway.example/proxy/anthropic"
+			c.SessionIsolation.AllowedDomains = []string{"gateway.example"}
 			c.Bin = filepath.Join(t.TempDir(), name)
 			build := exec.Command("go", "build", "-o", c.Bin, "./testdata/session-client")
 			build.Env = append(os.Environ(), "GOWORK=off")
@@ -201,6 +206,13 @@ func TestNativeSandboxRealProviderResumeAndHostProtection(t *testing.T) {
 			a.Input = "fixture:remember"
 			firstResult := nativeWorker(t, c, a)
 			first := fixtureReport(t, firstResult)
+			wantEndpoint := c.CodexBaseURL
+			if name == "claude" {
+				wantEndpoint = c.ClaudeBaseURL
+			}
+			if first["model_endpoint"] != wantEndpoint {
+				t.Fatal("configured gateway was lost inside the OS sandbox")
+			}
 			if first["previous"] != "" {
 				t.Fatal("new A inherited history")
 			}

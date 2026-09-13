@@ -181,6 +181,13 @@ func probe(prompt, id string) string {
 		}
 	}
 	report := map[string]any{"id": id, "previous": string(previous), "uid": os.Geteuid(), "home": os.Getenv("HOME"), "codex_home": os.Getenv("CODEX_HOME"), "claude_home": os.Getenv("CLAUDE_CONFIG_DIR")}
+	report["model_endpoint"] = os.Getenv("ANTHROPIC_BASE_URL")
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "model_providers.openlinker_proxy.base_url=") {
+			endpoint, _ := strconv.Unquote(strings.TrimPrefix(arg, "model_providers.openlinker_proxy.base_url="))
+			report["model_endpoint"] = endpoint
+		}
+	}
 	if spec.Credentials {
 		child := exec.Command(os.Args[0], "credential-child")
 		for _, entry := range os.Environ() {

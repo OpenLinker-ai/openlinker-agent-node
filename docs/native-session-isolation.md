@@ -131,6 +131,47 @@ Personal OAuth, Keychain login, plugins, hooks and session directories are not
 imported. The client needs its model credential; this mode does not conceal that
 credential from the client or from a trusted host administrator.
 
+### Custom model gateways
+
+Set `OPENLINKER_AGENT_NODE_CODEX_BASE_URL` to the complete Responses API base
+(for example `https://gateway.example/openai/v1`), or
+`OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL` to the Anthropic-compatible service base
+(for example `https://gateway.example/anthropic`; Claude appends `/v1/messages`).
+These are operator configuration, never values taken from a Run. An explicit URL
+must use HTTPS port 443 and a DNS name, with no credentials, query, fragment,
+escapes or ambiguous path segments. Its exact hostname must also appear in
+`OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS`. DNS resolution remains subject
+to the sandbox's private/link-local/loopback address denial.
+
+The full base path reaches the native client. Codex uses a Responses provider
+with WebSockets disabled; Claude receives the explicit `ANTHROPIC_BASE_URL`.
+Ambient host `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` are not imported. With no
+override, the existing official endpoint behavior is unchanged. The same new
+Node base-URL settings also work with isolation disabled, without imposing a
+sandbox network policy on that mode. This wiring does not add gateway protocol
+compatibility, credentials or network grants automatically.
+
+### Subscription authentication and credential protection
+
+Subscription OAuth tokens are credentials too. Native isolation does not copy
+personal Claude login files or Keychain entries into a session. Do not export or
+proxy subscription tokens to turn a personal subscription into a shared Agent.
+The [Claude Code rules](https://code.claude.com/docs/en/legal-and-compliance)
+(checked 2026-09-13) distinguish an end user signing into the unmodified binary
+with their own subscription from routing other users through the operator's
+subscription. They also impose conditions on hosting Claude Code, including
+end-user authentication and restrictions on reselling/intermediating usage;
+switching to an operator-owned API key alone does not settle that product question.
+
+The existing API-key isolation mode remains trusted-callers-only: gateway
+configuration does not hide the key. A future external authentication broker
+must keep the real key out of client environments, files and process inspection,
+and inject it only into verified model API authentication headers. Generic body
+substitution is unsuitable: a placeholder in a prompt could become the real key
+and return through model output. See the [open work](native-session-isolation-follow-ups.md).
+
+### Filesystem and network grants
+
 The root's parent must already exist. The root must be owned by the non-root
 Node user, private (`0700`) and not a symlink. Shared writable ancestors without
 sticky-bit protection are rejected. Existing state is never chmodded or moved.

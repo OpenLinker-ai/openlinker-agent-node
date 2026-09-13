@@ -15,6 +15,7 @@ import (
 type CodexAdapter struct {
 	SessionIsolation     sessionsandbox.Config
 	CodexBin             string
+	BaseURL              string
 	Workspace            string
 	Sandbox              string
 	Approval             string
@@ -36,6 +37,7 @@ func (a *CodexAdapter) native() *NativeAdapter {
 	a.once.Do(func() {
 		a.adapter = &NativeAdapter{Config: agentexec.ProviderConfig{
 			Provider: "codex", Bin: a.CodexBin, Workspace: a.Workspace,
+			CodexBaseURL:     a.BaseURL,
 			SessionIsolation: a.SessionIsolation,
 			Sandbox:          a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
 			Timeout: a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,

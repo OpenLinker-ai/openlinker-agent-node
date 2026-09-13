@@ -169,7 +169,7 @@ func (s *Session) Environment(values []string) []string {
 	result := make([]string, 0, len(values)+12)
 	for _, entry := range values {
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && (name == "PATH" || name == "CODEX_API_KEY" || name == "ANTHROPIC_API_KEY") {
+		if ok && (name == "PATH" || name == "CODEX_API_KEY" || name == "ANTHROPIC_API_KEY" || name == "ANTHROPIC_BASE_URL") {
 			result = append(result, entry)
 		}
 	}

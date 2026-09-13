@@ -147,6 +147,12 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout:      time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "claude":
+		baseURL := get("OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL")
+		if baseURL != "" {
+			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
+				return nil, err
+			}
+		}
 		nativeTimeout, err := numberOption(get("OPENLINKER_AGENT_NODE_TIMEOUT_MS"), 30*60_000, "OPENLINKER_AGENT_NODE_TIMEOUT_MS")
 		if err != nil {
 			return nil, err
@@ -172,17 +178,24 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		return &NativeAdapter{Config: agentexec.ProviderConfig{
 			SessionIsolation: isolation,
 			Provider:         "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
-			Workspace:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
-			Model:        get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
-			Permission:   defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
-			WebSearch:    webSearch,
-			AllowedTools: allowed, Timeout: time.Duration(nativeTimeout) * time.Millisecond,
+			ClaudeBaseURL: baseURL,
+			Workspace:     defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
+			Model:         get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
+			Permission:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
+			WebSearch:     webSearch,
+			AllowedTools:  allowed, Timeout: time.Duration(nativeTimeout) * time.Millisecond,
 			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"), false),
 			SessionStore: get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_STORE"), EnvAllowlist: envAllowlist,
 			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 		}}, nil
 	case "codex":
+		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
+		if baseURL != "" {
+			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
+				return nil, err
+			}
+		}
 		targets, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_DELEGATION_TARGETS"), "OPENLINKER_AGENT_NODE_DELEGATION_TARGETS")
 		if err != nil {
 			return nil, err
@@ -196,6 +209,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 			CodexBin:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),
+			BaseURL:              baseURL,
 			Workspace:            defaultString(get("OPENLINKER_AGENT_NODE_CODEX_WORKSPACE"), mustGetwd()),
 			Sandbox:              defaultString(get("OPENLINKER_AGENT_NODE_CODEX_SANDBOX"), "read-only"),
 			Approval:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
