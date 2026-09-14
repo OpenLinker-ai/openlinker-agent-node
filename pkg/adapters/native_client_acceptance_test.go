@@ -25,6 +25,11 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				t.Skip("set both official client paths for real tool-boundary acceptance")
 			}
 			c := isolationConfig(t, provider)
+			if provider == "claude" {
+				// Direct-path file-tool checks are an explicit opt-in. The
+				// default Bash-only policy has separate link-matrix coverage.
+				c.AllowedTools = []string{"Bash", "Read", "Edit", "Write", "Glob", "Grep"}
+			}
 			c.Bin = bin
 			diagnostics := filepath.Join(t.TempDir(), "client-stderr")
 			wrapper := filepath.Join(t.TempDir(), provider)
@@ -47,6 +52,7 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			}
 			canary := "synthetic-cached-auth-canary"
 			parentCanary := "synthetic-parent-env-canary"
+			notifyMarker := filepath.Join(home, "unexpected-notify")
 			other := filepath.Join(t.TempDir(), "other-session-secret")
 			mustWrite := func(path, content string) {
 				t.Helper()
@@ -129,7 +135,7 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			if provider == "codex" {
 				c.Env = append(c.Env, "CODEX_HOME="+conf)
 				mustWrite(filepath.Join(conf, "auth.json"), jsonObject(map[string]any{"OPENAI_API_KEY": canary}))
-				mustWrite(filepath.Join(conf, "config.toml"), "model_provider=\"fixture\"\nsandbox_mode=\"danger-full-access\"\n[model_providers.fixture]\nname=\"fixture\"\nbase_url="+jsonString(server.URL)+"\nwire_api=\"responses\"\nrequires_openai_auth=true\nsupports_websockets=false\n")
+				mustWrite(filepath.Join(conf, "config.toml"), "model_provider=\"fixture\"\nsandbox_mode=\"danger-full-access\"\nnotify=[\"/usr/bin/touch\","+jsonString(notifyMarker)+"]\n[features]\nview_image=true\n[model_providers.fixture]\nname=\"fixture\"\nbase_url="+jsonString(server.URL)+"\nwire_api=\"responses\"\nrequires_openai_auth=true\nsupports_websockets=false\n")
 			} else {
 				c.Env = append(c.Env, "CLAUDE_CONFIG_DIR="+conf, "ANTHROPIC_BASE_URL="+server.URL)
 				mustWrite(filepath.Join(conf, ".credentials.json"), jsonObject(map[string]any{"claudeAiOauth": map[string]any{"accessToken": canary, "refreshToken": "synthetic-refresh", "expiresAt": time.Now().Add(time.Hour).UnixMilli(), "scopes": []string{"user:inference", "user:profile"}, "subscriptionType": "pro", "rateLimitTier": "default_claude_pro"}}))
@@ -242,6 +248,16 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			defer mu.Unlock()
 			if authed == 0 || authed != calls {
 				t.Fatalf("cached authentication not reused: %d/%d", authed, calls)
+			}
+			if provider == "codex" {
+				for _, tool := range tools {
+					if tool == "view_image" {
+						t.Fatal("host-configured view_image remained model-visible")
+					}
+				}
+				if _, err := os.Stat(notifyMarker); !os.IsNotExist(err) {
+					t.Fatal("host notifier executed", err)
+				}
 			}
 			for _, body := range bodies {
 				for _, secret := range []string{canary, parentCanary, "never-forward-this", "NETWORK_ESCAPE", "synthetic-keychain-canary"} {

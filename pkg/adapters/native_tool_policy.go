@@ -24,7 +24,9 @@ type nativeToolPolicy struct {
 }
 
 func nativeClaudeTools(c ProviderConfig) []string {
-	tools := []string{"Read", "Edit", "Write", "Glob", "Grep", "Bash"}
+	// File tools execute in the authenticated host client, outside the OS
+	// sandbox. An operator may opt in for trusted workloads explicitly.
+	tools := []string{"Bash"}
 	if len(c.AllowedTools) > 0 {
 		tools = append([]string(nil), c.AllowedTools...)
 	}
@@ -226,8 +228,8 @@ func newNativeToolPolicy(c ProviderConfig, s *sessionsandbox.Session) (*nativeTo
 	}
 	codex := []string{"-c", `default_permissions="openlinker_session"`, "-c", `permissions={openlinker_session={filesystem={` + strings.Join(fs, ",") + `},network={` + network + `}}}`,
 		"-c", `approval_policy="never"`, "-c", `shell_environment_policy.inherit="none"`, "-c", "shell_environment_policy.set=" + codexCommandEnvironment(toolEnv),
-		"-c", `project_doc_max_bytes=0`, "-c", `mcp_servers={}`, "-c", `developer_instructions=""`}
-	for _, feature := range []string{"multi_agent", "multi_agent_v2", "memories", "browser_use", "computer_use", "in_app_browser", "shell_snapshot", "shell_snapshot_v2", "shell_zsh_fork", "external_agent_memory_import", "in_app_local_automation", "goals"} {
+		"-c", `project_doc_max_bytes=0`, "-c", `mcp_servers={}`, "-c", `developer_instructions=""`, "-c", `notify=[]`}
+	for _, feature := range []string{"view_image", "multi_agent", "multi_agent_v2", "memories", "browser_use", "computer_use", "in_app_browser", "shell_snapshot", "shell_snapshot_v2", "shell_zsh_fork", "external_agent_memory_import", "in_app_local_automation", "goals"} {
 		codex = append(codex, "--disable", feature)
 	}
 	if len(domains) > 0 {
@@ -312,7 +314,7 @@ func nativeHostCommand(ctx context.Context, c ProviderConfig, bin string, args [
 			// sandbox's credential deny rules + PID/proc isolation instead.
 			scrub = "0"
 		}
-		command.Env = append(command.Env, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="+scrub, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_PROJECT_DIR_NAME=openlinker-"+sessionsandbox.Scope(c.SessionStore))
+		command.Env = append(command.Env, "CLAUDE_CODE_TMPDIR="+c.sandbox.Temp(), "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="+scrub, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_PROJECT_DIR_NAME=openlinker-"+sessionsandbox.Scope(c.SessionStore))
 	}
 	providerprocess.Configure(command)
 	return command

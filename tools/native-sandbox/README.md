@@ -1,31 +1,22 @@
-# Locked optional native sandbox dependencies
+# Deprecated whole-client SRT fixture
 
-For experimental native mode on macOS/Linux only. The archive's SHA-256 covers
-this manifest, lock and installer along with the Node binary. Keep these files
-from the same verified release together. Node.js 20.11+, ripgrep and the OS
-sandbox prerequisites are still installed separately.
+This locked runtime is retained for the experimental `sessionsandbox.Open` /
+`Session.Command` compatibility API and its historical regression tests only.
+Current Node native mode uses the installed official client’s tool sandbox;
+it does not require this package, ship this installer in its binary archives,
+or accept `OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN`.
 
-From this directory, explicitly run:
+To run the retained leaf tests, explicitly install here with
+`npm ci --ignore-scripts --no-audit --no-fund` and set the test-only
+`OPENLINKER_TEST_NATIVE_SANDBOX_BIN` to `node_modules/.bin/srt` (absolute path).
+The adjacent lock pins direct/transitive versions and tarball integrity.
+No installer starts an Agent or modifies OS policy.
 
-```sh
-sh ./install.sh
-export OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN="$PWD/node_modules/.bin/srt"
-```
+Do not add new product callers. Removal of this fixture, the old runner/staging
+code and dedicated CI tests must be coordinated with a pre-1.0 API compatibility
+announcement. Keep the current official-client OS acceptance tests.
+See the [follow-up plan](../../docs/native-session-isolation-follow-ups.md).
 
-The installer uses `npm ci --ignore-scripts`, installing the exact direct and
-transitive versions and checking the lock's tarball integrity. It does not use a
-global npm install, resolve new compatible dependency versions, start an Agent,
-or modify system security policy. Runtime startup checks the top-level package
-identity/version; it is not an attestation of a subsequently modified install.
-The configured installation and host administrators remain trusted.
-
-Do not use native mode for callers who must not receive the provider API key.
-Network filtering cannot prevent credentials from returning in Run output.
-The mode does not impose per-session disk, temporary-storage or memory quotas.
-See `../docs/native-session-isolation.md` in binary archives for full boundaries.
-
-中文：这是 macOS/Linux 实验性原生沙箱的可选依赖包。先验证整个二进制归档的
-SHA-256，再在本目录显式执行 `sh ./install.sh`。安装器用相邻锁文件执行
-`npm ci --ignore-scripts`，固定直接和传递依赖并验证下载完整性，不自动启动 Agent。
-不同版本的安装器、锁文件和二进制不能混用；启动检查不证明安装后文件未被修改。
-调用方必须可信且可以接触模型 key；Run 输出不受网络白名单控制，也没有每会话资源配额。
+中文：仅保留旧 SRT 实验 API 的兼容回归；当前 Node 原生模式不使用此包。
+不要按旧说明给 Node 配置 SRT。删除需与公开 API、旧打包脚本和 CI 同步，
+当前真实客户端的系统沙箱验收继续保留。

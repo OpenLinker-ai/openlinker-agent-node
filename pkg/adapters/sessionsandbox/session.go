@@ -33,6 +33,10 @@ func Scope(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// Open launches storage for the historical whole-client SRT boundary.
+//
+// Deprecated: retained for experimental API compatibility and regression only.
+// Node native mode uses OpenClient plus the official client's tool sandbox.
 func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 	return openSession(ctx, c, scope, true)
 }

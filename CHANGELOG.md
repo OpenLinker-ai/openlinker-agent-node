@@ -9,6 +9,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 - Native isolation now reuses the installed Codex/Claude client's authentication
   and restricts its tools. No per-session login or mandatory dedicated key.
+- Native Claude local tools now default to Bash only. In-process Read/Grep/Glob/
+  Edit/Write require explicit `CLAUDE_ALLOWED_TOOLS` opt-in for trusted workloads;
+  file tools are not covered by the Bash OS sandbox. Add real-client link probes
+  and distinguish host-preseeded hard links from sandbox-created links.
+- Explicitly disable Codex `view_image` and host `notify` in native mode. Put
+  Claude command bookkeeping under the Run's private temp directory as well.
+- Deprecate historical `sessionsandbox.Open`/`Session.Command` without deleting
+  their experimental compatibility API; track coordinated runner/CI removal.
 - Use a fresh host-auth session scope; prior SRT-mode histories remain untouched.
   Remove the obsolete SESSION_SANDBOX_BIN override. Model gateways no longer
   require a tool-network grant. Experimental: no resource-quota guarantee.

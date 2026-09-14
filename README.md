@@ -477,7 +477,9 @@ the host. Node itself uses `NativeAdapter`.
 **Experimental, trusted callers only; no per-session resource quotas.** Node
 reuses the installed Codex/Claude client's authentication. Native mode does not
 require another login or new API-key environment variables. The official client
-owns authentication; its file/command tools are restricted to the current session.
+owns authentication. Claude defaults to sandboxed Bash; its in-process file tools
+require explicit opt-in and have a different security boundary. Codex disables
+in-process image viewing and host notification commands in this mode.
 One Node supports concurrent conversations and persistent A-B-A continuation.
 
 See [host-auth native isolation](docs/native-session-isolation.md) for macOS/Linux

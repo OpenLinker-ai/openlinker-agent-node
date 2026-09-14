@@ -13,14 +13,20 @@ Its model-controlled tools are restricted separately:
 - Codex uses a named filesystem permission profile, a clean tool environment,
   and its native OS sandbox. Legacy thread/start and thread/resume sandbox
   overrides are omitted so they cannot replace that profile.
+  The in-process `view_image` tool and the host-configured `notify` command are
+  explicitly disabled, including when the user's configuration enables them.
 - Claude retains its normal authentication home, uses `--safe-mode --restricted`
   (not `--bare`), a strict empty MCP configuration and an explicit tool set.
-  Read/Edit/Write/Glob/Grep use client permission checks. Bash uses the built-in
+  **Bash is the only default local tool.** Read/Edit/Write/Glob/Grep require an
+  explicit operator opt-in; they use client permission checks, not an OS sandbox.
+  Bash uses the built-in
   OS sandbox with `failIfUnavailable=true`, no excluded commands and no
   unsandboxed retry. Credentials are denied to command environments. macOS also
   enables global subprocess scrubbing; Linux uses the normal Bash sandbox's
   credential deny rules and PID/proc namespaces. The global scrub switch in
   Claude 2.1.259 adds broad Linux writable roots and must not be enabled here.
+  `CLAUDE_CODE_TMPDIR` also selects the Run's private temporary directory for
+  Claude's command bookkeeping, rather than the shared `/tmp/claude-<uid>` path.
 - Authentication directories, other sessions and Node control files are outside
   tool grants. Shells receive no platform token or ambient loader configuration.
   Codex tool HOME is private; Claude keeps its auth home in the trusted client
@@ -82,7 +88,7 @@ run Node as root. Options use the `OPENLINKER_AGENT_NODE_` prefix:
 | `SESSION_TEMP_ROOT` | Optional private, short temporary root (resolved path ≤40 bytes) |
 | `SESSION_READ_PATHS` | JSON array of additional read-only code/library paths for shell tools; may not expose auth or session/control directories |
 | `SESSION_NETWORK_DOMAINS` | JSON array of exact public HTTPS hostnames for sandboxed command networking; empty means offline commands |
-| `CLAUDE_ALLOWED_TOOLS` | Optional subset of Read, Edit, Write, Glob, Grep, Bash |
+| `CLAUDE_ALLOWED_TOOLS` | Unset/empty defaults to Bash. Explicit JSON list may opt trusted workloads into Read, Edit, Write, Glob, Grep, Bash; see the file-tool boundary below |
 | `CODEX_WEB_SEARCH` / `CLAUDE_WEB_SEARCH` | Controls the client's native search tool separately |
 
 ### Custom model gateways
@@ -104,6 +110,32 @@ not automatic token extraction or a subscription proxy.
 
 ## Migration and verification
 
+### File-tool opt-in boundary
+
+Claude's application-level file tools are not equivalent to its sandboxed Bash
+tool. Keep the default for account-sensitive workloads; shell commands can read,
+search and edit the session's own files. `CLAUDE_WEB_SEARCH` remains separately
+controlled and is not enabled by changing this default.
+
+Do not put hard links to sensitive host files into a session workspace. A hard
+link is another name for the same inode, not a path that can be checked with
+`realpath`. The real-client suite separately checks links created by sandboxed
+Bash and hard links preseeded by the trusted test host. The latter can be read
+by explicitly enabled Read/Grep and by sandboxed Bash itself. A Bash-only tool
+set does not revoke an inode already granted by the host. A successful symlink test does not prove
+protection against arbitrary preexisting inode aliases. Turning tools off does
+not erase data already in transcripts or Core history. Do not reuse a conversation
+that may already contain credentials after narrowing its tool permissions.
+
+The opt-in matrix covers the five file tools, file/directory symlinks, hard links,
+and Linux `/proc/self` aliases. Positive controls verify real file-tool execution;
+host-content checks distinguish atomic replacement of an alias from writes to
+the original host inode. The default case also submits unadvertised file-tool
+calls and requires rejection. Results apply only to the pinned clients and tested
+cases; they are not a proof against symlink-swap races or every client file/IPC API.
+
+### Existing SRT sessions
+
 The old whole-client SRT design required dedicated keys and changed authentication
 homes. The new host-auth scope is deliberately separate: old workspaces, native
 history and potentially exposed credentials are neither copied nor deleted.
@@ -121,7 +153,8 @@ not evidence of file enforcement. Failures never select an unsandboxed fallback.
 Run `scripts/test-native-session-isolation.sh` with both official client paths.
 The acceptance suite uses private synthetic auth homes and local mock model
 responses to exercise actual tools, cached auth, A-B-A recovery, credential-file
-reads, symlinks, cross-session reads, scoped file edits, outside writes,
+reads, the separate file-tool link matrix, cross-session reads, explicitly
+opted-in scoped file edits, outside writes,
 environment and parent-process probes. macOS additionally checks a synthetic
 item in an explicitly named temporary keychain, never the login keychain.
 These tests do not spend subscription/API quota and do not establish real model,

@@ -2,12 +2,33 @@
 
 The new Node candidate uses the installed official client's own authentication
 and tool sandbox, not the historical whole-client SRT/key-broker proposal below.
-Node does not intermediate subscription credentials. File/command tool probes,
+Node does not intermediate subscription credentials. Separate file/command tool probes,
 A-B-A and synthetic cached authentication are covered by the official-client
 acceptance suite. This is candidate source work, not a binary release, deployment
 or proof for untrusted public callers. Resource quotas and live account/model
 acceptance remain open. The old SRT package is retained only for its experimental
 leaf API and historical regression; Node native mode no longer uses that runner.
+
+## Current candidate: file tools and legacy API
+
+- Native Claude defaults to Bash. Read/Grep/Glob/Edit/Write require explicit
+  operator opt-in. OS shell probes do not establish their application-level
+  path checks. The installed-client link matrix tests both modes, including
+  sandbox-created links and separately host-preseeded hard links. The latter
+  disclose synthetic contents through Read/Grep and Bash and are not safe inputs.
+  Defaulting to Bash does not repair an inode already exposed by the operator.
+- Codex `view_image` and host `notify` are explicitly disabled. Claude's own
+  command temp files also use the private Run temp directory.
+- Deprecate `sessionsandbox.Open`/`Session.Command` now without removing the
+  public signatures. Before a subsequent pre-1.0 removal: inventory released
+  Node/Plugin consumers, announce the breaking change, then remove the legacy
+  runner, `tools/native-sandbox`, staging script and their dedicated CI tests
+  together. Keep `OpenClient`, storage/locking and official-client OS tests.
+  Current candidate call sites are clean; root's still-pinned older Node source
+  is not evidence that the migration has been released or deployed.
+- Do not claim full credential isolation or untrusted multi-user readiness.
+  Link-swap races, the complete client IPC surface, resource quotas and real
+  account/model acceptance remain outside this test evidence.
 
 The following record describes the old implementation and investigation. Its
 parent-key exposure result is historical evidence, not a result for the new
