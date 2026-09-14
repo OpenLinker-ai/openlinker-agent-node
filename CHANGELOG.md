@@ -7,6 +7,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Pin the shared SDK contract synchronization commit `6da420c00979`. This
+  updates module identity and contract metadata; the Go SDK production sources
+  and existing command, credential, session, and persistent-state behavior are unchanged.
+
 - Move native admission locks from predictable `/tmp` files to private state at
   `$HOME/.local/state/openlinker-agent-node/host-auth-<provider>.lock`. Services
   with PrivateTmp coordinate when they share the underlying HOME storage. Separate
