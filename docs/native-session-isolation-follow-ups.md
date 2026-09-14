@@ -1,3 +1,128 @@
+# Native isolation follow-up status — host-auth candidate
+
+The new Node candidate uses the installed official client's own authentication
+and tool sandbox, not the historical whole-client SRT/key-broker proposal below.
+Node does not intermediate subscription credentials. Separate file/command tool probes,
+A-B-A and synthetic cached authentication are covered by the official-client
+acceptance suite. This is candidate source work, not a binary release, deployment
+or proof for untrusted public callers. Resource quotas and live account/model
+acceptance remain open. The old SRT package is retained only for its experimental
+leaf API and historical regression; Node native mode no longer uses that runner.
+
+## P2: shared host-login refresh concurrency — Node admission added; account-wide protection open
+
+Native mode defaults to cooperative serial admission per shared host HOME/provider. This
+covers participating Nodes with different Agents/session roots only if their
+underlying host HOME state directory is shared. Private `/tmp` no longer splits
+locks; separate HOME mounts or state copies still do. HOME aliases are resolved,
+state is private and tools cannot modify it. Different HOME values with shared
+Codex/Claude credentials are not inferred to belong to the same group. The lock is held before client startup until exit,
+retries and session persistence complete; the conversation lock remains separate.
+Waits consume the Run timeout and an assigned capacity slot, emit one waiting
+event and are independently cancellable. Unsafe lock files fail closed. The OS
+releases a crashed lock holder without stale-file deletion. Tests of that cleanup
+prove the lock primitive, not cleanup of an orphan official client.
+
+`HOST_AUTH_CONCURRENCY=client-managed` explicitly opts out; use it only after
+independent client/auth concurrency validation. Nodes predating this policy and
+independently launched terminal/desktop clients do not participate. On a hard
+Node crash, an orphan client can outlive the lock: check and stop that Node's
+remaining clients before restart. Account-wide exclusion and real token rotation
+are still open, not claimed fixed by admission.
+
+The inspected [Codex 0.153.0 refresh implementation](https://github.com/openai/codex/blob/rust-v0.153.0/codex-rs/login/src/auth/manager.rs)
+has a process-local semaphore and a guarded reload of changed authentication.
+These are real mitigations, not proof of cross-process mutual exclusion. Claude's
+equivalent refresh behavior has not been established here. Existing synthetic
+auth tests use a cached API key or unexpired OAuth token and do not exercise
+concurrent token rotation, persistent-auth write races or recovery from them.
+Do not describe this as a reproduced logout, account ban or credential leak.
+
+For account-sensitive evaluation keep native serial admission and avoid other
+clients using that login. Static API-key authentication does not use OAuth refresh,
+but Node does not read credentials to detect the mode or silently opt out. Node
+must not start parsing/proxying subscription tokens to work around the gap.
+
+Before claiming concurrent shared-login support, test both installed clients
+with private synthetic refreshable credentials and a controlled local issuer:
+overlapping expiry/401 refresh, rotated-token adoption, cancellation/crash during
+refresh, persistent state integrity, and a subsequent successful run. Include a
+second client outside Node. If the official client cannot safely direct refresh
+to a fixture, record that limitation rather than exercise a personal account.
+Resolve verified gaps via supported client coordination/upstream fixes or an
+explicitly documented admission policy; a Node-only lock cannot coordinate
+independently launched clients.
+
+## Admission deployment follow-up
+
+- The old predictable `/tmp` lock could be precreated by another local user and
+  was separate under systemd `PrivateTmp`. Use the fixed private host-HOME state
+  directory, with checked parent ownership/permissions and no symlinks below HOME.
+  There is no temporary fallback or claim that separate HOME mounts coordinate.
+- Recommend `OPENLINKER_AGENT_NODE_CAPACITY=1` with default serial admission.
+  Waiting occupies assigned capacity and Run timeout; capacity is not silently
+  rewritten and no second scheduler is added to Node.
+- The 50ms contention retry is non-FIFO. Starvation until the Run deadline remains
+  possible. A fair cross-process queue is deferred for this experimental mode;
+  it would require its own cancellation/crash recovery protocol and does not
+  improve the credential boundary. Use low capacity and a single Node per host.
+- Stop old `/tmp`-lock Nodes and their remaining clients before upgrading. There
+  is no rolling mutual exclusion across different lock locations. Session scope
+  does not change and old locks/history are not deleted.
+
+## Current host-auth Linux host/CI acceptance — current-source evidence collected
+
+Node `25c49b2c24449754d428a48bedf15fdd5be1d6bf` passed all three jobs in
+[PR #36 CI 34810002330](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34810002330):
+full tests/race/vet/build/boundaries, native macOS and native Ubuntu. Logs confirm
+that both installed-client cached-auth, admission and file-tool/link suites ran
+and passed rather than skipped. The Ubuntu 24.04 amd64 runner uses only the
+existing executable-specific bubblewrap userns profile when needed, retaining
+the global userns restriction; this is not the earlier relaxed Docker harness.
+The workflow still contains separate historical SRT regression tests, whose
+results are not substituted for the host-auth tests.
+
+The same implementation also passed native macOS arm64 and a dedicated non-root
+Ubuntu 24.04.5 arm64 OrbStack machine. The latter has no host mounts or SSH-agent
+forwarding, but runs OrbStack kernel 7.0.14 rather than the stock Ubuntu kernel;
+AppArmor and its userns sysctl are unavailable there. No global security policy
+was relaxed for this run. GitHub Ubuntu runner evidence supplies the separate
+AppArmor-capable environment. See [acceptance](host-auth-acceptance.md).
+
+This closes the missing current Linux runner evidence, not acceptance of every
+target Linux deployment, a binary release, real account refresh or live models.
+New release commits must still pass their own CI. Older container/SRT records
+remain historical only.
+
+## Current candidate: file tools and legacy API
+
+- Native Claude defaults to Bash. Read/Grep/Glob/Edit/Write require explicit
+  operator opt-in. OS shell probes do not establish their application-level
+  path checks. The installed-client link matrix tests both modes, including
+  sandbox-created links and separately host-preseeded hard links. The latter
+  disclose synthetic contents through Read/Grep and Bash and are not safe inputs.
+  Defaulting to Bash does not repair an inode already exposed by the operator.
+- Codex `view_image` and host `notify` are explicitly disabled. Claude's own
+  command temp files also use the private Run temp directory.
+- Deprecate `sessionsandbox.Open`/`Session.Command` now without removing the
+  public signatures. Before a subsequent pre-1.0 removal: inventory released
+  Node/Plugin consumers, announce the breaking change, then remove the legacy
+  runner, `tools/native-sandbox` and their dedicated CI tests together. Keep
+  `OpenClient`, storage/locking, current guide staging and official-client OS tests.
+  Current candidate call sites are clean; root's still-pinned older Node source
+  is not evidence that the migration has been released or deployed.
+- Do not claim full credential isolation or untrusted multi-user readiness.
+  The tracked Claude file-tool check/open race concerns explicit file-tool opt-in;
+  default Bash removes that entry point, not every possible path-handling race.
+  Link-swap races, the complete client IPC surface, resource quotas and real
+  account/model acceptance remain outside this test evidence.
+
+The following record describes the old implementation and investigation. Its
+parent-key exposure result is historical evidence, not a result for the new
+host-auth tool boundary. Its proposed broker is not the current Node plan.
+
+---
+
 # Native isolation: open security and delivery work
 
 Status: experimental, trusted-callers-only. This is a tracking record, not an

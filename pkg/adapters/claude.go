@@ -57,6 +57,11 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	releaseAuth, authErr := acquireHostAuthPermit(requestCtx, config, run.Emit)
+	if authErr != nil {
+		return openlinker.RuntimeResult{}, authErr
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseAuth()) }()
 
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "claude", workspace)
@@ -84,11 +89,7 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		args := claudeArguments(config, permission, sessionID)
 		var command *exec.Cmd
 		if config.sandbox != nil {
-			var err error
-			command, err = config.sandbox.Command(requestCtx, bin, args, config.Env)
-			if err != nil {
-				return openlinker.RuntimeResult{}, err
-			}
+			command = nativeHostCommand(requestCtx, config, bin, args)
 		} else {
 			command = exec.CommandContext(requestCtx, bin, args...) // #nosec G204 -- operator-configured binary, no shell.
 		}
@@ -196,7 +197,9 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 func claudeArguments(config ProviderConfig, permission, sessionID string) []string {
 	args := []string{"--safe-mode", "--no-chrome", "--disable-slash-commands"}
 	if config.sandbox != nil {
-		args = []string{"--bare", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`}
+		args = append(args, "--restricted", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--permission-prompts", "none", "--settings", config.toolPolicy.claude)
+		permission = "default"
+		args = append(args, "--tools", strings.Join(nativeClaudeTools(config), ","))
 	} else if config.DelegationSocket != "" {
 		args = []string{"--bare", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config)}
 	}
@@ -205,6 +208,15 @@ func claudeArguments(config ProviderConfig, permission, sessionID string) []stri
 		args = append(args, "--model", config.Model)
 	}
 	allowed := append([]string(nil), config.AllowedTools...)
+	if config.sandbox != nil {
+		// A bare Edit/Write allow rule also expands the OS sandbox's writable
+		// roots. Grant file mutations only inside this conversation workspace.
+		path := "/" + strings.TrimSuffix(config.Workspace, "/") + "/**"
+		allowed = []string{"Bash", "Edit(" + path + ")", "Write(" + path + ")"}
+		if config.WebSearch {
+			allowed = append(allowed, "WebSearch")
+		}
+	}
 	if config.DelegationSocket != "" {
 		for _, tool := range []string{"delegate_agent", "get_delegated_run", "wait_delegated_run"} {
 			allowed = appendUniqueString(allowed, "mcp__openlinker_delegation__"+tool)

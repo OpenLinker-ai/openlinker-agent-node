@@ -406,24 +406,13 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 
 ## 不依赖 Docker 的会话隔离
 
-**实验性，仅供可信调用方使用。** 调用方必须可以接触服务方模型 key：可读凭据
-可能通过 Run 输出返回，网络白名单无法阻止。当前也没有每会话资源硬配额。
-公开沙箱配置／包和 `SESSION_*` 参数暂不承诺稳定兼容。
+**实验性，仅供可信调用方，尚无会话级资源硬配额。** Node 复用主机 Codex/Claude
+客户端认证，不需要在沙箱重新登录，也不强制增加 API key 环境变量。官方客户端
+负责认证。Claude 默认只开沙箱 Bash，客户端内文件工具需显式开启，其安全边界不同；
+Codex 在此模式关闭客户端内图片读取与主机通知命令。一个 Node 保留多个会话并支持 A-B-A
+恢复；native 客户端默认按共享主机 HOME 和 Provider 串行运行，减少共用登录的刷新重叠。
+`HOST_AUTH_CONCURRENCY=client-managed` 显式放开并发；独立的桌面和终端客户端不参与此锁。
 
-macOS/Linux 上可显式设置 `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`。
-Codex／Claude 整个客户端及子工具在系统沙箱内运行，各会话独享持久工作区和原生历史，
-一个常驻 Node 管理多个会话，仅执行中的 Run 启动沙箱内客户端子进程，空闲会话保留数据。
-会话映射、锁和策略位于客户端不可读的控制目录。缺少沙箱能力时启动失败，不降级；
-未开启时默认行为不变。需要专用 API key、明确的运行库读取路径和联网域名，不导入个人
-OAuth／钥匙串登录或旧会话。开启前请阅读[完整配置与边界](docs/native-session-isolation.zh-CN.md)。
-这不等于 CPU／磁盘配额或容器级孤儿进程回收；当前是源码实现，不代表安装版本或运行中
-Agent 已升级。Plugin 的产品入口不会自动启用本策略。
-由本次源码构建的新归档会附带依赖锁及显式的 `npm ci --ignore-scripts` 安装器。
-
-自定义模型网关可分别使用 `OPENLINKER_AGENT_NODE_CODEX_BASE_URL`（含完整 Responses
-API 基路径）和 `OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL`（Anthropic 兼容服务基路径）。
-原生隔离还要求将网关的精确域名加入 `SESSION_NETWORK_DOMAINS`；不会继承宿主的网关变量。
-详见[网关配置](docs/native-session-isolation.md#custom-model-gateways)。网关配置不等于 key
-已隔离；当前仍要求可信调用方。个人订阅的 OAuth token 也属于密钥，不能作为共享公共
-Agent 的凭据搬入沙箱；[官方托管与认证规则](https://code.claude.com/docs/en/legal-and-compliance)
-需按实际使用者及计费关系确认。
+详见[主机认证与原生隔离](docs/native-session-isolation.zh-CN.md)：macOS/Linux 安装、
+版本要求、迁移、网关行为及验收边界。这是源码变更，不会自动升级二进制或切换运行中
+Agent。普通模式和委派模式维持原有行为。

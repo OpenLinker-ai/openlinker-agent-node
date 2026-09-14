@@ -12,8 +12,12 @@ import (
 
 type ProviderConfig struct {
 	// SessionIsolation is experimental; its configuration is not a stable API.
-	SessionIsolation     sessionsandbox.Config
+	SessionIsolation sessionsandbox.Config
+	// HostAuthConcurrency is experimental: native mode defaults to serial
+	// Node client execution per OS user/provider; client-managed opts out.
+	HostAuthConcurrency  string
 	sandbox              *sessionsandbox.Session
+	toolPolicy           *nativeToolPolicy
 	DelegationTargets    []string
 	DelegationProxyBin   string
 	DelegationBrokerRoot string

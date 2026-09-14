@@ -1,5 +1,9 @@
 # Native session isolation acceptance — 2026-09-12
 
+> Historical whole-client SRT evidence. The later host-auth/tool-sandbox candidate
+> must collect its own Ubuntu and CI results; this record does not validate that
+> different boundary. Current gaps are in [the follow-up record](native-session-isolation-follow-ups.md).
+
 Source base: Agent Node `9054ba8d2d1ea3675a6a6e91c21808f9081bfbd7`.
 Candidate branch: `codex/native-session-isolation`. This record covers local
 source validation, not a merged/published module, binary, deployment or live

@@ -50,11 +50,7 @@ func validateIsolatedModelEndpoint(c ProviderConfig) error {
 	if err := ValidateModelEndpoint(endpoint); err != nil {
 		return err
 	}
-	u, _ := url.Parse(endpoint)
-	for _, domain := range c.SessionIsolation.AllowedDomains {
-		if strings.TrimSuffix(domain, ":443") == strings.ToLower(u.Hostname()) {
-			return nil
-		}
-	}
-	return errors.New("model base URL hostname must be explicitly included in SESSION_NETWORK_DOMAINS")
+	// Model traffic belongs to the trusted client. SESSION_NETWORK_DOMAINS
+	// controls tool traffic, not authentication or provider API connections.
+	return nil
 }

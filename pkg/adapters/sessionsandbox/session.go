@@ -33,7 +33,22 @@ func Scope(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// Open launches storage for the historical whole-client SRT boundary.
+//
+// Deprecated: retained for experimental API compatibility and regression only.
+// Node native mode uses OpenClient plus the official client's tool sandbox.
 func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
+	return openSession(ctx, c, scope, true)
+}
+
+// OpenClient allocates locked, private session storage for a trusted host client.
+// It does not sandbox that client or change its authentication home. The caller
+// must enforce a tool sandbox before executing any model-controlled operation.
+func OpenClient(ctx context.Context, c Config, scope string) (*Session, error) {
+	return openSession(ctx, c, Scope("host-client-v1", scope), false)
+}
+
+func openSession(ctx context.Context, c Config, scope string, outer bool) (_ *Session, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -43,9 +58,12 @@ func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 	if !c.Enabled() || scope == "" {
 		return nil, errors.New("native sandbox and trusted scope are required")
 	}
-	bin, err := resolveRuntime(c.RuntimeBin)
-	if err != nil {
-		return nil, err
+	var bin string
+	if outer {
+		bin, err = resolveRuntime(c.RuntimeBin)
+		if err != nil {
+			return nil, err
+		}
 	}
 	root, err := privateRoot(c.Root)
 	if err != nil {
@@ -94,9 +112,11 @@ func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 		return nil, errors.New("cannot prepare sandbox policy")
 	}
 	_ = policy.Close()
-	if err := appfiles.WritePrivateFile(filepath.Join(control, "runner.mjs"), runnerSource); err != nil {
-		_ = os.Remove(policy.Name())
-		return nil, errors.New("cannot prepare native sandbox runner")
+	if outer {
+		if err := appfiles.WritePrivateFile(filepath.Join(control, "runner.mjs"), runnerSource); err != nil {
+			_ = os.Remove(policy.Name())
+			return nil, errors.New("cannot prepare native sandbox runner")
+		}
 	}
 	// AF_UNIX socket paths are limited to about 100 bytes. Persistent roots
 	// can be much longer, so each invocation gets a short, private temp root.
@@ -115,8 +135,11 @@ func Open(ctx context.Context, c Config, scope string) (_ *Session, err error) {
 	return &Session{config: c, control: control, data: data, policy: policy.Name(), runtimeBin: bin, temp: temp, lock: lock}, nil
 }
 
-func (s *Session) Workspace() string { return filepath.Join(s.data, "workspace") }
-func (s *Session) Store() string     { return filepath.Join(s.control, "native-session.json") }
+func (s *Session) Workspace() string  { return filepath.Join(s.data, "workspace") }
+func (s *Session) Store() string      { return filepath.Join(s.control, "native-session.json") }
+func (s *Session) ToolHome() string   { return filepath.Join(s.data, "home") }
+func (s *Session) Temp() string       { return s.temp }
+func (s *Session) PolicyPath() string { return s.policy }
 func (s *Session) Close() error {
 	if s == nil || s.lock == nil {
 		return nil

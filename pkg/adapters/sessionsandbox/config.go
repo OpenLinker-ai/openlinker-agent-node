@@ -1,5 +1,6 @@
-// Package sessionsandbox isolates an entire native client process, including
-// its tools, using the OS sandbox through a pinned Anthropic sandbox runtime.
+// Package sessionsandbox allocates private locked session storage. OpenClient
+// requires the caller to enforce its host client tool policy. The legacy Open /
+// Command API retains the whole-process pinned SRT wrapper for experimental users.
 // It does not start a Worker or infer identity from model-controlled input.
 // Experimental: this package/configuration has no stable compatibility promise.
 package sessionsandbox

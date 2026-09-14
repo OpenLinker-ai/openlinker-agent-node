@@ -90,6 +90,15 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	authConcurrency := get("OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY")
+	if authConcurrency != "" {
+		if !isolation.Enabled() {
+			return nil, fmt.Errorf("HOST_AUTH_CONCURRENCY requires native Codex or Claude isolation")
+		}
+		if authConcurrency != "serial" && authConcurrency != "client-managed" {
+			return nil, fmt.Errorf("HOST_AUTH_CONCURRENCY must be serial or client-managed")
+		}
+	}
 	envAllowlist := parseCommaList(get("OPENLINKER_AGENT_NODE_ENV_ALLOWLIST"))
 	switch mode {
 	case "http", "openclaw":
@@ -176,8 +185,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			return nil, err
 		}
 		return &NativeAdapter{Config: agentexec.ProviderConfig{
-			SessionIsolation: isolation,
-			Provider:         "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
+			SessionIsolation:    isolation,
+			HostAuthConcurrency: authConcurrency,
+			Provider:            "claude", Bin: defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_BIN"), "claude"),
 			ClaudeBaseURL: baseURL,
 			Workspace:     defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE"), mustGetwd()),
 			Model:         get("OPENLINKER_AGENT_NODE_CLAUDE_MODEL"),
@@ -205,8 +215,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			return nil, err
 		}
 		return &CodexAdapter{
-			SessionIsolation:  isolation,
-			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
+			SessionIsolation:    isolation,
+			HostAuthConcurrency: authConcurrency,
+			DelegationTargets:   targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 			CodexBin:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_BIN"), "codex"),
 			BaseURL:              baseURL,

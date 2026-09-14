@@ -4,16 +4,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Called by release packaging, not Agent startup. Refuse an existing bundle
-// rather than replacing a previously installed optional runtime.
+// Called by release packaging, not Agent startup. Native mode now uses the
+// installed official client sandbox; ship its setup guide, no obsolete runtime.
 export function stageNativeSandbox(destination) {
   const root = resolve(destination);
   if (!statSync(root).isDirectory()) throw new Error('archive staging directory is required');
-  mkdirSync(join(root, 'native-sandbox'));
-  mkdirSync(join(root, 'docs'), { recursive: true });
-  for (const name of ['package.json','package-lock.json','install.sh','README.md']) {
-    copyFileSync(join(repository,'tools/native-sandbox',name), join(root,'native-sandbox',name));
-  }
+  mkdirSync(join(root, 'docs'));
   for (const name of ['native-session-isolation.md','native-session-isolation.zh-CN.md']) {
     copyFileSync(join(repository,'docs',name), join(root,'docs',name));
   }

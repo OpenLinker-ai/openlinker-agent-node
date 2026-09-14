@@ -474,26 +474,18 @@ the host. Node itself uses `NativeAdapter`.
 
 ## Native session isolation without Docker
 
-Custom model endpoints can be set with `OPENLINKER_AGENT_NODE_CODEX_BASE_URL`
-(complete Responses base path) and `OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL`
-(Anthropic-compatible base). Native isolation additionally requires the exact
-gateway hostname in `SESSION_NETWORK_DOMAINS`; ambient gateway variables are
-not imported. See the [gateway setup](docs/native-session-isolation.md#custom-model-gateways).
+**Experimental, trusted callers only; no per-session resource quotas.** Node
+reuses the installed Codex/Claude client's authentication. Native mode does not
+require another login or new API-key environment variables. The official client
+owns authentication. Claude defaults to sandboxed Bash; its in-process file tools
+require explicit opt-in and have a different security boundary. Codex disables
+in-process image viewing and host notification commands in this mode.
+One Node retains multiple conversations and persistent A-B-A continuation. Native
+clients default to serial admission per shared host HOME/provider to reduce shared-login
+refresh overlap. `HOST_AUTH_CONCURRENCY=client-managed` explicitly opts into
+parallel clients; independently launched desktop/terminal clients are not locked.
 
-**Experimental, for trusted callers only.** Callers must be allowed to receive
-the provider's model API key: readable credentials can return through Run output,
-which network filtering does not block. There are no per-session resource quotas.
-The public sandbox configuration/package and `SESSION_*` options are not stable APIs.
-
-Codex and Claude can opt into `OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native`
-on macOS/Linux. The entire client runs under a system sandbox with a private,
-persistent per-conversation workspace and native history. One long-lived Node
-manages multiple conversations; each active Run gets a sandboxed client process,
-and idle sessions retain data without retaining a client process. Missing sandbox support
-fails startup; the existing default remains off. Dedicated API-key authentication,
-explicit readable runtime paths and network domains are required. See
-[native session isolation](docs/native-session-isolation.md) for setup, migration,
-actual guarantees and verification boundaries. This is source implementation,
-not an automatic upgrade of installed Node binaries or running Agents.
-Future archives built from this source include the locked optional dependency
-bundle and explicit `npm ci --ignore-scripts` installer alongside the binary.
+See [host-auth native isolation](docs/native-session-isolation.md) for macOS/Linux
+setup, supported clients, migration, gateway behavior and verification limits.
+This changes source behavior; it does not upgrade installed binaries or switch
+running Agents automatically. Ordinary/delegation behavior remains unchanged.

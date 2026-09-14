@@ -106,6 +106,9 @@ func saveSessionForClientMode(
 }
 
 func providerSessionClientMode(config ProviderConfig) string {
+	if config.sandbox != nil {
+		return "host-auth-tools-v1"
+	}
 	return delegationSessionMode(config, "standard")
 }
 

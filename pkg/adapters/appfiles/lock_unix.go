@@ -32,7 +32,10 @@ func AcquireLock(path string) (*Lock, error) {
 		return closeOnError(errors.New("Agent mode ownership lock must be an owner-only regular file"))
 	}
 	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return closeOnError(errors.New("Agent state is already serving another Runtime Worker"))
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return closeOnError(ErrLockBusy)
+		}
+		return closeOnError(fmt.Errorf("lock Agent mode ownership: %w", err))
 	}
 	return &Lock{file: file}, nil
 }

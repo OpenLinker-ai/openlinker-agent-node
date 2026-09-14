@@ -94,9 +94,16 @@ func (s *Session) settings(bin string) (map[string]any, error) {
 	}, nil
 }
 
+// Command uses the historical whole-client SRT boundary.
+//
+// Deprecated: Node native mode no longer invokes this runner. It remains only
+// for existing experimental leaf consumers and must not be used on OpenClient.
 func (s *Session) Command(ctx context.Context, bin string, args, environment []string) (*exec.Cmd, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if s.runtimeBin == "" {
+		return nil, errors.New("host-client storage requires an explicit client tool sandbox, not the legacy SRT command")
 	}
 	if s.lock == nil {
 		return nil, errors.New("native session sandbox is closed")

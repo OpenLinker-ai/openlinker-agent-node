@@ -26,14 +26,14 @@ func TestModelEndpointRejectsAmbiguousOrCredentialBearingURLs(t *testing.T) {
 	}
 }
 
-func TestNativeModelEndpointRequiresExplicitNetworkGrant(t *testing.T) {
+func TestNativeModelEndpointDoesNotGrantToolNetwork(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		c := isolationConfig(t, name)
 		c.CodexBaseURL, c.ClaudeBaseURL = "https://gateway.example/vendor/v1", "https://gateway.example/vendor"
 		for _, domains := range [][]string{nil, {"other.example"}, {"gateway.example.evil.test"}} {
 			c.SessionIsolation.AllowedDomains = domains
-			if _, err := NewProvider(c); err == nil || !strings.Contains(err.Error(), "SESSION_NETWORK_DOMAINS") {
-				t.Fatalf("endpoint grant not enforced: %v", err)
+			if _, err := NewProvider(c); err != nil {
+				t.Fatalf("model endpoint incorrectly requires tool network: %v", err)
 			}
 		}
 		for _, domains := range [][]string{{"gateway.example"}, {"gateway.example:443"}} {
@@ -43,7 +43,7 @@ func TestNativeModelEndpointRequiresExplicitNetworkGrant(t *testing.T) {
 			}
 		}
 		c.Env = append(c.Env, "ANTHROPIC_BASE_URL=https://ambient.example", "OPENAI_BASE_URL=https://ambient.example")
-		env, err := isolatedEnvironment(c)
+		env, err := nativeClientEnvironment(c)
 		if err != nil {
 			t.Fatal(err)
 		}

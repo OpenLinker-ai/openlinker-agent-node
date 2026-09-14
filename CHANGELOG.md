@@ -7,23 +7,59 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Move native admission locks from predictable `/tmp` files to private state at
+  `$HOME/.local/state/openlinker-agent-node/host-auth-<provider>.lock`. Services
+  with PrivateTmp coordinate when they share the underlying HOME storage. Separate
+  HOME mounts/values do not. Reject unsafe parents/symlinks and reserve this path
+  from tools. Stop older `/tmp`-lock Nodes/clients before upgrade; no session reset.
+  Recommend capacity 1 for serial mode; polling remains non-FIFO and timeout-bound.
+
+- Native clients now default to cooperative serial admission per shared host HOME/provider,
+  across Node processes and session roots that share the same HOME storage. Waiting respects Run
+  cancellation and timeout; `HOST_AUTH_CONCURRENCY=client-managed` explicitly
+  allows parallel clients. Existing native capacity greater than one will queue
+  provider work by default; session scope/history is unchanged. This does not
+  coordinate external clients or guarantee OAuth rotation/orphan-process safety.
+- Expose `appfiles.ErrLockBusy` for typed contention without changing the legacy
+  contention message; unsafe lock files fail instead of being retried as busy.
+- Native isolation now reuses the installed Codex/Claude client's authentication
+  and restricts its tools. No per-session login or mandatory dedicated key.
+- Native Claude local tools now default to Bash only. In-process Read/Grep/Glob/
+  Edit/Write require explicit `CLAUDE_ALLOWED_TOOLS` opt-in for trusted workloads;
+  file tools are not covered by the Bash OS sandbox. Add real-client link probes
+  and distinguish host-preseeded hard links from sandbox-created links.
+- Explicitly disable Codex `view_image` and host `notify` in native mode. Put
+  Claude command bookkeeping under the Run's private temp directory as well.
+- Deprecate historical `sessionsandbox.Open`/`Session.Command` without deleting
+  their experimental compatibility API; track coordinated runner/CI removal.
+- Migration from whole-client SRT to host-auth mode starts a fresh workspace and
+  native session once; old directories/private histories are retained, not copied
+  or deleted. Subsequent host-auth Runs reuse the new scope. The later Bash-only
+  default/view-image hardening does not reset it again. Core history is separate.
+  Remove the obsolete SESSION_SANDBOX_BIN override. Model gateways no longer
+  require a tool-network grant. Experimental: no resource-quota guarantee.
+- Current host-auth source passed macOS and Ubuntu PR CI, plus isolated Ubuntu
+  arm64 client acceptance. Real shared-login OAuth rotation remains unverified;
+  synthetic-auth tests and Node admission do not prove account-wide protection.
+
+
 ### Added
 
-- Mark native session isolation and its public/configuration surfaces
-  **experimental, trusted-callers-only**. Readable provider keys can return in
-  Run output; network filtering is not credential isolation. Add real-OS
-  parent-environment probes using synthetic keys and record exposure separately.
-- Binary archive packaging now carries the same optional sandbox manifest/lock
-  and explicit `npm ci --ignore-scripts` installer as source installs.
+- Keep native session isolation and its public/configuration surfaces
+  **experimental, trusted-callers-only**. Add real-client cached-auth, scoped
+  file-edit, cross-session, parent-environment and temporary-keychain probes
+  using synthetic credentials; network filtering is not credential isolation.
+- Historical SRT runtime remains a separately locked experimental leaf fixture;
+  Node binary archives now carry host-auth setup documentation, without bundling
+  an obsolete SRT installation.
 - Optional `SESSION_TEMP_ROOT` selects private storage on an administrator's
   quota-backed filesystem. No byte/inode/memory quota is enforced by Node.
-- Opt-in native session isolation for macOS and Linux using the pinned
-  sandbox runtime. One Agent Node manages concurrent conversation sandboxes;
-  each Run launches an isolated client, with persistent scoped workspace and
-  native history, exclusive session ownership and independent cancellation.
-  The default remains off. Enabling this mode requires dedicated API-key
-  authentication, explicit runtime/network grants and successful OS enforcement
-  probes; personal login/history, Browser and host delegation are not imported.
+- Opt-in native session isolation for macOS and Linux using the installed
+  client's tool sandbox. One Agent Node manages concurrent conversations;
+  each Run launches a trusted client that reuses host authentication, with
+  persistent scoped workspace/history, exclusive ownership and independent
+  cancellation. The default remains off. Personal conversation history,
+  Browser and host delegation are not imported.
   See `docs/native-session-isolation.md` for configuration and limitations.
 - Share the complete Codex app-server turn lifecycle in `pkg/adapters/codexturn`.
   Native command preparation, protocol ordering, scoped events, cancellation
@@ -33,10 +69,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 ### Fixed
 
 - Wire explicit Codex and Claude model base URLs through the production Node
-  adapters and native sandboxes. Preserve nested API paths, reject ambiguous or
-  credential-bearing URLs, and require an explicit sandbox network grant.
+  adapters. Preserve nested API paths and reject ambiguous or credential-bearing
+  overrides. Trusted-client model traffic is separate from tool-network grants.
 
-- Decode the Linux outer sandbox command to argv and execute bubblewrap directly;
+- In the retained historical SRT leaf, decode the Linux outer sandbox command to argv and execute bubblewrap directly;
   reject unexpected command formats or missing required namespaces. Restore the
   private client TMPDIR/TMP/TEMP after SRT's override, and explicitly deny
   loopback, link-local/metadata and other reserved address ranges.
