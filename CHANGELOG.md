@@ -17,9 +17,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   Claude command bookkeeping under the Run's private temp directory as well.
 - Deprecate historical `sessionsandbox.Open`/`Session.Command` without deleting
   their experimental compatibility API; track coordinated runner/CI removal.
-- Use a fresh host-auth session scope; prior SRT-mode histories remain untouched.
+- Migration from whole-client SRT to host-auth mode starts a fresh workspace and
+  native session once; old directories/private histories are retained, not copied
+  or deleted. Subsequent host-auth Runs reuse the new scope. The later Bash-only
+  default/view-image hardening does not reset it again. Core history is separate.
   Remove the obsolete SESSION_SANDBOX_BIN override. Model gateways no longer
   require a tool-network grant. Experimental: no resource-quota guarantee.
+- Shared-login OAuth refresh concurrency and current-candidate Ubuntu host/CI
+  acceptance remain open; cached-auth/container tests do not close these items.
 
 
 ### Added

@@ -39,6 +39,11 @@ key 与 Core 命名空间共同决定存储位置，不接受 payload 自报身�
 A → B → A 会恢复 A。不会把主机个人聊天历史导入会话。Codex 使用受控的 thread ID；
 Claude 另用 `CLAUDE_CODE_PROJECT_DIR_NAME` 分开项目记录，同时保持认证目录不变。
 
+会话锁**不是主机登录锁**。并发 Run 会启动多个复用同一认证的客户端，可能同时刷新
+登录；现有缓存认证测试没有验证令牌轮换。账号敏感的试验先显式设置
+`OPENLINKER_AGENT_NODE_CAPACITY=1`，并避免其他 Node、终端或桌面客户端同时使用这份登录。
+仅设置 capacity=1 不能保护整个账号；详见[并发刷新待办](native-session-isolation-follow-ups.md)。
+
 ## 配置
 
 已验证的客户端基线为 Codex 0.153.0、Claude Code 2.1.259。Linux 需要可用的非特权
@@ -103,7 +108,9 @@ Codex 保留既有模型 Provider 配置，不再强制改到默认 API 地址�
 
 旧实现把整个客户端放入 SRT 沙箱，会改认证目录并要求专用 key。新实现使用独立的
 host-auth 存储 scope，不会复制或删除旧工作区、历史或可能包含凭据的数据。因此迁移
-后第一次会新建会话，后续继续复用。删除旧的 `SESSION_SANDBOX_BIN`，保留会报错，
+后第一次会新建会话，后续继续复用。该变化针对旧 SRT 模式迁移至主机认证模式；
+后续默认仅 Bash、关闭 view_image 的修复没有再次改变 scope。Core 保留的历史与旧客户端
+私有会话数据是两回事。删除旧的 `SESSION_SANDBOX_BIN`，保留会报错，
 不会静默忽略。不能混用旧 `SESSION_STORE`、委派 socket 和任意 `ENV_ALLOWLIST`。
 
 启动检查客户端能力和系统依赖；macOS Codex 还实际验证允许写入/拒绝读取，Linux
@@ -114,7 +121,13 @@ host-auth 存储 scope，不会复制或删除旧工作区、历史或可能包�
 `test-native-session-isolation.sh` 使用真实客户端、临时合成登录和本地固定模型响应，
 分别检查显式开启的文件工具、默认 Bash、A-B-A、文件工具链接矩阵、跨会话读取、越界写入、环境与父进程
 凭据读取；macOS 还使用明确指定的临时钥匙串测试合成密码，不读取登录钥匙串。不会消耗
-真实账号额度；这不代表真实模型、WebSearch 或账号合规已完成验收。CI 覆盖两套系统。
+真实账号额度；这不代表真实模型、WebSearch 或账号合规已完成验收。CI 配置了两套系统，
+在 PR 或版本 tag 推送时触发；配置存在不等于已跑绿。
+
+本主机认证候选的本地 Linux 证据来自断网、非 root、无宿主目录挂载的容器。为启动
+内层客户端沙箱，外层容器放宽了 seccomp、AppArmor 与系统路径屏蔽。这没有关闭内层
+客户端沙箱，但不能证明默认 Ubuntu 策略兼容。当前候选的 Ubuntu 主机/VM 与 GitHub
+runner 验收仍待完成；旧的整个客户端 SRT 模式验收不能替代它们。
 
 Linux 的空白 tmpfs 覆盖层可能允许创建同名临时文件，验收以宿主真实认证文件和
 目录未被修改为准；写入隔离覆盖层不等于获得宿主写权限。

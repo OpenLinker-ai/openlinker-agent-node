@@ -57,6 +57,13 @@ as conversation history. Codex controls the resumed thread ID; Claude additional
 partitions its project transcripts using `CLAUDE_CODE_PROJECT_DIR_NAME`, while
 keeping `CLAUDE_CONFIG_DIR` unchanged for authentication.
 
+The conversation lock is **not a shared-login lock**. Concurrent Runs can launch
+clients that refresh the same host login. This has not been exercised by the
+cached-auth fixtures. For account-sensitive evaluation use
+`OPENLINKER_AGENT_NODE_CAPACITY=1` and avoid concurrent use of that login by other
+Node/terminal/desktop clients; capacity one alone is not account-wide protection.
+See the [open refresh-concurrency item](native-session-isolation-follow-ups.md).
+
 ## Setup
 
 Install supported official clients (tested baseline: Codex 0.153.0 and Claude Code
@@ -140,6 +147,9 @@ The old whole-client SRT design required dedicated keys and changed authenticati
 homes. The new host-auth scope is deliberately separate: old workspaces, native
 history and potentially exposed credentials are neither copied nor deleted.
 Resume starts fresh once when migrating, then persists in the new scope.
+This applies to migration from the old whole-client SRT mode to host-auth mode;
+the later Bash-default/view-image hardening does not change the scope again.
+Retained Core history is separate from the old client's private session data.
 Remove `SESSION_SANDBOX_BIN`; Node rejects this obsolete override instead of
 silently ignoring it. Legacy `SESSION_STORE`, delegation sockets and arbitrary
 `ENV_ALLOWLIST` are not combined with native isolation.
@@ -158,7 +168,14 @@ opted-in scoped file edits, outside writes,
 environment and parent-process probes. macOS additionally checks a synthetic
 item in an explicitly named temporary keychain, never the login keychain.
 These tests do not spend subscription/API quota and do not establish real model,
-WebSearch or account-policy acceptance. The macOS/Linux CI matrix runs this suite.
+WebSearch or account-policy acceptance. The macOS/Linux CI matrix is configured
+to run this suite on PRs and version-tag pushes; configuration is not a pass result.
+
+For this host-auth candidate, local Linux evidence comes from an offline,
+non-root container with no host mounts. Its outer seccomp/AppArmor policies and
+system-path masking were relaxed to allow the inner client sandbox to start.
+Current-candidate Ubuntu host/VM and GitHub runner acceptance remain pending;
+historical whole-client SRT results do not substitute for them.
 
 Linux can create an identically named file in an empty private tmpfs overlay.
 The acceptance check verifies that host credential files/directories remain

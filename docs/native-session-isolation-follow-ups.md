@@ -9,6 +9,55 @@ or proof for untrusted public callers. Resource quotas and live account/model
 acceptance remain open. The old SRT package is retained only for its experimental
 leaf API and historical regression; Node native mode no longer uses that runner.
 
+## P2: shared host-login refresh concurrency — open, not reproduced
+
+Each active Run launches an official client using the same provider authentication
+home. Node's `session.lock` is scoped to a conversation; it does not serialize
+different conversations against the shared credential store. Capacity greater
+than one can overlap clients, and capacity one still overlaps with another Node,
+terminal or desktop client using the same login.
+
+The inspected [Codex 0.153.0 refresh implementation](https://github.com/openai/codex/blob/rust-v0.153.0/codex-rs/login/src/auth/manager.rs)
+has a process-local semaphore and a guarded reload of changed authentication.
+These are real mitigations, not proof of cross-process mutual exclusion. Claude's
+equivalent refresh behavior has not been established here. Existing synthetic
+auth tests use a cached API key or unexpired OAuth token and do not exercise
+concurrent token rotation, persistent-auth write races or recovery from them.
+Do not describe this as a reproduced logout, account ban or credential leak.
+
+For account-sensitive evaluation, set `OPENLINKER_AGENT_NODE_CAPACITY=1` and avoid
+other clients concurrently using that login. This reduces overlap; it is not an
+account-wide lock or a guarantee. Static API-key authentication does not use this
+OAuth-refresh path. Node must not start parsing/proxying subscription tokens to
+work around the gap, and no concurrency default is changed by this record.
+
+Before claiming concurrent shared-login support, test both installed clients
+with private synthetic refreshable credentials and a controlled local issuer:
+overlapping expiry/401 refresh, rotated-token adoption, cancellation/crash during
+refresh, persistent state integrity, and a subsequent successful run. Include a
+second client outside Node. If the official client cannot safely direct refresh
+to a fixture, record that limitation rather than exercise a personal account.
+Resolve verified gaps via supported client coordination/upstream fixes or an
+explicitly documented admission policy; a Node-only lock cannot coordinate
+independently launched clients.
+
+## P2: current host-auth Linux host/CI acceptance — pending
+
+For candidates `19511c5` / `9e1579f`, Linux evidence is a non-root, offline,
+no-host-mount container using the locked official clients. To permit nested
+sandboxing, its outer Docker seccomp/AppArmor policies and system-path masking
+were relaxed (`seccomp=unconfined`, `apparmor=unconfined`,
+`systempaths=unconfined`). This does not disable the inner client sandbox, but
+does not validate stock Ubuntu policy or the target host's prerequisites.
+
+Run the current commit on a supported Ubuntu host/VM and the GitHub Linux runner,
+retaining system protections and documenting any executable-specific userns
+authorization. Record the commit, OS/kernel, client versions, policy and actual
+results. The old SRT Ubuntu/CI record is historical and cannot close this item.
+The workflow is configured for PR events and `v*` tag pushes; an ordinary branch
+push alone does not trigger it. A successful current PR run would add hosted
+Linux runner evidence, not prove every target Linux deployment or real login.
+
 ## Current candidate: file tools and legacy API
 
 - Native Claude defaults to Bash. Read/Grep/Glob/Edit/Write require explicit
@@ -22,11 +71,13 @@ leaf API and historical regression; Node native mode no longer uses that runner.
 - Deprecate `sessionsandbox.Open`/`Session.Command` now without removing the
   public signatures. Before a subsequent pre-1.0 removal: inventory released
   Node/Plugin consumers, announce the breaking change, then remove the legacy
-  runner, `tools/native-sandbox`, staging script and their dedicated CI tests
-  together. Keep `OpenClient`, storage/locking and official-client OS tests.
+  runner, `tools/native-sandbox` and their dedicated CI tests together. Keep
+  `OpenClient`, storage/locking, current guide staging and official-client OS tests.
   Current candidate call sites are clean; root's still-pinned older Node source
   is not evidence that the migration has been released or deployed.
 - Do not claim full credential isolation or untrusted multi-user readiness.
+  The tracked Claude file-tool check/open race concerns explicit file-tool opt-in;
+  default Bash removes that entry point, not every possible path-handling race.
   Link-swap races, the complete client IPC surface, resource quotas and real
   account/model acceptance remain outside this test evidence.
 

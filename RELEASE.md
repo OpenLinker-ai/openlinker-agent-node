@@ -53,13 +53,20 @@ Document notable changes under `Unreleased` in `CHANGELOG.md`.
 
 ## Tagging
 
-Native isolation is experimental and restricted to callers trusted to receive
-the provider model key. Archives now stage `native-sandbox/` (manifest, lock,
-installer and instructions) and both native-isolation guides with the binary;
-the existing archive checksum covers those files. Run
-`node --test scripts/stage-native-sandbox.test.mjs` before packaging. Installed
-runtime content is not attested by the binary. Credential proxying and resource
-quotas remain open work; do not label a prerelease safe for untrusted callers.
+Native isolation is experimental and restricted to trusted callers. Archives
+stage both host-auth native-isolation guides with the binary; the existing
+checksum covers those files. They no longer include the old SRT installer.
+Run `node --test scripts/stage-native-sandbox.test.mjs` before packaging.
+The installed official client remains trusted and is not attested by the Node
+binary. Shared-login refresh concurrency, current host-auth Ubuntu/CI evidence
+and resource quotas remain open; do not label a prerelease safe for untrusted
+callers or count historical SRT CI as host-auth acceptance.
+
+Include this migration note in the release: moving from whole-client SRT to
+host-auth mode starts a fresh workspace/native session once, retaining old
+directories without copying or deleting them. Subsequent Runs reuse the new
+scope. Later Bash-default hardening does not reset an existing host-auth scope.
+Core history and Runtime enrollment/version migration are separate contracts.
 
 After explicit publication approval, choose an unused canonical pre-1.0 test
 prerelease tag (the value below is an example, not a reserved next version):
