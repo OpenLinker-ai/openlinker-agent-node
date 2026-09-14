@@ -31,8 +31,9 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   default/view-image hardening does not reset it again. Core history is separate.
   Remove the obsolete SESSION_SANDBOX_BIN override. Model gateways no longer
   require a tool-network grant. Experimental: no resource-quota guarantee.
-- Shared-login OAuth refresh concurrency and current-candidate Ubuntu host/CI
-  acceptance remain open; cached-auth/container tests do not close these items.
+- Current host-auth source passed macOS and Ubuntu PR CI, plus isolated Ubuntu
+  arm64 client acceptance. Real shared-login OAuth rotation remains unverified;
+  synthetic-auth tests and Node admission do not prove account-wide protection.
 
 
 ### Added

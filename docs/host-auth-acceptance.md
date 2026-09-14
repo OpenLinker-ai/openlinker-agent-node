@@ -1,13 +1,17 @@
 # Host authentication and tool isolation acceptance
 
-Candidate: `codex/native-auth-reuse`, based on Node `be13e3a`. Local validation
-on 2026-09-14; this record does not claim a published module, release or deployment.
+Candidate: `codex/native-auth-reuse`, based on Node `be13e3a`. Current implementation
+`25c49b2c24449754d428a48bedf15fdd5be1d6bf`, verified on 2026-09-14 in
+[PR #36](https://github.com/OpenLinker-ai/openlinker-agent-node/pull/36). This record
+does not claim a release, root version update or deployment.
 Only Node source changes. Plugin consumes the shared leaf in compatibility tests;
 the root repository and Plugin pins are unchanged.
 
 ## Tested boundary
 
-- Official Codex 0.153.0 and Claude Code 2.1.259, macOS arm64 and Debian 12 arm64.
+- Official Codex 0.153.0 and Claude Code 2.1.259, locked npm packages installed
+  with `npm ci --ignore-scripts`. Current tests use macOS arm64, GitHub Ubuntu
+  24.04 amd64 and isolated Ubuntu 24.04.5 arm64 (OrbStack kernel 7.0.14).
 - Each client uses a private synthetic authentication home. The initial Run has
   no API-key environment variable; cached authentication reaches a local model
   fixture. A later Run also checks optional credential environment scrubbing.
@@ -20,10 +24,30 @@ the root repository and Plugin pins are unchanged.
 - macOS uses an explicitly named temporary keychain and synthetic password:
   readable by the outside positive control, not returned by either tool. The
   operator's login keychain is never queried or unlocked.
-- Linux is exercised in a disposable non-root container with no host mounts and
-  no external network. Container proc masking/seccomp/AppArmor are disabled only
-  for this test harness so nested user/PID sandboxes can start. Writable fixture
-  files live in tmpfs. Docker is not a Node runtime feature or requirement.
+- Current GitHub Ubuntu testing uses the workflow's per-executable bubblewrap
+  userns authorization if the global restriction is enabled, checks that the
+  global value remains unchanged, and runs the actual host-auth/client suites.
+  It does not use a privileged Docker container or disable global AppArmor.
+- The separate Ubuntu arm64 machine has no host mounts or forwarded SSH agent.
+  Its OrbStack kernel lacks AppArmor and the Ubuntu userns sysctl; no system
+  policy was relaxed. Node 22.23.2 was downloaded from the official distribution
+  with SHA-256 verification; bubblewrap is 0.9.0. This is additional Linux
+  evidence, not a stock Ubuntu kernel test. An earlier offline Debian container
+  relaxed its outer policies and is now only historical evidence.
+- Admission tests drive both actual provider Run entrypoints, with two independent
+  session roots and a blocked local model request. The second client cannot reach
+  the model; canceling it leaves the first running; the next client proceeds after
+  completion. Separate compiled-test subprocesses verify cross-process exclusion,
+  cancellable waits, crash release, timeout/event errors and unsafe-path rejection.
+  Crash release proves the lock primitive only, not orphan-client cleanup.
+- Claude defaults to Bash. The opt-in matrix executes all five file tools, file
+  and directory symlinks, sandbox-created and host-preseeded hard links, and Linux
+  `/proc/self` aliases. Positive controls ensure tools actually work. Host-preseeded
+  hard links disclose synthetic contents through Read/Grep and Bash: they remain
+  explicitly unsafe inputs. Passing means the documented assertions hold, not
+  that every attempted read is denied. Check/open link swaps remain untested.
+- Codex host settings deliberately enable `view_image` and a synthetic `notify`
+  command in the fixture; native mode still hides that tool and never runs notify.
 
 ## Failures found and resolved during this work
 
@@ -42,18 +66,27 @@ the root repository and Plugin pins are unchanged.
 
 ## Results
 
-- Real-client acceptance: both providers pass on both systems (5 Codex and
-  13 Claude fixture requests per system). No real model or subscription is used.
-- Node: full `GOWORK=off go test -race -p 1 -count=1 ./...`, full candidate
-  workspace tests, `go vet`, build, and 12 JavaScript tests pass.
-- Dependency/package boundary checks pass for six OS/architecture targets,
-  including CGO variants. No SDK, CLI or Plugin reverse dependency is introduced.
-- Plugin's `packages/agent-adapters/...` passes both candidate-workspace and
-  `GOWORK=off` local-replacement tests. This is source compatibility evidence,
-  not public-module resolution or a Plugin version bump.
-- CI now installs exact official-client versions from a lockfile with lifecycle
-  scripts disabled. Linux verified the locator against those installed packages.
-  The updated GitHub workflow itself has not run for this local candidate.
+[GitHub CI 34810002330](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34810002330)
+is successful for implementation `25c49b2`:
+
+| Job/environment | Result |
+| --- | --- |
+| `test`, Ubuntu 24.04 amd64 | Full tests, race, vet, release build/staging and dependency boundaries passed |
+| `native-session-isolation (ubuntu-latest)` | Actual host-auth, admission and file-tool/link tests passed, not skipped |
+| `native-session-isolation (macos-latest)` | Same current client tests passed, including temporary synthetic keychain |
+| Local macOS arm64 | Full `GOWORK=off go test -race -count=1 ./...`, real-client suite, workspace tests and vet passed |
+| Isolated Ubuntu 24.04.5 arm64 | Compiled current adapter tests: host-auth, admission and complete link matrix passed; no race instrumentation in this cross-compiled binary |
+
+The cached-auth suite uses 5 Codex and 13 Claude fixture requests per system;
+the admission suite adds independent synthetic model calls. No real model or
+subscription is used. The CI script also retains separate SRT regression coverage;
+that coverage is not the proof for the current host-auth production path.
+
+Six-target module/package boundary checks pass, including CGO variants. Plugin's
+actual `packages/agent-adapters/agent` appfiles consumers pass both candidate
+workspace and `GOWORK=off` temporary-local-replacement tests; its host packages
+also pass with the local replacement. No dependency declarations were changed.
+This is source compatibility evidence, not a Plugin version bump or root pin.
 
 ## Remaining limits
 
@@ -61,7 +94,11 @@ No per-session memory, disk, process-count or spending hard quota. Actual model
 calls, WebSearch, live account refresh and all keychain/IPC attack paths have not
 been accepted. Trust the official binary, OS administrator and approved code
 paths; keep experimental access limited to trusted callers. This is not account
-sharing authorization or proof against a compromised client.
+sharing authorization or proof against a compromised client. Native serial
+admission cannot coordinate external/older/opt-out clients. A hard-killed Node
+can leave a client alive after the lock releases; inspect and stop that Node's
+remaining clients before restarting. No real token-rotation test or guarantee
+of account-wide exclusion is claimed.
 
 Old SRT histories stay untouched and are not imported. Migration starts a new
 scope once; later Runs resume that scope. See [setup and migration](native-session-isolation.md).

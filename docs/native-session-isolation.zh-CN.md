@@ -136,10 +136,12 @@ host-auth 存储 scope，不会复制或删除旧工作区、历史或可能包�
 真实账号额度；这不代表真实模型、WebSearch 或账号合规已完成验收。CI 配置了两套系统，
 在 PR 或版本 tag 推送时触发；配置存在不等于已跑绿。
 
-本主机认证候选的本地 Linux 证据来自断网、非 root、无宿主目录挂载的容器。为启动
-内层客户端沙箱，外层容器放宽了 seccomp、AppArmor 与系统路径屏蔽。这没有关闭内层
-客户端沙箱，但不能证明默认 Ubuntu 策略兼容。当前候选的 Ubuntu 主机/VM 与 GitHub
-runner 验收仍待完成；旧的整个客户端 SRT 模式验收不能替代它们。
+当前源码 `25c49b2` 已通过 [PR #36 CI](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34810002330)
+的 macOS 与 Ubuntu 24.04 amd64 验证，包含实际客户端认证复用、链接和排队测试。
+本地 macOS arm64 与隔离的 Ubuntu 24.04.5 arm64 OrbStack 环境也通过。后者使用
+OrbStack 内核且没有 AppArmor；GitHub Ubuntu 提供保留系统策略、按可执行文件授权
+userns 的独立证据。这不代表所有 Linux 宿主或真实账号都已通过；详见
+[当前验收记录](host-auth-acceptance.md)，旧容器与整个客户端 SRT 记录不能替代它。
 
 Linux 的空白 tmpfs 覆盖层可能允许创建同名临时文件，验收以宿主真实认证文件和
 目录未被修改为准；写入隔离覆盖层不等于获得宿主写权限。

@@ -50,22 +50,29 @@ Resolve verified gaps via supported client coordination/upstream fixes or an
 explicitly documented admission policy; a Node-only lock cannot coordinate
 independently launched clients.
 
-## P2: current host-auth Linux host/CI acceptance — pending
+## Current host-auth Linux host/CI acceptance — current-source evidence collected
 
-For candidates `19511c5` / `9e1579f`, Linux evidence is a non-root, offline,
-no-host-mount container using the locked official clients. To permit nested
-sandboxing, its outer Docker seccomp/AppArmor policies and system-path masking
-were relaxed (`seccomp=unconfined`, `apparmor=unconfined`,
-`systempaths=unconfined`). This does not disable the inner client sandbox, but
-does not validate stock Ubuntu policy or the target host's prerequisites.
+Node `25c49b2c24449754d428a48bedf15fdd5be1d6bf` passed all three jobs in
+[PR #36 CI 34810002330](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34810002330):
+full tests/race/vet/build/boundaries, native macOS and native Ubuntu. Logs confirm
+that both installed-client cached-auth, admission and file-tool/link suites ran
+and passed rather than skipped. The Ubuntu 24.04 amd64 runner uses only the
+existing executable-specific bubblewrap userns profile when needed, retaining
+the global userns restriction; this is not the earlier relaxed Docker harness.
+The workflow still contains separate historical SRT regression tests, whose
+results are not substituted for the host-auth tests.
 
-Run the current commit on a supported Ubuntu host/VM and the GitHub Linux runner,
-retaining system protections and documenting any executable-specific userns
-authorization. Record the commit, OS/kernel, client versions, policy and actual
-results. The old SRT Ubuntu/CI record is historical and cannot close this item.
-The workflow is configured for PR events and `v*` tag pushes; an ordinary branch
-push alone does not trigger it. A successful current PR run would add hosted
-Linux runner evidence, not prove every target Linux deployment or real login.
+The same implementation also passed native macOS arm64 and a dedicated non-root
+Ubuntu 24.04.5 arm64 OrbStack machine. The latter has no host mounts or SSH-agent
+forwarding, but runs OrbStack kernel 7.0.14 rather than the stock Ubuntu kernel;
+AppArmor and its userns sysctl are unavailable there. No global security policy
+was relaxed for this run. GitHub Ubuntu runner evidence supplies the separate
+AppArmor-capable environment. See [acceptance](host-auth-acceptance.md).
+
+This closes the missing current Linux runner evidence, not acceptance of every
+target Linux deployment, a binary release, real account refresh or live models.
+New release commits must still pass their own CI. Older container/SRT records
+remain historical only.
 
 ## Current candidate: file tools and legacy API
 

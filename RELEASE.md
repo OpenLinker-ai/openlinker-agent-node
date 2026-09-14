@@ -58,9 +58,11 @@ stage both host-auth native-isolation guides with the binary; the existing
 checksum covers those files. They no longer include the old SRT installer.
 Run `node --test scripts/stage-native-sandbox.test.mjs` before packaging.
 The installed official client remains trusted and is not attested by the Node
-binary. Shared-login refresh concurrency, current host-auth Ubuntu/CI evidence
-and resource quotas remain open; do not label a prerelease safe for untrusted
-callers or count historical SRT CI as host-auth acceptance.
+binary. Current host-auth source has macOS/Ubuntu CI evidence recorded in
+`docs/host-auth-acceptance.md`; verify the actual release commit separately.
+Real shared-login refresh and resource quotas remain open; Node serial admission
+is cooperative, not account-wide exclusion. Do not label a prerelease safe for
+untrusted callers or count historical SRT CI as host-auth acceptance.
 
 Include this migration note in the release: moving from whole-client SRT to
 host-auth mode starts a fresh workspace/native session once, retaining old

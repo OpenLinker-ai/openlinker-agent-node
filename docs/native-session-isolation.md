@@ -188,11 +188,15 @@ These tests do not spend subscription/API quota and do not establish real model,
 WebSearch or account-policy acceptance. The macOS/Linux CI matrix is configured
 to run this suite on PRs and version-tag pushes; configuration is not a pass result.
 
-For this host-auth candidate, local Linux evidence comes from an offline,
-non-root container with no host mounts. Its outer seccomp/AppArmor policies and
-system-path masking were relaxed to allow the inner client sandbox to start.
-Current-candidate Ubuntu host/VM and GitHub runner acceptance remain pending;
-historical whole-client SRT results do not substitute for them.
+Current source `25c49b2` passed the GitHub macOS and Ubuntu 24.04 amd64 jobs in
+[PR #36 CI](https://github.com/OpenLinker-ai/openlinker-agent-node/actions/runs/34810002330),
+including actual installed-client host-auth, link and admission tests. Local
+macOS arm64 and an isolated Ubuntu 24.04.5 arm64 OrbStack machine also passed.
+The latter uses the OrbStack kernel without AppArmor; the hosted Ubuntu result
+provides separate evidence with its OS policy and executable-specific userns
+prerequisite. No result claims all target Linux hosts or live-account safety.
+See the [current acceptance record](host-auth-acceptance.md); older container and
+whole-client SRT results are not substituted for this candidate.
 
 Linux can create an identically named file in an empty private tmpfs overlay.
 The acceptance check verifies that host credential files/directories remain
