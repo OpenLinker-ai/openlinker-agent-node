@@ -9,13 +9,23 @@ or proof for untrusted public callers. Resource quotas and live account/model
 acceptance remain open. The old SRT package is retained only for its experimental
 leaf API and historical regression; Node native mode no longer uses that runner.
 
-## P2: shared host-login refresh concurrency — open, not reproduced
+## P2: shared host-login refresh concurrency — Node admission added; account-wide protection open
 
-Each active Run launches an official client using the same provider authentication
-home. Node's `session.lock` is scoped to a conversation; it does not serialize
-different conversations against the shared credential store. Capacity greater
-than one can overlap clients, and capacity one still overlaps with another Node,
-terminal or desktop client using the same login.
+Native mode defaults to cooperative serial admission per OS user/provider. This
+covers participating Node processes even with different Agent, session-root or
+auth-home configuration. The lock is held before client startup until exit,
+retries and session persistence complete; the conversation lock remains separate.
+Waits consume the Run timeout and an assigned capacity slot, emit one waiting
+event and are independently cancellable. Unsafe lock files fail closed. The OS
+releases a crashed lock holder without stale-file deletion. Tests of that cleanup
+prove the lock primitive, not cleanup of an orphan official client.
+
+`HOST_AUTH_CONCURRENCY=client-managed` explicitly opts out; use it only after
+independent client/auth concurrency validation. Nodes predating this policy and
+independently launched terminal/desktop clients do not participate. On a hard
+Node crash, an orphan client can outlive the lock: check and stop that Node's
+remaining clients before restart. Account-wide exclusion and real token rotation
+are still open, not claimed fixed by admission.
 
 The inspected [Codex 0.153.0 refresh implementation](https://github.com/openai/codex/blob/rust-v0.153.0/codex-rs/login/src/auth/manager.rs)
 has a process-local semaphore and a guarded reload of changed authentication.
@@ -25,11 +35,10 @@ auth tests use a cached API key or unexpired OAuth token and do not exercise
 concurrent token rotation, persistent-auth write races or recovery from them.
 Do not describe this as a reproduced logout, account ban or credential leak.
 
-For account-sensitive evaluation, set `OPENLINKER_AGENT_NODE_CAPACITY=1` and avoid
-other clients concurrently using that login. This reduces overlap; it is not an
-account-wide lock or a guarantee. Static API-key authentication does not use this
-OAuth-refresh path. Node must not start parsing/proxying subscription tokens to
-work around the gap, and no concurrency default is changed by this record.
+For account-sensitive evaluation keep native serial admission and avoid other
+clients using that login. Static API-key authentication does not use OAuth refresh,
+but Node does not read credentials to detect the mode or silently opt out. Node
+must not start parsing/proxying subscription tokens to work around the gap.
 
 Before claiming concurrent shared-login support, test both installed clients
 with private synthetic refreshable credentials and a controlled local issuer:

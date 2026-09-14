@@ -409,7 +409,9 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 **实验性，仅供可信调用方，尚无会话级资源硬配额。** Node 复用主机 Codex/Claude
 客户端认证，不需要在沙箱重新登录，也不强制增加 API key 环境变量。官方客户端
 负责认证。Claude 默认只开沙箱 Bash，客户端内文件工具需显式开启，其安全边界不同；
-Codex 在此模式关闭客户端内图片读取与主机通知命令。一个 Node 支持并发会话和 A-B-A 恢复。
+Codex 在此模式关闭客户端内图片读取与主机通知命令。一个 Node 保留多个会话并支持 A-B-A
+恢复；native 客户端默认按系统用户和 Provider 串行运行，减少共用登录的刷新重叠。
+`HOST_AUTH_CONCURRENCY=client-managed` 显式放开并发；独立的桌面和终端客户端不参与此锁。
 
 详见[主机认证与原生隔离](docs/native-session-isolation.zh-CN.md)：macOS/Linux 安装、
 版本要求、迁移、网关行为及验收边界。这是源码变更，不会自动升级二进制或切换运行中

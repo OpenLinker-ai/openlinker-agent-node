@@ -21,6 +21,9 @@ func AcquireLock(path string) (*Lock, error) {
 	}
 	handle, err := windows.CreateFile(pathUTF16, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, 0)
 	if err != nil {
+		if errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+			return nil, ErrLockBusy
+		}
 		return nil, errors.New("Agent state is already serving another Runtime Worker")
 	}
 	var info windows.ByHandleFileInformation

@@ -32,6 +32,9 @@ func TestNativeIsolationOneNodeConcurrentSessionRouting(t *testing.T) {
 			}
 			values["OPENLINKER_AGENT_NODE_"+strings.ToUpper(name)+"_BIN"] = bin
 			values["OPENLINKER_AGENT_NODE_CAPACITY"] = "2"
+			// These peers have no rotating host login. Explicitly test session
+			// routing with parallel client admission, separately from auth gates.
+			values["OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY"] = "client-managed"
 			node, err := NewFromLookup(func(k string) string { return values[k] })
 			if err != nil {
 				t.Fatal(err)

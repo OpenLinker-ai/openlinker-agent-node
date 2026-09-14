@@ -7,6 +7,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Native clients now default to cooperative serial admission per OS user/provider,
+  across Node processes and session/authentication roots. Waiting respects Run
+  cancellation and timeout; `HOST_AUTH_CONCURRENCY=client-managed` explicitly
+  allows parallel clients. Existing native capacity greater than one will queue
+  provider work by default; session scope/history is unchanged. This does not
+  coordinate external clients or guarantee OAuth rotation/orphan-process safety.
+- Expose `appfiles.ErrLockBusy` for typed contention without changing the legacy
+  contention message; unsafe lock files fail instead of being retried as busy.
 - Native isolation now reuses the installed Codex/Claude client's authentication
   and restricts its tools. No per-session login or mandatory dedicated key.
 - Native Claude local tools now default to Bash only. In-process Read/Grep/Glob/

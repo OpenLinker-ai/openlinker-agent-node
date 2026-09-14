@@ -46,6 +46,11 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	releaseAuth, err := acquireHostAuthPermit(requestCtx, config, run.Emit)
+	if err != nil {
+		return openlinker.RuntimeResult{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseAuth()) }()
 
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "codex", workspace)

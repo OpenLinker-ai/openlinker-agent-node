@@ -14,6 +14,7 @@ import (
 // Legacy Node session maps are not imported; Core history seeds a new session.
 type CodexAdapter struct {
 	SessionIsolation     sessionsandbox.Config
+	HostAuthConcurrency  string
 	CodexBin             string
 	BaseURL              string
 	Workspace            string
@@ -37,9 +38,10 @@ func (a *CodexAdapter) native() *NativeAdapter {
 	a.once.Do(func() {
 		a.adapter = &NativeAdapter{Config: agentexec.ProviderConfig{
 			Provider: "codex", Bin: a.CodexBin, Workspace: a.Workspace,
-			CodexBaseURL:     a.BaseURL,
-			SessionIsolation: a.SessionIsolation,
-			Sandbox:          a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
+			CodexBaseURL:        a.BaseURL,
+			SessionIsolation:    a.SessionIsolation,
+			HostAuthConcurrency: a.HostAuthConcurrency,
+			Sandbox:             a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
 			Timeout: a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,

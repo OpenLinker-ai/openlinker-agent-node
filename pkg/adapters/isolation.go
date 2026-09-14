@@ -10,6 +10,9 @@ import (
 )
 
 func validateSessionIsolation(c ProviderConfig) error {
+	if err := validateHostAuthConcurrency(c); err != nil {
+		return err
+	}
 	if err := c.SessionIsolation.Validate(); err != nil {
 		return err
 	}

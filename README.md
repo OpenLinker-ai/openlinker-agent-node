@@ -480,7 +480,10 @@ require another login or new API-key environment variables. The official client
 owns authentication. Claude defaults to sandboxed Bash; its in-process file tools
 require explicit opt-in and have a different security boundary. Codex disables
 in-process image viewing and host notification commands in this mode.
-One Node supports concurrent conversations and persistent A-B-A continuation.
+One Node retains multiple conversations and persistent A-B-A continuation. Native
+clients default to serial admission per OS user/provider to reduce shared-login
+refresh overlap. `HOST_AUTH_CONCURRENCY=client-managed` explicitly opts into
+parallel clients; independently launched desktop/terminal clients are not locked.
 
 See [host-auth native isolation](docs/native-session-isolation.md) for macOS/Linux
 setup, supported clients, migration, gateway behavior and verification limits.

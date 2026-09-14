@@ -57,6 +57,11 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	releaseAuth, authErr := acquireHostAuthPermit(requestCtx, config, run.Emit)
+	if authErr != nil {
+		return openlinker.RuntimeResult{}, authErr
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseAuth()) }()
 
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "claude", workspace)

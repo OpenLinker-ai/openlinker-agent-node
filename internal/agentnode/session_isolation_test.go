@@ -24,6 +24,7 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 	for _, name := range []string{"codex", "claude"} {
 		values := isolationValues(t, name)
 		values["OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"] = "/tmp/ol-private-temp"
+		values["OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY"] = "client-managed"
 		adapter, err := adapterFromEnv(func(k string) string { return values[k] }, name)
 		if err != nil {
 			t.Fatal(err)
@@ -40,6 +41,9 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 		if !native.Config.SessionIsolation.Enabled() || native.Config.SessionIsolation.Namespace != "https://core.example" || !native.Config.SessionReuse || native.Config.SessionIsolation.TempRoot != values["OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"] {
 			t.Fatal("isolation settings lost")
 		}
+		if native.Config.HostAuthConcurrency != "client-managed" {
+			t.Fatal("host-auth admission policy lost before production provider")
+		}
 		// Empty explicit environments cannot silently fall back to a personal login.
 		native.Config.Env = []string{"PATH=" + os.Getenv("PATH")}
 		if err := native.Preflight(context.Background()); err == nil || !strings.Contains(err.Error(), "HOME") {
@@ -49,6 +53,17 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 }
 
 func TestNativeIsolationRejectsIgnoredOptionsAndMockBypass(t *testing.T) {
+	for _, mode := range []string{"codex", "claude", "http", "openclaw", "command", "a2a"} {
+		for _, isolationMode := range []string{"", "off"} {
+			values := map[string]string{
+				"OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY": "serial",
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION":     isolationMode,
+			}
+			if _, err := adapterFromEnv(func(k string) string { return values[k] }, mode); err == nil || !strings.Contains(err.Error(), "HOST_AUTH_CONCURRENCY") {
+				t.Fatalf("auth policy ignored outside native mode %s/%s: %v", mode, isolationMode, err)
+			}
+		}
+	}
 	for _, mode := range []string{"http", "openclaw", "command", "a2a"} {
 		v := isolationValues(t, "codex")
 		if _, err := adapterFromEnv(func(k string) string { return v[k] }, mode); err == nil {
@@ -56,6 +71,7 @@ func TestNativeIsolationRejectsIgnoredOptionsAndMockBypass(t *testing.T) {
 		}
 	}
 	for _, change := range []func(map[string]string){
+		func(v map[string]string) { v["OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY"] = "typo-do-not-echo" },
 		func(v map[string]string) { v["OPENLINKER_AGENT_NODE_SESSION_ISOLATION"] = "off" },
 		func(v map[string]string) { v["OPENLINKER_URL"] = "https://token@core.example" },
 		func(v map[string]string) { v["OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"] = "fake" },

@@ -57,12 +57,28 @@ as conversation history. Codex controls the resumed thread ID; Claude additional
 partitions its project transcripts using `CLAUDE_CODE_PROJECT_DIR_NAME`, while
 keeping `CLAUDE_CONFIG_DIR` unchanged for authentication.
 
-The conversation lock is **not a shared-login lock**. Concurrent Runs can launch
-clients that refresh the same host login. This has not been exercised by the
-cached-auth fixtures. For account-sensitive evaluation use
-`OPENLINKER_AGENT_NODE_CAPACITY=1` and avoid concurrent use of that login by other
-Node/terminal/desktop clients; capacity one alone is not account-wide protection.
-See the [open refresh-concurrency item](native-session-isolation-follow-ups.md).
+Native mode additionally defaults to `HOST_AUTH_CONCURRENCY=serial`: one Node
+client per OS user and provider at a time, even across Node processes, Agents,
+session roots and distinct authentication homes. Node does not inspect credentials
+to infer which homes share an account. This conservative admission policy holds
+a private OS file lock before launching the client through its exit, retries and
+session persistence. Waiting is cancellable, counts toward the Run timeout and
+uses an assigned capacity slot. A waiting Run emits one status event.
+
+`HOST_AUTH_CONCURRENCY=client-managed` explicitly permits concurrent clients.
+Use it only for workloads whose client/authentication concurrency is independently
+verified; it does not add token-refresh protection. Ordinary mode is unchanged.
+
+This is **cooperative Node admission, not an account-wide refresh lock**. Older
+Nodes, opt-out Nodes and separately launched terminal/desktop clients do not
+participate. Avoid sharing a login with those clients during account-sensitive
+evaluation. Normal cancellation waits for client shutdown before releasing the
+lock. A hard-killed Node can leave an orphan client after its lock is released;
+check and stop that Node's remaining client processes before restarting it.
+Do not delete `/tmp/openlinker-node-host-auth-<uid>-<provider>.lock` while any Node
+is running: the file is retained intentionally, and the OS releases ownership.
+Real OAuth rotation remains untested; see the
+[open refresh-concurrency item](native-session-isolation-follow-ups.md).
 
 ## Setup
 
@@ -91,6 +107,7 @@ run Node as root. Options use the `OPENLINKER_AGENT_NODE_` prefix:
 | Option | Meaning |
 | --- | --- |
 | `SESSION_ISOLATION` | `off` (default) or `native` |
+| `HOST_AUTH_CONCURRENCY` | Native only: unset/`serial` serializes Node clients per OS user/provider; `client-managed` explicitly allows concurrent clients |
 | `SESSION_ROOT` | Private persistent storage |
 | `SESSION_TEMP_ROOT` | Optional private, short temporary root (resolved path ≤40 bytes) |
 | `SESSION_READ_PATHS` | JSON array of additional read-only code/library paths for shell tools; may not expose auth or session/control directories |

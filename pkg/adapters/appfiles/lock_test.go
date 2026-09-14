@@ -77,7 +77,7 @@ func TestLockExclusiveAcrossProcessesAndRelease(t *testing.T) {
 	if competing, err := AcquireLock(path); err == nil {
 		_ = competing.Release()
 		t.Fatal("parent acquired the lock while child was holding it")
-	} else if err.Error() != "Agent state is already serving another Runtime Worker" {
+	} else if err.Error() != "Agent state is already serving another Runtime Worker" || !errors.Is(err, ErrLockBusy) {
 		t.Fatalf("unexpected competing lock error: %v", err)
 	}
 	if err := stdin.Close(); err != nil {

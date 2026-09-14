@@ -39,10 +39,21 @@ key 与 Core 命名空间共同决定存储位置，不接受 payload 自报身�
 A → B → A 会恢复 A。不会把主机个人聊天历史导入会话。Codex 使用受控的 thread ID；
 Claude 另用 `CLAUDE_CODE_PROJECT_DIR_NAME` 分开项目记录，同时保持认证目录不变。
 
-会话锁**不是主机登录锁**。并发 Run 会启动多个复用同一认证的客户端，可能同时刷新
-登录；现有缓存认证测试没有验证令牌轮换。账号敏感的试验先显式设置
-`OPENLINKER_AGENT_NODE_CAPACITY=1`，并避免其他 Node、终端或桌面客户端同时使用这份登录。
-仅设置 capacity=1 不能保护整个账号；详见[并发刷新待办](native-session-isolation-follow-ups.md)。
+native 模式另默认采用 `HOST_AUTH_CONCURRENCY=serial`：同一系统用户下，每种 Provider
+同时只运行一个由 Node 启动的客户端，跨 Node 进程、Agent、会话目录和不同认证目录
+也生效。Node 不读取凭据来判断是否同一账号，因此这个默认值较为保守。私有文件锁
+从启动客户端之前保持到进程退出、重试与会话保存结束。等待可取消、计入 Run 超时，
+并占用已分配的 capacity slot；开始等待时会输出一次状态事件。
+
+显式设置 `HOST_AUTH_CONCURRENCY=client-managed` 才允许客户端并行；仅用于已独立验证
+客户端与认证并发安全的配置，它不会增加令牌刷新保护。普通非 native 模式不受影响。
+
+这属于 **Node 协作式排队，不是整个账号的刷新锁**。旧版本 Node、显式放开并发的 Node、
+独立启动的终端或桌面客户端均不参与，账号敏感的测试应避免与它们共用登录。正常取消
+会等客户端停止再释放锁；强制杀死 Node 则可能在锁已释放后留下客户端进程，重启前应
+检查并停止该 Node 遗留的客户端。运行期间不要删除
+`/tmp/openlinker-node-host-auth-<uid>-<provider>.lock`；保留文件是刻意设计，锁由 OS 释放。
+真实 OAuth 轮换仍未验证，详见[并发刷新待办](native-session-isolation-follow-ups.md)。
 
 ## 配置
 
@@ -68,6 +79,7 @@ export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 | 参数 | 含义 |
 | --- | --- |
 | `SESSION_ISOLATION` | 默认 `off`，选择 `native` 开启 |
+| `HOST_AUTH_CONCURRENCY` | 仅 native：未设置/`serial` 按系统用户与 Provider 串行运行 Node 客户端；`client-managed` 显式允许并发 |
 | `SESSION_ROOT` | 私有持久目录 |
 | `SESSION_TEMP_ROOT` | 可选私有临时目录，解析后路径不超过 40 字节 |
 | `SESSION_READ_PATHS` | 为 shell 额外开放的只读代码/库路径 JSON 数组；不能暴露认证、会话和控制目录 |
