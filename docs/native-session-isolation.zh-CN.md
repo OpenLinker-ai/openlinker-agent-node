@@ -39,11 +39,23 @@ key 与 Core 命名空间共同决定存储位置，不接受 payload 自报身�
 A → B → A 会恢复 A。不会把主机个人聊天历史导入会话。Codex 使用受控的 thread ID；
 Claude 另用 `CLAUDE_CODE_PROJECT_DIR_NAME` 分开项目记录，同时保持认证目录不变。
 
-native 模式另默认采用 `HOST_AUTH_CONCURRENCY=serial`：同一系统用户下，每种 Provider
-同时只运行一个由 Node 启动的客户端，跨 Node 进程、Agent、会话目录和不同认证目录
-也生效。Node 不读取凭据来判断是否同一账号，因此这个默认值较为保守。私有文件锁
-从启动客户端之前保持到进程退出、重试与会话保存结束。等待可取消、计入 Run 超时，
-并占用已分配的 capacity slot；开始等待时会输出一次状态事件。
+native 模式默认采用 `HOST_AUTH_CONCURRENCY=serial`：共享主机 HOME 的 Node 对同一种
+Provider 排队。锁固定在 `$HOME/.local/state/openlinker-agent-node/host-auth-<provider>.lock`，
+使用可信客户端的 HOME，不使用会话内 HOME、TMPDIR 或 XDG_STATE_HOME。最终目录 0700、
+锁文件 0600；不会自动修改已有目录权限。HOME 别名会解析为真实路径；HOME 下的符号链接、
+异常属主或可被其他用户写入的父目录会导致失败，不会退回 `/tmp`。工具不能读写或删除
+这组控制文件，也不能把会话存储放进这个保留目录。
+
+跨 Node 进程、Agent、会话目录互斥的前提是：**共享底层 HOME 状态目录，且文件系统提供
+可用的 OS 文件锁**。私有 `/tmp` 不再拆开锁；不同 HOME、容器各自的 HOME 挂载或状态
+副本仍然会拆开锁，即使路径字符串相同或共用同一账号。Node 无法检测另一个命名空间
+的挂载与账号关系；这也不是跨设备的分布式锁。
+
+锁从启动客户端之前保持到退出、重试和会话保存结束。等待可取消、计入 Run 超时、
+占用已分配的 slot，并输出一次等待状态。串行模式建议显式设置
+`OPENLINKER_AGENT_NODE_CAPACITY=1`，避免先领取多项任务后在本机空等，让其他 Node
+保留获得派发的机会。程序不擅自覆盖配置的 capacity。等待方每 50ms 重试，**不保证 FIFO
+或公平性**；持续竞争时可能直到超时也未开始执行。
 
 显式设置 `HOST_AUTH_CONCURRENCY=client-managed` 才允许客户端并行；仅用于已独立验证
 客户端与认证并发安全的配置，它不会增加令牌刷新保护。普通非 native 模式不受影响。
@@ -52,7 +64,8 @@ native 模式另默认采用 `HOST_AUTH_CONCURRENCY=serial`：同一系统用户
 独立启动的终端或桌面客户端均不参与，账号敏感的测试应避免与它们共用登录。正常取消
 会等客户端停止再释放锁；强制杀死 Node 则可能在锁已释放后留下客户端进程，重启前应
 检查并停止该 Node 遗留的客户端。运行期间不要删除
-`/tmp/openlinker-node-host-auth-<uid>-<provider>.lock`；保留文件是刻意设计，锁由 OS 释放。
+HOME 下的新锁文件；保留文件是刻意设计，锁由 OS 释放。从旧 `/tmp` 锁候选升级前，
+须停止旧版本 Node，并等待或停止其客户端；新旧路径不互斥。升级不自动删除旧锁或会话。
 真实 OAuth 轮换仍未验证，详见[并发刷新待办](native-session-isolation-follow-ups.md)。
 
 ## 配置
@@ -67,6 +80,7 @@ user/network/PID namespaces，Claude 另需 `bwrap`、`socat`、`rg`。macOS 使
 ```sh
 export OPENLINKER_AGENT_NODE_ADAPTER=codex # 或 claude
 export OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native
+export OPENLINKER_AGENT_NODE_CAPACITY=1 # 默认串行模式建议值
 export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true # Claude 改为 CLAUDE_SESSION_REUSE
 export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 # 保留原来的 HOME，以及已配置的 CODEX_HOME / CLAUDE_CONFIG_DIR。
@@ -79,7 +93,7 @@ export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 | 参数 | 含义 |
 | --- | --- |
 | `SESSION_ISOLATION` | 默认 `off`，选择 `native` 开启 |
-| `HOST_AUTH_CONCURRENCY` | 仅 native：未设置/`serial` 按系统用户与 Provider 串行运行 Node 客户端；`client-managed` 显式允许并发 |
+| `HOST_AUTH_CONCURRENCY` | 仅 native：未设置/`serial` 按共享主机 HOME 与 Provider 串行运行 Node 客户端；`client-managed` 显式允许并发 |
 | `SESSION_ROOT` | 私有持久目录 |
 | `SESSION_TEMP_ROOT` | 可选私有临时目录，解析后路径不超过 40 字节 |
 | `SESSION_READ_PATHS` | 为 shell 额外开放的只读代码/库路径 JSON 数组；不能暴露认证、会话和控制目录 |

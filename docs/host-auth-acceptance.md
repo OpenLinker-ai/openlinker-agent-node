@@ -1,11 +1,32 @@
 # Host authentication and tool isolation acceptance
 
-Candidate: `codex/native-auth-reuse`, based on Node `be13e3a`. Current implementation
+Candidate: `codex/native-auth-reuse`, based on Node `be13e3a`. Initial admission implementation
 `25c49b2c24449754d428a48bedf15fdd5be1d6bf`, verified on 2026-09-14 in
 [PR #36](https://github.com/OpenLinker-ai/openlinker-agent-node/pull/36). This record
 does not claim a release, root version update or deployment.
 Only Node source changes. Plugin consumes the shared leaf in compatibility tests;
 the root repository and Plugin pins are unchanged.
+
+## HOME-lock follow-up
+
+The follow-up in the same PR moves the coordination lock into private host HOME
+state. Multiple participating Nodes must share the underlying state inode; different
+HOME mounts/values are not coordinated. Native serial setups should use capacity
+1; 50ms polling is non-FIFO and bounded by Run timeout. Stop older `/tmp`-lock
+Nodes and their clients before upgrade; session scope/history does not change.
+
+Local macOS and isolated Ubuntu arm64 tests exercise the production lock with
+HOME aliases, unsafe directories, cancellation and process death. The Linux
+`TestHostAuthPermitWithPrivateTmp` uses a real bwrap mount/user namespace with
+empty `/tmp` and rebinds the same HOME at a different path. A sentinel confirms
+that `/tmp` is private; the child waits until the parent releases the HOME lock.
+It is a namespace regression, not a test of a shipped systemd unit (none exists).
+Both actual client Run paths additionally try reading a synthetic state canary,
+writing this directory and unlinking the lock. Host inode/content checks and
+captured tool outputs confirm denial in the tested cases. Credentials remain
+synthetic. The CI matrix executes this regression in the Linux native job;
+the earlier CI links below document the pre-HOME-lock implementation, not the
+follow-up's exact commit. Its final commit/checks are recorded in PR #36.
 
 ## Tested boundary
 

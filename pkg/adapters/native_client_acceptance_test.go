@@ -141,6 +141,18 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				mustWrite(filepath.Join(conf, ".credentials.json"), jsonObject(map[string]any{"claudeAiOauth": map[string]any{"accessToken": canary, "refreshToken": "synthetic-refresh", "expiresAt": time.Now().Add(time.Hour).UnixMilli(), "scopes": []string{"user:inference", "user:profile"}, "subscriptionType": "pro", "rateLimitTier": "default_claude_pro"}}))
 				mustWrite(filepath.Join(home, ".claude.json"), `{"hasCompletedOnboarding":true,"oauthAccount":{"accountUuid":"00000000-0000-4000-8000-000000000001","organizationUuid":"00000000-0000-4000-8000-000000000002","emailAddress":"fixture@example.invalid"}}`)
 			}
+			lockPath, err := hostAuthLockPath(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mustWrite(lockPath, "")
+			lockInfo, err := os.Stat(lockPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stateCanary := filepath.Join(filepath.Dir(lockPath), "state-canary")
+			stateWrite := filepath.Join(filepath.Dir(lockPath), "unexpected-tool-write")
+			mustWrite(stateCanary, canary)
 			// Prepare through the production scope allocator, then release the lock so
 			// the production Provider.Run takes exactly the same session directories.
 			workspaces := map[string]string{}
@@ -153,6 +165,7 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				// Execute an opaque script: client permission heuristics cannot satisfy
 				// this test merely by refusing an absolute path before OS execution.
 				script := "printf allowed > own.txt\nif printf forbidden > " + jsonString(filepath.Join(conf, "tool-write")) + "; then echo AUTH_WRITE_SUCCEEDED; fi\ncat escape\ncat " + jsonString(other) + "\ncat " + jsonString(filepath.Join(conf, "auth.json")) + "\ncat " + jsonString(filepath.Join(conf, ".credentials.json")) + "\n/bin/ps eww -p $PPID\nfor e in /proc/[0-9]*/environ; do grep -aoh synthetic-parent-env-canary \"$e\" 2>/dev/null; done\nenv\n/usr/bin/curl -sSf --max-time 2 " + jsonString(server.URL+"/tool-egress") + " >/dev/null && echo NETWORK_ESCAPE\n"
+				script += "cat " + jsonString(stateCanary) + "\nrm -f " + jsonString(lockPath) + "\nprintf forbidden > " + jsonString(stateWrite) + "\n"
 				mustWrite(filepath.Join(prepared.Workspace, "probe.sh"), script+keychainProbe)
 				if err := os.Symlink(other, filepath.Join(prepared.Workspace, "escape")); err != nil {
 					t.Fatal(err)
@@ -206,6 +219,16 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 					}
 					raw = append(raw, trace...)
 					t.Fatalf("run %s: %v; exposed tool names: %v; calls=%d; diagnostic=%s", key, err, tools, calls, raw)
+				}
+				after, statErr := os.Stat(lockPath)
+				if statErr != nil || !os.SameFile(lockInfo, after) {
+					t.Fatal("tool removed or replaced coordination lock", statErr)
+				}
+				if _, err := os.Stat(stateWrite); !os.IsNotExist(err) {
+					t.Fatal("tool wrote host coordination state", err)
+				}
+				if raw, err := os.ReadFile(stateCanary); err != nil || string(raw) != canary {
+					t.Fatal("tool changed coordination canary", err)
 				}
 				output := result.Output.(map[string]any)
 				results = append(results, output)

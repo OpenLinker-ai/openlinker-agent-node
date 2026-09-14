@@ -11,9 +11,12 @@ leaf API and historical regression; Node native mode no longer uses that runner.
 
 ## P2: shared host-login refresh concurrency — Node admission added; account-wide protection open
 
-Native mode defaults to cooperative serial admission per OS user/provider. This
-covers participating Node processes even with different Agent, session-root or
-auth-home configuration. The lock is held before client startup until exit,
+Native mode defaults to cooperative serial admission per shared host HOME/provider. This
+covers participating Nodes with different Agents/session roots only if their
+underlying host HOME state directory is shared. Private `/tmp` no longer splits
+locks; separate HOME mounts or state copies still do. HOME aliases are resolved,
+state is private and tools cannot modify it. Different HOME values with shared
+Codex/Claude credentials are not inferred to belong to the same group. The lock is held before client startup until exit,
 retries and session persistence complete; the conversation lock remains separate.
 Waits consume the Run timeout and an assigned capacity slot, emit one waiting
 event and are independently cancellable. Unsafe lock files fail closed. The OS
@@ -49,6 +52,23 @@ to a fixture, record that limitation rather than exercise a personal account.
 Resolve verified gaps via supported client coordination/upstream fixes or an
 explicitly documented admission policy; a Node-only lock cannot coordinate
 independently launched clients.
+
+## Admission deployment follow-up
+
+- The old predictable `/tmp` lock could be precreated by another local user and
+  was separate under systemd `PrivateTmp`. Use the fixed private host-HOME state
+  directory, with checked parent ownership/permissions and no symlinks below HOME.
+  There is no temporary fallback or claim that separate HOME mounts coordinate.
+- Recommend `OPENLINKER_AGENT_NODE_CAPACITY=1` with default serial admission.
+  Waiting occupies assigned capacity and Run timeout; capacity is not silently
+  rewritten and no second scheduler is added to Node.
+- The 50ms contention retry is non-FIFO. Starvation until the Run deadline remains
+  possible. A fair cross-process queue is deferred for this experimental mode;
+  it would require its own cancellation/crash recovery protocol and does not
+  improve the credential boundary. Use low capacity and a single Node per host.
+- Stop old `/tmp`-lock Nodes and their remaining clients before upgrading. There
+  is no rolling mutual exclusion across different lock locations. Session scope
+  does not change and old locks/history are not deleted.
 
 ## Current host-auth Linux host/CI acceptance — current-source evidence collected
 

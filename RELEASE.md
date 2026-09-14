@@ -64,6 +64,11 @@ Real shared-login refresh and resource quotas remain open; Node serial admission
 is cooperative, not account-wide exclusion. Do not label a prerelease safe for
 untrusted callers or count historical SRT CI as host-auth acceptance.
 
+For the HOME-lock update, stop old `/tmp`-lock Node processes and settle/stop
+remaining clients before upgrade. Old and new locations do not coordinate. Native
+serial deployments should use capacity 1 and share the underlying HOME state
+storage; separate mounts with identical pathnames are insufficient.
+
 Include this migration note in the release: moving from whole-client SRT to
 host-auth mode starts a fresh workspace/native session once, retaining old
 directories without copying or deleting them. Subsequent Runs reuse the new

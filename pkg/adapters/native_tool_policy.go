@@ -97,7 +97,7 @@ func nativeHostPaths(env []string) []string {
 		values[k] = v
 	}
 	home := values["HOME"]
-	paths := []string{filepath.Join(home, ".codex"), filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, "Library/Keychains"), filepath.Join(home, ".ssh"), filepath.Join(home, ".aws")}
+	paths := []string{hostAuthStatePath(home), filepath.Join(home, ".codex"), filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json"), filepath.Join(home, "Library/Keychains"), filepath.Join(home, ".ssh"), filepath.Join(home, ".aws")}
 	for _, k := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR"} {
 		if values[k] != "" {
 			paths = append(paths, values[k])
@@ -196,6 +196,19 @@ func newNativeToolPolicy(c ProviderConfig, s *sessionsandbox.Session) (*nativeTo
 		}
 	}
 	writes := []string{s.Workspace(), s.ToolHome(), s.Temp()}
+	// Tools must not replace or unlink the coordination inode, including when
+	// an operator accidentally places session storage under this reserved root.
+	for _, entry := range c.Env {
+		if home, ok := strings.CutPrefix(entry, "HOME="); ok {
+			state := canonicalProspectivePath(hostAuthStatePath(home))
+			for _, grant := range writes {
+				if pathsOverlap(canonicalProspectivePath(grant), state) {
+					return nil, errors.New("session writable paths cannot overlap host-auth coordination state")
+				}
+			}
+		}
+	}
+
 	filesystem := map[string]string{":minimal": "read"}
 	fs := []string{`":minimal"="read"`}
 	for _, p := range read {

@@ -57,13 +57,29 @@ as conversation history. Codex controls the resumed thread ID; Claude additional
 partitions its project transcripts using `CLAUDE_CODE_PROJECT_DIR_NAME`, while
 keeping `CLAUDE_CONFIG_DIR` unchanged for authentication.
 
-Native mode additionally defaults to `HOST_AUTH_CONCURRENCY=serial`: one Node
-client per OS user and provider at a time, even across Node processes, Agents,
-session roots and distinct authentication homes. Node does not inspect credentials
-to infer which homes share an account. This conservative admission policy holds
-a private OS file lock before launching the client through its exit, retries and
-session persistence. Waiting is cancellable, counts toward the Run timeout and
-uses an assigned capacity slot. A waiting Run emits one status event.
+Native mode defaults to `HOST_AUTH_CONCURRENCY=serial`: one participating Node
+client per provider and shared host HOME at a time. The lock lives at
+`$HOME/.local/state/openlinker-agent-node/host-auth-<provider>.lock`, using the
+trusted client's HOME, not the session tool HOME, TMPDIR or XDG_STATE_HOME.
+State is owner-only (0700 directory, 0600 lock); existing directories are never
+chmodded. HOME aliases are canonicalized. Unsafe ownership, writable parents or
+symlinks beneath HOME fail closed, with no fallback to `/tmp`. Tools cannot read,
+write or unlink this reserved state; do not place session storage there.
+
+Multiple Node processes/Agents/session roots coordinate **only when they share
+the underlying HOME state directory and working OS file locks**. Private `/tmp`
+namespaces do not split this lock. Different container HOME mounts, different
+HOME values or isolated state copies still do, even if paths or client credentials
+match. Node cannot infer or detect another namespace's mount or shared account.
+This is a host-local file lock, not distributed coordination.
+
+The lock covers client startup, exit, retries and session persistence. Waiting is
+cancellable, counts toward the Run timeout, uses an assigned capacity slot and
+emits one status event. For serial mode, explicitly set
+`OPENLINKER_AGENT_NODE_CAPACITY=1` so this Node does not reserve extra Runs that
+could be dispatched elsewhere. Node does not silently change configured capacity.
+Waiters retry every 50ms; this is not FIFO. Sustained contention may cause a waiter
+to reach its timeout without running; there is no fairness guarantee.
 
 `HOST_AUTH_CONCURRENCY=client-managed` explicitly permits concurrent clients.
 Use it only for workloads whose client/authentication concurrency is independently
@@ -75,8 +91,11 @@ participate. Avoid sharing a login with those clients during account-sensitive
 evaluation. Normal cancellation waits for client shutdown before releasing the
 lock. A hard-killed Node can leave an orphan client after its lock is released;
 check and stop that Node's remaining client processes before restarting it.
-Do not delete `/tmp/openlinker-node-host-auth-<uid>-<provider>.lock` while any Node
-is running: the file is retained intentionally, and the OS releases ownership.
+Do not delete the HOME lock while any participating Node is running: the file
+is retained intentionally, and the OS releases ownership. When upgrading from
+the earlier `/tmp` lock candidate, stop all old participating Nodes and settle
+or stop their client processes before starting the new version. The two lock
+locations do not coordinate; no old lock/session data is deleted automatically.
 Real OAuth rotation remains untested; see the
 [open refresh-concurrency item](native-session-isolation-follow-ups.md).
 
@@ -95,6 +114,7 @@ before granting read access. It does not grant the authentication home or tmp tr
 ```sh
 export OPENLINKER_AGENT_NODE_ADAPTER=codex # or claude
 export OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native
+export OPENLINKER_AGENT_NODE_CAPACITY=1 # recommended with default serial admission
 export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true # CLAUDE_SESSION_REUSE for Claude
 export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 # Keep your existing HOME and, if configured, CODEX_HOME / CLAUDE_CONFIG_DIR.
@@ -107,7 +127,7 @@ run Node as root. Options use the `OPENLINKER_AGENT_NODE_` prefix:
 | Option | Meaning |
 | --- | --- |
 | `SESSION_ISOLATION` | `off` (default) or `native` |
-| `HOST_AUTH_CONCURRENCY` | Native only: unset/`serial` serializes Node clients per OS user/provider; `client-managed` explicitly allows concurrent clients |
+| `HOST_AUTH_CONCURRENCY` | Native only: unset/`serial` serializes Node clients per shared host HOME/provider; `client-managed` explicitly allows concurrent clients |
 | `SESSION_ROOT` | Private persistent storage |
 | `SESSION_TEMP_ROOT` | Optional private, short temporary root (resolved path ≤40 bytes) |
 | `SESSION_READ_PATHS` | JSON array of additional read-only code/library paths for shell tools; may not expose auth or session/control directories |

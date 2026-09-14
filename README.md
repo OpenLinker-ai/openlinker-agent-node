@@ -481,7 +481,7 @@ owns authentication. Claude defaults to sandboxed Bash; its in-process file tool
 require explicit opt-in and have a different security boundary. Codex disables
 in-process image viewing and host notification commands in this mode.
 One Node retains multiple conversations and persistent A-B-A continuation. Native
-clients default to serial admission per OS user/provider to reduce shared-login
+clients default to serial admission per shared host HOME/provider to reduce shared-login
 refresh overlap. `HOST_AUTH_CONCURRENCY=client-managed` explicitly opts into
 parallel clients; independently launched desktop/terminal clients are not locked.
 

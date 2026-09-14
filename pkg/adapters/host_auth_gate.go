@@ -3,8 +3,6 @@ package adapters
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -24,12 +22,21 @@ func validateHostAuthConcurrency(c ProviderConfig) error {
 	return nil
 }
 
-// One conservative group per OS user/provider, independent of session roots,
-// agents, auth-directory aliases or the unknown keychain/account identity.
-// /tmp is the shared OS directory, not environment-controlled TMPDIR. The lock
-// has owner-only/no-follow checks and must never be unlinked on release.
-func hostAuthLockPath(provider string) string {
-	return filepath.Join("/tmp", fmt.Sprintf("openlinker-node-host-auth-%d-%s.lock", os.Geteuid(), provider))
+func hostAuthStatePath(home string) string {
+	return filepath.Join(home, ".local", "state", "openlinker-agent-node")
+}
+
+// HOME is the trusted client's HOME, not a session's tool HOME or TMPDIR.
+// Services must share the underlying state directory, not just its pathname.
+func hostAuthLockPath(c ProviderConfig) (string, error) {
+	env, err := nativeClientEnvironment(c)
+	if err != nil {
+		return "", err
+	}
+	if c.Provider != "codex" && c.Provider != "claude" {
+		return "", errors.New("host-auth admission requires Codex or Claude")
+	}
+	return prepareHostAuthLockPath(env, c.Provider)
 }
 
 // This is cooperative Node admission, not an account-wide token-refresh lock.
@@ -40,12 +47,19 @@ func acquireHostAuthPermit(ctx context.Context, c ProviderConfig, emit func(stri
 	if c.sandbox == nil || c.HostAuthConcurrency == "client-managed" {
 		return noop, ctx.Err()
 	}
+	if err := ctx.Err(); err != nil {
+		return noop, err
+	}
+	path, err := hostAuthLockPath(c)
+	if err != nil {
+		return noop, err
+	}
 	waiting := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return noop, err
 		}
-		lock, err := appfiles.AcquireLock(hostAuthLockPath(c.Provider))
+		lock, err := appfiles.AcquireLock(path)
 		if err == nil {
 			if err := ctx.Err(); err != nil {
 				_ = lock.Release()

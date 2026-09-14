@@ -7,8 +7,15 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
-- Native clients now default to cooperative serial admission per OS user/provider,
-  across Node processes and session/authentication roots. Waiting respects Run
+- Move native admission locks from predictable `/tmp` files to private state at
+  `$HOME/.local/state/openlinker-agent-node/host-auth-<provider>.lock`. Services
+  with PrivateTmp coordinate when they share the underlying HOME storage. Separate
+  HOME mounts/values do not. Reject unsafe parents/symlinks and reserve this path
+  from tools. Stop older `/tmp`-lock Nodes/clients before upgrade; no session reset.
+  Recommend capacity 1 for serial mode; polling remains non-FIFO and timeout-bound.
+
+- Native clients now default to cooperative serial admission per shared host HOME/provider,
+  across Node processes and session roots that share the same HOME storage. Waiting respects Run
   cancellation and timeout; `HOST_AUTH_CONCURRENCY=client-managed` explicitly
   allows parallel clients. Existing native capacity greater than one will queue
   provider work by default; session scope/history is unchanged. This does not
