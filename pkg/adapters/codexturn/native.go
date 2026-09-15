@@ -60,5 +60,5 @@ func PrepareNative(ctx context.Context, config NativeCommand) (PreparedCommand, 
 	command := exec.CommandContext(ctx, config.Bin, config.Arguments(workspace)...)
 	providerprocess.Configure(command)
 	command.Dir, command.Env = workspace, environment
-	return PreparedCommand{Command: command, Workspace: workspace, Cleanup: cleanup}, nil
+	return PreparedCommand{Command: command, Workspace: workspace, Cleanup: cleanup, TrackNativeDescendants: true}, nil
 }

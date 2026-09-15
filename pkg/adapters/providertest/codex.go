@@ -205,6 +205,9 @@ func CodexRPCFixtureProcess() {
 	if scenario == "" {
 		return
 	}
+	if codexRPCDescendantFixture(scenario) {
+		return
+	}
 	f := StartRPCFixture(scenario)
 	if scenario == "retry-diagnostics" {
 		private := "Bearer synthetic-secret https://private.invalid/request user prompt "

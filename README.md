@@ -331,6 +331,12 @@ parsing, private session storage and process mechanisms live in its public
 leaf packages. The complete Codex app-server turn lifecycle is shared through
 [`codexturn`](pkg/adapters/codexturn/README.md); Node and Plugin keep their own
 launch/tool/session policy and use the same cancellation and shutdown flow.
+On macOS, ordinary native Codex additionally retains identity-checked observed
+descendants across process-group changes and reparenting, with bounded cleanup
+after scoped interruption and EOF shutdown. This is not an arbitrary process-tree
+or hostile-code isolation guarantee; see the leaf's [ownership and test
+limits](pkg/adapters/codexturn/README.md#macos-native-cancellation-and-ownership).
+No SDK, credential, session-store or tool-policy configuration changes are required.
 The pinned SDK is
 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`. Startup checks the installed
 CLI version and required flags (tested baselines: Codex 0.153.0, Claude 2.1.259).

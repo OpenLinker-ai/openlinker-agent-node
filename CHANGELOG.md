@@ -7,6 +7,15 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Fix ordinary native Codex cancellation on macOS leaving observed tool
+  children/grandchildren alive after they changed process groups. Keep scoped
+  `turn/interrupt`, allow bounded EOF teardown, then revalidate recorded kernel
+  process identities before cleanup, including after parent exit. Preserve
+  cleanup errors even when the Run context is canceled. Real OS regressions
+  keep independent same-command and unrelated processes alive. This is bounded
+  observed-ancestry cleanup, not hostile double-fork containment or a new
+  file/network sandbox; other OS/process factories keep their existing scope.
+
 - Stop a Codex turn at the first scoped `max_messages` incomplete-response
   diagnostic instead of allowing repeated native retries. Interrupt and close
   the client, report a fixed failure reason and discard partial final output.

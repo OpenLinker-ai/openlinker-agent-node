@@ -26,7 +26,7 @@ func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt
 		Prepare: func(processCtx context.Context) (codexturn.PreparedCommand, error) {
 			if config.sandbox != nil {
 				command := nativeHostCommand(processCtx, config, bin, codexAppServerArguments(config, workspace, sandbox))
-				return codexturn.PreparedCommand{Command: command, Workspace: workspace}, nil
+				return codexturn.PreparedCommand{Command: command, Workspace: workspace, TrackNativeDescendants: true}, nil
 			}
 			return codexturn.PrepareNative(processCtx, codexturn.NativeCommand{
 				Bin: bin, Workspace: workspace, Env: config.Env, EnvAllowlist: config.EnvAllowlist,

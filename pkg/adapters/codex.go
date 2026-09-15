@@ -80,10 +80,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 			buildCodexPrompt(runWithSessionHistory(run, sessionPath, "codex", workspace, sessionKey, sessionID), config.WebSearch),
 			config.SessionReuse && sessionKey != "", config, run.Emit)
 		if requestCtx.Err() != nil {
-			if errors.Is(requestCtx.Err(), context.DeadlineExceeded) {
-				return openlinker.RuntimeResult{}, fmt.Errorf("Codex timed out after %s", timeout)
-			}
-			return openlinker.RuntimeResult{}, requestCtx.Err()
+			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), err, timeout)
 		}
 		if err == nil {
 			break
@@ -128,6 +125,16 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		Status: "success", Output: result,
 		Events: []openlinker.RuntimeEvent{{EventType: "run.message.delta", Payload: map[string]any{"text": summary}}},
 	}, nil
+}
+
+func codexCanceledResult(cause, executionErr error, timeout time.Duration) error {
+	if errors.Is(executionErr, codexturn.ErrProcessCleanup) {
+		return errors.Join(cause, executionErr)
+	}
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return fmt.Errorf("Codex timed out after %s", timeout)
+	}
+	return cause
 }
 
 func codexLaunchConfiguration(config ProviderConfig, sandbox string) []string {
