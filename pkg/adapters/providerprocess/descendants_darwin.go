@@ -66,6 +66,35 @@ type descendantSet struct {
 	signal func(int, unix.Signal) error
 }
 
+// prune keeps descendantLimit a bound on recorded processes that may still need
+// cleanup, not on every short-lived command observed during a long turn. It
+// decides from the same snapshot used for admission, so a parent that exits
+// after this snapshot cannot hide its listed children. A recorded PID listed
+// with another birth time has ended. An unlisted PID is dropped only when an
+// exact lookup confirms it is gone or reused; alive-but-unlisted records (for
+// example after an effective UID change) and unreadable ones stay recorded, so
+// finish still reports them instead of claiming cleanup.
+func (s *descendantSet) prune(current map[int]processIdentity) {
+	if s.lookup == nil {
+		return
+	}
+	for pid, recorded := range s.known {
+		if pid == s.root.pid {
+			continue
+		}
+		if listed, ok := current[pid]; ok {
+			if listed.start != recorded.start {
+				delete(s.known, pid)
+			}
+			continue
+		}
+		live, err := s.lookup(pid)
+		if errors.Is(err, unix.ESRCH) || errors.Is(err, unix.ENOENT) || err == nil && live.start != recorded.start {
+			delete(s.known, pid)
+		}
+	}
+}
+
 // capture only follows a live, identity-matched ancestor in this snapshot. The
 // retained identity survives reparenting. PID reuse alone never admits a new
 // tree; a replacement requires fresh ancestry under another verified owner.
@@ -75,6 +104,7 @@ func (s *descendantSet) capture(list []processIdentity) error {
 	for _, p := range list {
 		current[p.pid] = p
 	}
+	s.prune(current)
 	for changed := true; changed; {
 		changed = false
 		for _, child := range list {
