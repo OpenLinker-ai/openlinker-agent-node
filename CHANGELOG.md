@@ -7,6 +7,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Wire `OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` from the Node environment entry
+  through CodexAdapter to the launched provider. Default false still disables
+  native search; true enables live search for new and resumed conversations.
+  Invalid values fail before startup. Approvals, host authentication, native
+  isolation, session paths, and other tool policies are unchanged. Releases
+  through `v0.1.58-rc.3` ignored this setting; follow fresh-enrollment rules when
+  adopting a new binary version.
+
 - Pin the verified Go SDK module at `63fc87d73406`, adopting the gRPC
   1.83.2 and protobuf dependency updates while retaining the SDK Go 1.25 baseline.
   Command, credential, session and persistent-state contracts are unchanged.

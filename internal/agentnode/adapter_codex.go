@@ -21,6 +21,7 @@ type CodexAdapter struct {
 	Sandbox              string
 	Approval             string
 	Model                string
+	WebSearch            bool
 	Timeout              time.Duration
 	MockResponse         string
 	SessionReuse         bool
@@ -42,7 +43,8 @@ func (a *CodexAdapter) native() *NativeAdapter {
 			SessionIsolation:    a.SessionIsolation,
 			HostAuthConcurrency: a.HostAuthConcurrency,
 			Sandbox:             a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
-			Timeout: a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
+			WebSearch: a.WebSearch,
+			Timeout:   a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,
 			DelegationBrokerRoot: a.DelegationBrokerRoot,

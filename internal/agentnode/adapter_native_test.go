@@ -153,6 +153,10 @@ func TestNodeRPCFixtureProcess(t *testing.T) {
 	if os.Getenv("OPENLINKER_NODE_RPC_FIXTURE") != "1" {
 		return
 	}
+	argv, err := json.Marshal(os.Args)
+	if err != nil || os.WriteFile("actual-argv.json", argv, 0o600) != nil {
+		os.Exit(2)
+	}
 	decoder, encoder := json.NewDecoder(os.Stdin), json.NewEncoder(os.Stdout)
 	for {
 		var message struct {
