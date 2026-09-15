@@ -7,6 +7,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Fix macOS native descendant tracking failing long, successful Codex turns
+  after about 1,024 short-lived tool commands. The bound now counts recorded
+  processes that may still need cleanup: a record leaves only when the admission
+  snapshot shows a new birth time for its PID, or an exact lookup confirms the
+  unlisted PID is gone or reused. Alive-but-unlisted and unreadable records stay
+  and are still reported. A real OS regression runs 1,100 short-lived commands,
+  then still reaps a lingering descendant after its parent exits.
+
 - Fix ordinary native Codex cancellation on macOS leaving observed tool
   children/grandchildren alive after they changed process groups. Keep scoped
   `turn/interrupt`, allow bounded EOF teardown, then revalidate recorded kernel

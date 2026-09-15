@@ -25,8 +25,12 @@ native home preparation do not run for that factory.
 
 Native macOS turns additionally start an identity-bound descendant guard before
 RPC initialization. It samples process metadata every 20 ms, follows only live,
-verified ancestry from this invocation, and retains at most 1,024 identities
-(PID, effective UID, kernel birth time). A recorded child/grandchild remains
+verified ancestry from this invocation, and records at most 1,024 identities
+(PID, effective UID, kernel birth time) that may still need cleanup. A record is
+dropped only when the same snapshot shows its PID with another birth time, or an
+exact lookup confirms that unlisted PID is gone or reused; alive-but-unlisted and
+unreadable records stay and are still reported. Many short-lived tool commands
+in one long turn therefore do not exhaust the bound. A recorded child/grandchild remains
 owned after changing process group/session or being reparented. A reused PID
 needs fresh verified ancestry; an old PID alone never adopts another session.
 No process command names, environment, command arguments or user-wide kill are
@@ -59,7 +63,9 @@ tools after interrupt ACK, intermediate-parent reaping/reparenting, delayed EOF
 cleanup, and provider exit first. It proves the targets live before cancellation
 and exit before fixture finalizers, while a same-user/same-command independent
 process keeps a heartbeat and another sentinel stays alive. Unit tests reject
-PID/birth/UID changes with zero signals and cover the observed-identity bound.
+PID/birth/UID changes with zero signals and cover the observed-identity bound,
+including records retained or dropped by exact lookup. A real OS regression
+runs 1,100 short-lived commands, then still reaps a lingering descendant.
 Run these OS tests where macOS process-metadata access is allowed; a confined
 test runner returning EPERM is not a passing cleanup test.
 
