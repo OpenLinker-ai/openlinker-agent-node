@@ -489,6 +489,28 @@ the host. Node itself uses `NativeAdapter`.
 
 ## Native session isolation without Docker
 
+Run `openlinker-agent-node --check-config` with the **same environment as the
+service** before starting it. The JSON reports the build version, configured
+search/isolation/session policy and capacity. It omits credentials, endpoints,
+identities and local paths. It performs configuration parsing only: no Worker,
+provider, network request, login or state write, and `provider_preflight` is
+`not_run`. A successful check does not establish filesystem enforcement or
+model/search availability. Normal startup logs the same policy before its
+existing provider/OS preflight checks.
+
+`native_isolation_disabled` means the Node-specific native boundary is off;
+ordinary Codex `read-only` is not a substitute for that boundary.
+`serial_host_auth_capacity_gt_one` recommends capacity 1 so assigned Runs do not
+spend their timeout waiting for the host-auth lock. These diagnostics do not
+change the default or enable search/isolation. Use `SESSION_ISOLATION=native`
+with the private session root described below to opt in. Releases through
+`v0.1.58-rc.3` do not include `--check-config`.
+
+Explicit native-only `SESSION_READ_PATHS` / `SESSION_NETWORK_DOMAINS` values,
+including `[]` or `null`, are rejected while isolation is off. Remove those
+settings for ordinary mode or explicitly enable native isolation; an empty
+network list must not be mistaken for an enforced offline policy in off mode.
+
 **Experimental, trusted callers only; no per-session resource quotas.** Node
 reuses the installed Codex/Claude client's authentication. Native mode does not
 require another login or new API-key environment variables. The official client

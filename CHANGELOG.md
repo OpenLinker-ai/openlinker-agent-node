@@ -7,6 +7,16 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Add a read-only `--check-config` command and the same allowlisted native policy
+  summary before startup preflight. Report search, native isolation, session reuse
+  and host-auth concurrency without exposing credentials, paths or endpoints.
+  Warn when native isolation is off or serial admission has capacity above one.
+  Configuration checking never starts a Worker/provider or proves enforcement;
+  existing opt-in defaults and provider/OS preflight behavior remain unchanged.
+  Reject explicit native-only path/network JSON settings even when they decode
+  to empty arrays or null while isolation is off, instead of silently ignoring
+  the requested policy. Ordinary mode should omit those settings.
+
 - Wire `OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` from the Node environment entry
   through CodexAdapter to the launched provider. Default false still disables
   native search; true enables live search for new and resumed conversations.

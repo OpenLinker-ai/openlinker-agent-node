@@ -2,6 +2,7 @@ package agentnode
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -13,6 +14,15 @@ func sessionIsolationFromEnv(get EnvLookup) (sessionsandbox.Config, error) {
 		Mode: strings.ToLower(strings.TrimSpace(get("OPENLINKER_AGENT_NODE_SESSION_ISOLATION"))),
 		Root: get("OPENLINKER_AGENT_NODE_SESSION_ROOT"), RuntimeBin: get("OPENLINKER_AGENT_NODE_SESSION_SANDBOX_BIN"),
 		TempRoot: get("OPENLINKER_AGENT_NODE_SESSION_TEMP_ROOT"),
+	}
+	if c.Mode == "" || c.Mode == "off" {
+		// [] and null still explicitly configure a native-only policy. Do not
+		// erase that intent during JSON decoding and then accept an off boundary.
+		for _, name := range []string{"OPENLINKER_AGENT_NODE_SESSION_READ_PATHS", "OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS"} {
+			if strings.TrimSpace(get(name)) != "" {
+				return c, fmt.Errorf("%s requires OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native", name)
+			}
+		}
 	}
 	var err error
 	c.ReadPaths, err = parseJSONStringArray(get("OPENLINKER_AGENT_NODE_SESSION_READ_PATHS"), "OPENLINKER_AGENT_NODE_SESSION_READ_PATHS")
