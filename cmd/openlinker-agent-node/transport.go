@@ -37,5 +37,5 @@ func runTransportCommand(ctx context.Context, args []string, input io.Reader, ou
 		}
 		return agentdelegation.Proxy(ctx, input, output, socket)
 	}
-	return errors.New("usage: openlinker-agent-node [--version | plugin capabilities | plugin delegation-proxy --host codex|claude]; configure serving through environment variables")
+	return errors.New("usage: openlinker-agent-node [--version | --check-config | plugin capabilities | plugin delegation-proxy --host codex|claude]; configure serving through environment variables")
 }

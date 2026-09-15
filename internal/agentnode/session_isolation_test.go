@@ -85,3 +85,21 @@ func TestNativeIsolationRejectsIgnoredOptionsAndMockBypass(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledIsolationRejectsExplicitEmptyNativePolicies(t *testing.T) {
+	for _, provider := range []string{"codex", "claude", "http", "command"} {
+		for _, mode := range []string{"", "off"} {
+			for _, key := range []string{"OPENLINKER_AGENT_NODE_SESSION_READ_PATHS", "OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS"} {
+				for _, value := range []string{"[]", " null ", `["synthetic-private-path"]`} {
+					node, err := NewFromEnvMap(Env{"OPENLINKER_AGENT_NODE_ADAPTER": provider, "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": mode, key: value})
+					if node != nil || err == nil || !strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "SESSION_ISOLATION=native") {
+						t.Fatalf("explicit native policy ignored: %s/%s/%s: %v", provider, mode, key, err)
+					}
+					if strings.Contains(err.Error(), value) {
+						t.Fatal("policy diagnostic echoed its value")
+					}
+				}
+			}
+		}
+	}
+}

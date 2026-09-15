@@ -83,6 +83,7 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		node.mu.Unlock()
 	}()
 
+	node.logConfigurationReport()
 	if adapter, ok := node.Adapter.(interface{ Preflight(context.Context) error }); ok {
 		if err := adapter.Preflight(node.lifetime); err != nil {
 			return err

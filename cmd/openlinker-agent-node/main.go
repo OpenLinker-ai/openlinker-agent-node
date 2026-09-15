@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +19,16 @@ func main() {
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
 			if _, err := fmt.Fprintln(os.Stdout, agentnode.AgentNodeVersion); err != nil {
 				logger.Fatal("openlinker agent node version output failed")
+			}
+			return
+		}
+		if len(os.Args) == 2 && os.Args[1] == "--check-config" {
+			node, err := agentnode.NewFromEnv()
+			if err != nil {
+				logger.Fatalf("openlinker agent node config: %v", err)
+			}
+			if err := json.NewEncoder(os.Stdout).Encode(node.ConfigurationReport()); err != nil {
+				logger.Fatal("openlinker agent node configuration output failed")
 			}
 			return
 		}

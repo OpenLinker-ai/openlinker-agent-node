@@ -417,6 +417,22 @@ Node 的 helper 请求解码及原生凭据文件读取使用该叶子；Plugin 
 
 ## 不依赖 Docker 的会话隔离
 
+启动前，在**与服务相同的环境**中执行 `openlinker-agent-node --check-config`。
+JSON 会显示构建版本、搜索/隔离/会话策略和容量，不输出凭据、地址、身份或本地路径。
+这一步只解析配置，不启动 Worker/客户端，不联网、登录或写入状态；
+`provider_preflight` 为 `not_run`，不能当作文件隔离或模型/搜索可用性的验收。
+正常启动也会在原有客户端/OS 预检之前记录同一份配置摘要。
+
+`native_isolation_disabled` 表示未启用 Node 的 native 隔离；普通 Codex 的
+`read-only` 不能替代该边界。`serial_host_auth_capacity_gt_one` 提示把容量设为 1，
+避免已领取的 Run 排队等待主机认证锁并消耗超时。诊断不改变默认值，也不会自动开启
+搜索或隔离；需按下方说明显式设置 `SESSION_ISOLATION=native` 和私有会话目录。
+截至 `v0.1.58-rc.3` 的旧二进制没有 `--check-config`。
+
+隔离关闭时，显式的 `SESSION_READ_PATHS` / `SESSION_NETWORK_DOMAINS`（包括 `[]`
+或 `null`）会被拒绝。普通模式需去掉这些 native 专用配置，或明确开启 native；
+不能把空网络列表误认为 off 模式下已经生效的禁网策略。
+
 **实验性，仅供可信调用方，尚无会话级资源硬配额。** Node 复用主机 Codex/Claude
 客户端认证，不需要在沙箱重新登录，也不强制增加 API key 环境变量。官方客户端
 负责认证。Claude 默认只开沙箱 Bash，客户端内文件工具需显式开启，其安全边界不同；
