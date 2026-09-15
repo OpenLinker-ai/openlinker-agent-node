@@ -21,6 +21,48 @@ argument builder receives the canonical workspace. Container integrations use
 their own factory and container-visible workspace; host path resolution and
 native home preparation do not run for that factory.
 
+### macOS native cancellation and ownership
+
+Native macOS turns additionally start an identity-bound descendant guard before
+RPC initialization. It samples process metadata every 20 ms, follows only live,
+verified ancestry from this invocation, and retains at most 1,024 identities
+(PID, effective UID, kernel birth time). A recorded child/grandchild remains
+owned after changing process group/session or being reparented. A reused PID
+needs fresh verified ancestry; an old PID alone never adopts another session.
+No process command names, environment, command arguments or user-wide kill are
+used to select targets. Metadata access failure prevents turn startup; later
+tracking/capacity/cleanup failures return `ErrProcessCleanup`.
+
+Cancellation still sends the exact thread/turn `turn/interrupt`, bounded at
+1.5 seconds, then closes stdin and gives the provider up to 500 ms to finish its
+own tool teardown. An `interrupted` notification is not OS cleanup evidence.
+The existing root process-group fallback then runs, followed by up to one
+second of identity-revalidated cleanup of observed descendants, before `Wait`
+and temporary-home removal. Existing `WaitDelay` remains two seconds for pipes.
+Successful turns retain the existing two-second EOF drain. Callers must preserve
+`ErrProcessCleanup` even when their request context is already canceled;
+neither cancellation ACK nor this error changes Core's terminal authority.
+
+This is **bounded cleanup, not hostile-process containment**. A double-fork that
+reparents before its first observation can escape discovery. macOS lacks an
+atomic identity-bound kill operation: the birth-time recheck immediately before
+`kill` reduces PID-reuse risk, but is not a pidfd guarantee. The guard does not
+extend file/network isolation, follow other users, or claim detached-descendant
+coverage on Linux/Windows. Container factories retain their own cleanup
+ownership unless explicitly opting into `TrackNativeDescendants`; ordinary
+`PrepareNative` and Node's host-auth native command factory opt in. The latter
+still runs on the host; its tool sandbox is not a container ownership boundary.
+
+The Darwin shared fixture exercises each consumer's actual provider plus this
+leaf with live child/grandchild processes in separate sessions/PGIDs: stubborn
+tools after interrupt ACK, intermediate-parent reaping/reparenting, delayed EOF
+cleanup, and provider exit first. It proves the targets live before cancellation
+and exit before fixture finalizers, while a same-user/same-command independent
+process keeps a heartbeat and another sentinel stays alive. Unit tests reject
+PID/birth/UID changes with zero signals and cover the observed-identity bound.
+Run these OS tests where macOS process-metadata access is allowed; a confined
+test runner returning EPERM is not a passing cleanup test.
+
 Product policy remains at the caller:
 
 - launch arguments, model/approval/sandbox choices and credential domains;

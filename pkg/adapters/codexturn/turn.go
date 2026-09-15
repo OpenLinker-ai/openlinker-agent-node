@@ -14,11 +14,16 @@ import (
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/codexrpc"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/provideroutput"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/providerprocess"
 )
 
 // ErrSessionMissing only represents the exact missing-rollout protocol errors.
 // Callers decide whether to retry a fresh thread and how to persist its identity.
 var ErrSessionMissing = errors.New("Codex native session no longer exists")
+
+// ErrProcessCleanup must not be discarded merely because the request context
+// was canceled. Cancellation acknowledgement is not process-cleanup evidence.
+var ErrProcessCleanup = errors.New("Codex native process cleanup failed")
 
 type Observer interface{ ObserveLine([]byte) }
 
@@ -30,6 +35,9 @@ type PreparedCommand struct {
 	Command   *exec.Cmd
 	Workspace string
 	Cleanup   func()
+	// Native factories opt into host-side descendant tracking. Container
+	// factories retain their own process namespace and cleanup authority.
+	TrackNativeDescendants bool
 }
 
 type Config struct {
@@ -94,6 +102,17 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 		_ = stdout.Close()
 		return "", "", err
 	}
+	finishDescendants := func() error { return nil }
+	if prepared.TrackNativeDescendants {
+		finishDescendants, err = providerprocess.TrackDescendants(command.Process)
+		if err != nil {
+			stop()
+			_ = stdin.Close()
+			_ = stdout.Close()
+			_ = command.Wait()
+			return "", "", err
+		}
+	}
 	client := codexrpc.New(stdin, stdout, func() { stop(); _ = stdin.Close(); _ = stdout.Close() })
 	turnID := ""
 	turnRequested := false
@@ -101,18 +120,28 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 		if ctx.Err() != nil && turnRequested {
 			interruptCodexRPC(client, threadID, turnID)
 		}
-		if resultErr == nil {
+		if resultErr == nil || ctx.Err() != nil {
 			// EOF requests app-server shutdown and lets native rollout writes
 			// finish. Drain StdoutPipe before Wait: Wait closes that pipe and
 			// would race the RPC reader's final read with a successful exit.
 			// A wedged shutdown still has a bounded process-tree kill.
+			// interrupted is a protocol outcome, not proof that tool processes
+			// have exited. Give canceled providers an EOF shutdown opportunity
+			// as well; the identity-scoped native guard remains the fallback.
+			grace := 2 * time.Second
+			if ctx.Err() != nil {
+				grace = 500 * time.Millisecond
+			}
 			_ = stdin.Close()
 			select {
 			case <-client.Done():
-			case <-time.After(2 * time.Second):
+			case <-time.After(grace):
 			}
 		}
 		client.Close()
+		if err := finishDescendants(); err != nil {
+			resultErr = errors.Join(resultErr, ErrProcessCleanup, err)
+		}
 		_ = command.Wait()
 		if resultErr == nil {
 			if err := client.Err(); err != nil && !errors.Is(err, io.EOF) {
