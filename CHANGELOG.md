@@ -7,6 +7,12 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Fix Codex missing-session recovery hiding incomplete native process cleanup.
+  When the failed resume attempt reports both a missing session and
+  `ErrProcessCleanup`, return that failure instead of retrying with a new
+  session and reporting a later success. Ordinary missing-session recovery,
+  cancellation and timeout results are unchanged.
+
 - Fix macOS native descendant tracking failing long, successful Codex turns
   after about 1,024 short-lived tool commands. The bound now counts recorded
   processes that may still need cleanup: a record leaves only when the admission

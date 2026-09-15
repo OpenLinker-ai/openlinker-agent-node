@@ -85,7 +85,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		if err == nil {
 			break
 		}
-		if sessionID != "" && attempt == 0 && errors.Is(err, errCodexSessionMissing) {
+		if codexRecoversMissingSession(sessionID, attempt, err) {
 			if err := deleteSessionID(sessionPath, "codex", workspace, sessionKey); err != nil {
 				return openlinker.RuntimeResult{}, err
 			}
@@ -125,6 +125,14 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		Status: "success", Output: result,
 		Events: []openlinker.RuntimeEvent{{EventType: "run.message.delta", Payload: map[string]any{"text": summary}}},
 	}, nil
+}
+
+// A missing saved session is recovered once with a new session, unless the
+// failed attempt also left native process cleanup incomplete: a later success
+// must not hide that failure.
+func codexRecoversMissingSession(sessionID string, attempt int, err error) bool {
+	return sessionID != "" && attempt == 0 &&
+		errors.Is(err, errCodexSessionMissing) && !errors.Is(err, codexturn.ErrProcessCleanup)
 }
 
 func codexCanceledResult(cause, executionErr error, timeout time.Duration) error {
