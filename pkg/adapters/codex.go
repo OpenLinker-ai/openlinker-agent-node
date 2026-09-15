@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/codexturn"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
@@ -94,6 +95,13 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 			sessionID = ""
 			recovered = true
 			continue
+		}
+		if errors.Is(err, codexturn.ErrResponseMessageLimit) && config.SessionReuse && sessionKey != "" && observed != "" {
+			// Keep the already-executed tool context for an explicit next turn.
+			// Do not rotate the attachment or retry the failed request.
+			if saveErr := saveSessionForClientMode(sessionPath, "codex", workspace, sessionKey, observed, clientMode, clientModeGeneration, run); saveErr != nil {
+				return openlinker.RuntimeResult{}, errors.Join(err, sessionPersistenceError("Codex", saveErr))
+			}
 		}
 		return openlinker.RuntimeResult{}, fmt.Errorf("Codex failed: %w", err)
 	}
