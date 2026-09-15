@@ -16,10 +16,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   observed-ancestry cleanup, not hostile double-fork containment or a new
   file/network sandbox; other OS/process factories keep their existing scope.
 
-- Classify the observed Codex `max_messages` incomplete-response diagnostic in
-  scoped retry status events shared with Plugin. Export only fixed kind/reason
-  values, never raw provider errors, credentials, endpoints or request text.
-  Unknown diagnostics and native retry/recovery behavior remain unchanged.
+- Stop a Codex turn at the first scoped `max_messages` incomplete-response
+  diagnostic instead of allowing repeated native retries. Interrupt and close
+  the client, report a fixed failure reason and discard partial final output.
+  Preserve its native session for an explicit follow-up when reuse is enabled;
+  do not replay the failed Run. Unknown diagnostics retain native retry behavior.
+  The shared lifecycle exports no raw provider errors, credentials, endpoints or
+  request text. This limits retry waste; the upstream cause remains unconfirmed.
 
 - Add a read-only `--check-config` command and the same allowlisted native policy
   summary before startup preflight. Report search, native isolation, session reuse

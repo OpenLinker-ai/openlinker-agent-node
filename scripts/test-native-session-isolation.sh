@@ -9,4 +9,4 @@ fi
 : "${OPENLINKER_TEST_NATIVE_CLAUDE_BIN:?Set the pinned official Claude executable.}"
 export GOWORK=off
 node --test scripts/native-sandbox-runner.test.mjs
-go test -race -count=1 -v ./pkg/adapters/sessionsandbox ./pkg/adapters ./internal/agentnode
+go test -race -count=1 -v ./pkg/adapters/sessionsandbox ./pkg/adapters/providerprocess ./pkg/adapters/codexturn ./pkg/adapters ./internal/agentnode

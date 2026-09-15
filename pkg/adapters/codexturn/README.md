@@ -70,7 +70,7 @@ Product policy remains at the caller:
 - `BeforeThread`, after initialized and before thread start/resume (Plugin uses
   this to install its declared Browser package; errors stop execution);
 - `Observer` for normalized, correctly scoped item progress, plus `Emit` for
-  the shared retry status event;
+  shared retry and semantic-failure status events;
 - result metadata and diagnostics. Node's Claude ID hashes are unrelated to
   this Codex protocol leaf and do not change Plugin result fields.
 
@@ -86,10 +86,26 @@ Publish an immutable Node module before updating Plugin's exact version and
 checksums. Temporary workspaces only validate source composition; they do not
 prove a new dependency is available from the public Go proxy/sumdb.
 
-Scoped retry notifications retain `provider_retrying`. The observed upstream
-diagnostic `Incomplete response returned, reason: max_messages` additionally
-sets `provider_error_kind=incomplete_response` and `provider_error_reason=max_messages`.
-Only this fixed classification is exported; raw messages/additional details can
-contain credentials and are never included. Unknown diagnostics keep the existing
-event shape. This is observation, not a change to Codex retry policy, and does not
-identify which gateway or upstream service imposed the limit.
+The exact observed diagnostic suffix `Incomplete response returned, reason:
+max_messages` is a semantic stop. A correctly scoped error interrupts the turn,
+discards any partial final answer and returns `ErrResponseMessageLimit`, even
+without an event subscriber or when `willRetry` is false. An unresponsive client
+still has bounded shutdown. This prevents repeated native retries of the known
+message-limit response; other retry notifications retain `provider_retrying`
+and the client's existing retry behavior.
+
+The optional failure event contains only `provider=codex`,
+`status=provider_failed`, `phase=failed`, `provider_error_kind=incomplete_response`
+and `provider_error_reason=max_messages`. Raw errors/additional details can
+contain credentials and are never exported. This does not identify which
+gateway or upstream imposed the limit, infer a numerical limit, or make the
+failed task successful. Keep Plugin's installed-client local Responses API
+regression when upgrading Codex: a fabricated app-server notification alone
+cannot detect changes to the client's diagnostic wording.
+
+Node and Plugin retain the observed native thread on this specific failure
+when session reuse is enabled and a trusted session key is present. An explicit
+next Run can continue the existing context; this failure does not replay tools,
+rotate Browser attachments or silently start a fresh native thread. A later
+follow-up may still encounter the upstream limit. Other failure persistence
+and missing-session recovery policies remain unchanged.

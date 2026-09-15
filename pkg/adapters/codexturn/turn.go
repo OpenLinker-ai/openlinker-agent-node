@@ -25,6 +25,11 @@ var ErrSessionMissing = errors.New("Codex native session no longer exists")
 // was canceled. Cancellation acknowledgement is not process-cleanup evidence.
 var ErrProcessCleanup = errors.New("Codex native process cleanup failed")
 
+// ErrResponseMessageLimit is a semantic upstream stop, not a transport outage.
+// The active turn is interrupted before returning; callers may retain its
+// native session for an explicit follow-up, but must not replay this Run.
+var ErrResponseMessageLimit = errors.New("Codex upstream response reached its message limit (max_messages)")
+
 type Observer interface{ ObserveLine([]byte) }
 
 // PreparedCommand is an unstarted, process-tree-owned command. Workspace is the
@@ -117,7 +122,7 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 	turnID := ""
 	turnRequested := false
 	defer func() {
-		if ctx.Err() != nil && turnRequested {
+		if (ctx.Err() != nil || errors.Is(resultErr, ErrResponseMessageLimit)) && turnRequested {
 			interruptCodexRPC(client, threadID, turnID)
 		}
 		if resultErr == nil || ctx.Err() != nil {
@@ -253,17 +258,25 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 			if json.Unmarshal(event.Params, &failure) != nil {
 				return false, errors.New("Codex emitted an invalid error notification")
 			}
-			if failure.ThreadID == threadID && failure.TurnID == turnID && failure.WillRetry && emit != nil {
-				data := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"}
-				// Provider diagnostics may contain credentials, URLs and request text.
-				// Export only this observed, fixed classification; never the raw error.
-				const incomplete = "Incomplete response returned, reason: max_messages"
-				if strings.HasSuffix(strings.TrimSpace(failure.Error.Message), incomplete) ||
-					(failure.Error.AdditionalDetails != nil && strings.HasSuffix(strings.TrimSpace(*failure.Error.AdditionalDetails), incomplete)) {
-					data["provider_error_kind"] = "incomplete_response"
-					data["provider_error_reason"] = "max_messages"
+			if failure.ThreadID != threadID || failure.TurnID != turnID {
+				return false, nil
+			}
+			// The provider supplies this reason; it is not a local item-count
+			// heuristic. Never include raw upstream text in results or events.
+			const incomplete = "Incomplete response returned, reason: max_messages"
+			if strings.HasSuffix(strings.TrimSpace(failure.Error.Message), incomplete) ||
+				(failure.Error.AdditionalDetails != nil && strings.HasSuffix(strings.TrimSpace(*failure.Error.AdditionalDetails), incomplete)) {
+				if emit != nil {
+					_ = emit("run.status.changed", map[string]any{
+						"provider": "codex", "status": "provider_failed", "phase": "failed",
+						"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages",
+					})
 				}
-				_ = emit("run.status.changed", data)
+				final = ""
+				return true, ErrResponseMessageLimit
+			}
+			if failure.WillRetry && emit != nil {
+				_ = emit("run.status.changed", map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"})
 			}
 		case "turn/completed":
 			var completed codexrpc.TurnCompletedNotification

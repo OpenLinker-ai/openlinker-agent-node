@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func WriteCodexRPCFixture(t *testing.T, path, scenario string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nexport OPENLINKER_CODEX_RPC_FIXTURE='" + scenario + "'\nexec '" + strings.ReplaceAll(executable, "'", "'\\''") + "' -test.run=TestCodexRPCFixtureProcess -- \"$@\"\n"
+	script := "#!/bin/sh\nexport OPENLINKER_CODEX_RPC_FIXTURE_LOG='" + strings.ReplaceAll(path+".trace", "'", "'\\''") + "'\nexport OPENLINKER_CODEX_RPC_FIXTURE='" + scenario + "'\nexec '" + strings.ReplaceAll(executable, "'", "'\\''") + "' -test.run=TestCodexRPCFixtureProcess -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +58,9 @@ type RPCFixture struct {
 
 func StartRPCFixture(scenario string) *RPCFixture {
 	f := &RPCFixture{decoder: json.NewDecoder(os.Stdin), encoder: json.NewEncoder(os.Stdout), mode: "new", scenario: scenario, log: os.Getenv("TEST_LOG")}
+	if f.log == "" {
+		f.log = os.Getenv("OPENLINKER_CODEX_RPC_FIXTURE_LOG")
+	}
 	f.logFile(".args", strings.Join(os.Args, " ")+"\n", true)
 	f.logFile(".proxy", os.Getenv("ALL_PROXY"), false)
 	for {
@@ -214,14 +218,30 @@ func CodexRPCFixtureProcess() {
 		}
 		notify("other-thread", FixtureTurn, true, known, private)
 		notify(FixtureThread, "other-turn", true, known, private)
-		notify(FixtureThread, FixtureTurn, false, known, private)
-		notify(FixtureThread, FixtureTurn, true, known, private)
-		notify(FixtureThread, FixtureTurn, true, private, known)
+		notify(FixtureThread, FixtureTurn, false, private, private)
+		notify(FixtureThread, FixtureTurn, true, private, private)
 		notify(FixtureThread, FixtureTurn, true, known+"_private", private)
 		f.Finish("provider answer")
 	}
-	if strings.HasPrefix(scenario, "cancel") {
-		if scenario == "cancel-ignore" {
+	if strings.HasPrefix(scenario, "message-limit") {
+		if f.mode == "resume" {
+			f.Finish("provider answer")
+		}
+		known := "private prompt Bearer synthetic-secret https://private.invalid Incomplete response returned, reason: max_messages"
+		message, details := known, ""
+		if strings.Contains(scenario, "details") {
+			message, details = "private diagnostic", known
+		}
+		notify := func(thread, turn string) {
+			f.event("error", map[string]any{"threadId": thread, "turnId": turn, "willRetry": !strings.Contains(scenario, "terminal"), "error": map[string]any{"message": message, "additionalDetails": details}})
+		}
+		notify("other-thread", FixtureTurn)
+		notify(FixtureThread, "other-turn")
+		f.item("item/completed", map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "partial must not be returned as success"})
+		notify(FixtureThread, FixtureTurn)
+	}
+	if strings.HasPrefix(scenario, "cancel") || strings.HasPrefix(scenario, "message-limit") {
+		if scenario == "cancel-ignore" || scenario == "message-limit-ignore" {
 			io.Copy(io.Discard, os.Stdin)
 			os.Exit(0)
 		}
@@ -288,9 +308,7 @@ func CodexRPCRetryDiagnostics(t *testing.T, run func(context.Context, string, st
 		return nil
 	})
 	base := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"}
-	classified := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying",
-		"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages"}
-	if err != nil || answer != "provider answer" || !reflect.DeepEqual(events, []map[string]any{classified, classified, base}) {
+	if err != nil || answer != "provider answer" || !reflect.DeepEqual(events, []map[string]any{base, base}) {
 		t.Fatalf("retry scope, privacy, classification or recovery failed: answer=%q err=%v events=%v", answer, err, events)
 	}
 }
@@ -411,3 +429,76 @@ func CodexRPCResolvesRelativeWorkspaceAndDottedTrustKey(t *testing.T, run CodexR
 }
 
 func jsonString(value string) string { raw, _ := json.Marshal(value); return string(raw) }
+
+// CodexRPCMessageLimitStops covers the consuming RPC entry, including a client
+// that ignores interruption and the absence of an event subscriber.
+func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, string, func(string, any) error) (string, error), isLimit func(error) bool) {
+	t.Helper()
+	for _, scenario := range []string{"message-limit", "message-limit-details", "message-limit-terminal", "message-limit-ignore"} {
+		for _, eventsEnabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/events=%t", scenario, eventsEnabled), func(t *testing.T) {
+				dir := t.TempDir()
+				bin := filepath.Join(dir, "codex")
+				WriteCodexRPCFixture(t, bin, scenario)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				var events []map[string]any
+				var emit func(string, any) error
+				if eventsEnabled {
+					emit = func(kind string, value any) error {
+						if kind == "run.status.changed" {
+							if data, ok := value.(map[string]any); ok {
+								events = append(events, data)
+							}
+						}
+						return nil
+					}
+				}
+				start := time.Now()
+				answer, err := run(ctx, bin, dir, emit)
+				if !isLimit(err) || answer != "" || time.Since(start) > 3*time.Second {
+					t.Fatalf("message limit did not stop promptly: answer=%q err=%v", answer, err)
+				}
+				if eventsEnabled {
+					want := []map[string]any{{"provider": "codex", "status": "provider_failed", "phase": "failed", "provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages"}}
+					if !reflect.DeepEqual(events, want) {
+						t.Fatalf("unsafe or duplicate event: %v", events)
+					}
+				}
+				if scenario != "message-limit-ignore" {
+					raw, err := os.ReadFile(bin + ".trace.interrupt")
+					if err != nil {
+						t.Fatal("missing graceful interruption", err)
+					}
+					var p codexrpc.TurnInterruptParams
+					if json.Unmarshal(raw, &p) != nil || p.ThreadID != FixtureThread || p.TurnID != FixtureTurn {
+						t.Fatal("wrong interrupted scope")
+					}
+				}
+			})
+		}
+	}
+}
+
+// The product must resume its native context on an explicit next Run, without
+// relaunching the first failed task or recovering into a new thread.
+func CodexRPCMessageLimitPreservesSession(t *testing.T, run CodexRun, isLimit func(error) bool) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	WriteCodexRPCFixture(t, bin, "message-limit")
+	config := CodexConfig{Bin: bin, Workspace: dir, SessionStore: filepath.Join(dir, "sessions.json"), SessionReuse: true, Timeout: 5 * time.Second}
+	if err := run(context.Background(), config, "first task", "conversation"); !isLimit(err) {
+		t.Fatal("first Run did not report message limit", err)
+	}
+	if err := run(context.Background(), config, "explicit follow-up", "conversation"); err != nil {
+		t.Fatal("follow-up did not resume", err)
+	}
+	raw, err := os.ReadFile(bin + ".trace.requests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(raw), " thread/start\n") != 1 || strings.Count(string(raw), " thread/resume\n") != 1 || strings.Count(string(raw), " turn/start\n") != 2 {
+		t.Fatal("failed Run was replayed or session lost")
+	}
+}
