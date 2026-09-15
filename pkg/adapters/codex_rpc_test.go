@@ -51,6 +51,13 @@ func TestCodexRPCAlreadyCanceledDoesNotLaunch(t *testing.T) {
 	})
 }
 
+func TestCodexRPCRetryDiagnostics(t *testing.T) {
+	providertest.CodexRPCRetryDiagnostics(t, func(ctx context.Context, bin, dir string, emit func(string, any) error) (string, error) {
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "retry diagnostics", false, ProviderConfig{}, emit)
+		return answer, err
+	})
+}
+
 func TestCodexRPCCancellationInterruptsScopedTurn(t *testing.T) {
 	providertest.CodexRPCCancellationInterruptsScopedTurn(t, runCodexFixture)
 }

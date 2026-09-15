@@ -225,7 +225,16 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 				return false, errors.New("Codex emitted an invalid error notification")
 			}
 			if failure.ThreadID == threadID && failure.TurnID == turnID && failure.WillRetry && emit != nil {
-				_ = emit("run.status.changed", map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"})
+				data := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"}
+				// Provider diagnostics may contain credentials, URLs and request text.
+				// Export only this observed, fixed classification; never the raw error.
+				const incomplete = "Incomplete response returned, reason: max_messages"
+				if strings.HasSuffix(strings.TrimSpace(failure.Error.Message), incomplete) ||
+					(failure.Error.AdditionalDetails != nil && strings.HasSuffix(strings.TrimSpace(*failure.Error.AdditionalDetails), incomplete)) {
+					data["provider_error_kind"] = "incomplete_response"
+					data["provider_error_reason"] = "max_messages"
+				}
+				_ = emit("run.status.changed", data)
 			}
 		case "turn/completed":
 			var completed codexrpc.TurnCompletedNotification

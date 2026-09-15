@@ -43,3 +43,11 @@ installation errors and unexpected app authentication.
 Publish an immutable Node module before updating Plugin's exact version and
 checksums. Temporary workspaces only validate source composition; they do not
 prove a new dependency is available from the public Go proxy/sumdb.
+
+Scoped retry notifications retain `provider_retrying`. The observed upstream
+diagnostic `Incomplete response returned, reason: max_messages` additionally
+sets `provider_error_kind=incomplete_response` and `provider_error_reason=max_messages`.
+Only this fixed classification is exported; raw messages/additional details can
+contain credentials and are never included. Unknown diagnostics keep the existing
+event shape. This is observation, not a change to Codex retry policy, and does not
+identify which gateway or upstream service imposed the limit.
