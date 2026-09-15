@@ -166,15 +166,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Unlike legacy boolOption, reject typos in this explicit tool-policy
-		// opt-in before constructing a Worker or starting the provider.
-		webSearch := false
-		switch strings.ToLower(strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH"))) {
-		case "", "0", "false", "no", "off":
-		case "1", "true", "yes", "on":
-			webSearch = true
-		default:
-			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH must be a boolean")
+		webSearch, err := nativeWebSearchFromEnv(get, "claude")
+		if err != nil {
+			return nil, err
 		}
 		allowed, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS"), "OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS")
 		if err != nil {
@@ -200,6 +194,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 		}}, nil
 	case "codex":
+		webSearch, err := nativeWebSearchFromEnv(get, "codex")
+		if err != nil {
+			return nil, err
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -225,6 +223,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Sandbox:              defaultString(get("OPENLINKER_AGENT_NODE_CODEX_SANDBOX"), "read-only"),
 			Approval:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
 			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
+			WebSearch:            webSearch,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), false),
@@ -235,6 +234,20 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude")
 	default:
 		return nil, fmt.Errorf("unsupported OPENLINKER_AGENT_NODE_ADAPTER=%s", mode)
+	}
+}
+
+// Unlike legacy boolOption, explicit tool-policy opt-ins reject typos before
+// constructing a Worker or starting a provider, without echoing the raw value.
+func nativeWebSearchFromEnv(get EnvLookup, provider string) (bool, error) {
+	name := "OPENLINKER_AGENT_NODE_" + strings.ToUpper(provider) + "_WEB_SEARCH"
+	switch strings.ToLower(strings.TrimSpace(get(name))) {
+	case "", "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean", name)
 	}
 }
 

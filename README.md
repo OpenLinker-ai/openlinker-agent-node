@@ -284,7 +284,22 @@ OPENLINKER_AGENT_NODE_ADAPTER=codex
 OPENLINKER_AGENT_NODE_CODEX_BIN=codex
 OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
+OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=false
 ```
+
+`OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` defaults to **false**, explicitly passing
+`web_search="disabled"` to Codex even when the host client enables search.
+Set it to `true` to pass `web_search="live"` on new and resumed conversations.
+This changes only the native search tool: approvals, sandbox, session reuse,
+delegation, and shell network access retain their configured policies. It does
+not enable Plugin Browser. The selected model/provider must also support search.
+
+Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,
+on/off; empty is false. Other values fail before startup without echoing their
+contents. Configuration is fixed for the Node process lifetime. Releases through
+`v0.1.58-rc.3` did not wire this setting; changing the host Codex config or setting
+the variable cannot repair those binaries. Use a release containing this fix and
+follow the fresh-enrollment version-change procedure above.
 
 ### `claude`
 
