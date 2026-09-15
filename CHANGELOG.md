@@ -7,6 +7,11 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Classify the observed Codex `max_messages` incomplete-response diagnostic in
+  scoped retry status events shared with Plugin. Export only fixed kind/reason
+  values, never raw provider errors, credentials, endpoints or request text.
+  Unknown diagnostics and native retry/recovery behavior remain unchanged.
+
 - Add a read-only `--check-config` command and the same allowlisted native policy
   summary before startup preflight. Report search, native isolation, session reuse
   and host-auth concurrency without exposing credentials, paths or endpoints.

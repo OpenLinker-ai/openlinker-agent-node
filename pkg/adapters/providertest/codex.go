@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +202,21 @@ func CodexRPCFixtureProcess() {
 		return
 	}
 	f := StartRPCFixture(scenario)
+	if scenario == "retry-diagnostics" {
+		private := "Bearer synthetic-secret https://private.invalid/request user prompt "
+		known := private + "stream disconnected before completion: Incomplete response returned, reason: max_messages"
+		notify := func(thread, turn string, retry bool, message, details string) {
+			f.event("error", map[string]any{"threadId": thread, "turnId": turn, "willRetry": retry,
+				"error": map[string]any{"message": message, "additionalDetails": details}})
+		}
+		notify("other-thread", FixtureTurn, true, known, private)
+		notify(FixtureThread, "other-turn", true, known, private)
+		notify(FixtureThread, FixtureTurn, false, known, private)
+		notify(FixtureThread, FixtureTurn, true, known, private)
+		notify(FixtureThread, FixtureTurn, true, private, known)
+		notify(FixtureThread, FixtureTurn, true, known+"_private", private)
+		f.Finish("provider answer")
+	}
 	if strings.HasPrefix(scenario, "cancel") {
 		if scenario == "cancel-ignore" {
 			io.Copy(io.Discard, os.Stdin)
@@ -249,6 +265,31 @@ func CodexRPCFixtureProcess() {
 		answer = "final answer"
 	}
 	f.Finish(answer)
+}
+
+// CodexRPCRetryDiagnostics exercises each consumer's production RPC entry.
+// A retry must preserve successful completion without publishing raw diagnostics.
+func CodexRPCRetryDiagnostics(t *testing.T, run func(context.Context, string, string, func(string, any) error) (string, error)) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	WriteCodexRPCFixture(t, bin, "retry-diagnostics")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var events []map[string]any
+	answer, err := run(ctx, bin, dir, func(kind string, value any) error {
+		data, ok := value.(map[string]any)
+		if kind == "run.status.changed" && ok && data["status"] == "provider_retrying" {
+			events = append(events, data)
+		}
+		return nil
+	})
+	base := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying"}
+	classified := map[string]any{"provider": "codex", "status": "provider_retrying", "phase": "retrying",
+		"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages"}
+	if err != nil || answer != "provider answer" || !reflect.DeepEqual(events, []map[string]any{classified, classified, base}) {
+		t.Fatalf("retry scope, privacy, classification or recovery failed: answer=%q err=%v events=%v", answer, err, events)
+	}
 }
 
 func CodexRPCCancellationInterruptsScopedTurn(t *testing.T, run CodexRun) {
