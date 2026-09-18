@@ -25,7 +25,7 @@ func TestStartupLogsNativePolicyBeforeProviderPreflight(t *testing.T) {
 	if err := node.Start(context.Background()); err == nil {
 		t.Fatal("provider preflight unexpectedly succeeded")
 	}
-	for _, value := range []string{`"session_isolation":"off"`, `"web_search":false`, `"provider_preflight":"not_run"`, `native_isolation_disabled`} {
+	for _, value := range []string{`"session_isolation":"off"`, `"web_search":true`, `"provider_preflight":"not_run"`, `native_isolation_disabled`} {
 		if !strings.Contains(output.String(), value) {
 			t.Fatalf("missing policy field %s: %s", value, output.String())
 		}

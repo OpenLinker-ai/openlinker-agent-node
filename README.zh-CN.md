@@ -246,16 +246,17 @@ OPENLINKER_AGENT_NODE_ADAPTER=codex
 OPENLINKER_AGENT_NODE_CODEX_BIN=codex
 OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
-OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=false
+OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 ```
 
-`OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` 默认 **false**，显式向 Codex 传入
-`web_search="disabled"`，即使主机客户端配置已开启搜索也会关闭。设为 `true` 后，
-新建和恢复会话均使用 `web_search="live"`。它只控制客户端内置搜索，不改变批准策略、
+`OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` 默认 **true**，新建和恢复会话均使用
+`web_search="live"`。设为 `false` 时显式向 Codex 传入 `web_search="disabled"`，
+即使主机客户端配置已开启搜索也会关闭。它只控制客户端内置搜索，不改变批准策略、
 沙箱、会话复用、委派或 Shell 网络权限，也不启用 Plugin Browser；模型/网关仍须支持搜索。
 
-取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；空值为 false。
-其他值在启动前报错且不回显原值。配置在 Node 进程生命周期内固定。
+取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；未设置或空值为 true。
+其他值在启动前报错且不回显原值。配置在 Node 进程生命周期内固定。此前的发布默认 false，
+未设置该变量的 Node 升级后会开始联网搜索；如需保持关闭，请先显式设为 `false`。
 截至 `v0.1.58-rc.3` 的旧发布尚未接通此参数，修改主机 Codex 配置或增加环境变量
 不能修复旧二进制。须使用包含本修复的发布物，并遵循上方版本变更的新身份登记流程。
 
@@ -266,17 +267,17 @@ OPENLINKER_AGENT_NODE_ADAPTER=claude
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
-OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=true
 ```
 
-`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` 默认 **false**，桥接器传入
-`--disallowedTools WebSearch,WebFetch`。显式 true 只取消桥接层对这两个内置网页工具的
-禁止，不改变 `dontAsk`、`--safe-mode`、允许工具列表、管理策略、Browser 或委派。
-工具可用不等于自动批准或联网必然成功；需要的 `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS` 仍须单独审核。
-此开关不是 OS 沙箱或通用网络封禁。
+`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` 默认 **true**：因为 `dontAsk` 会拒绝所有未放行的工具，
+桥接器会在 `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS` 之外追加且只追加一次 `WebSearch` 和
+`WebFetch`；启用原生会话隔离时沿用隔离工具列表自己的 WebSearch 规则。设为 `false` 时改为传入
+`--disallowedTools WebSearch,WebFetch`。不改变 `dontAsk`、`--safe-mode`、管理策略、Browser 或委派；
+此开关不是 OS 沙箱或通用网络封禁，能否搜索仍取决于模型/账号是否提供。
 
-取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；空值为 false。
-其他值在启动前报配置错误，不回显原值。配置在 Node 生命周期内固定，不支持热更新。
+取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；未设置或空值为 true。
+其他值在启动前报配置错误，不回显原值。此前的发布默认 false，且不会放行这两个工具。配置在 Node 生命周期内固定，不支持热更新。
 `v0.1.57-rc.1` 二进制尚未读取此开关，单设环境变量不能修复旧版本。应使用包含本修复
 的发布物，并遵循上方版本变更的新身份登记流程，不得将新代码伪标成 rc.1。
 

@@ -217,6 +217,13 @@ func claudeArguments(config ProviderConfig, permission, sessionID string) []stri
 			allowed = append(allowed, "WebSearch")
 		}
 	}
+	if config.WebSearch && config.sandbox == nil {
+		// dontAsk refuses every tool that is not allowed, so lifting the deny alone
+		// would leave search unusable. Enabling search grants exactly these two.
+		for _, tool := range []string{"WebSearch", "WebFetch"} {
+			allowed = appendUniqueString(allowed, tool)
+		}
+	}
 	if config.DelegationSocket != "" {
 		for _, tool := range []string{"delegate_agent", "get_delegated_run", "wait_delegated_run"} {
 			allowed = appendUniqueString(allowed, "mcp__openlinker_delegation__"+tool)

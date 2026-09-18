@@ -18,7 +18,7 @@ func TestCodexWebSearchEnvironmentValues(t *testing.T) {
 			value string
 			want  bool
 		}{
-			{"", false}, {"false", false}, {"0", false}, {"no", false}, {"off", false},
+			{"", true}, {"false", false}, {"0", false}, {"no", false}, {"off", false},
 			{"true", true}, {"1", true}, {"yes", true}, {"on", true},
 			{" TRUE ", true}, {"\tFalse\n", false}, {"YeS", true}, {"OFF", false},
 		} {
@@ -86,7 +86,7 @@ func TestCodexWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 	for _, test := range []struct {
 		name, value, want string
 	}{
-		{"unset", "", `web_search="disabled"`},
+		{"unset", "", `web_search="live"`},
 		{"false", "false", `web_search="disabled"`},
 		{"true", "true", `web_search="live"`},
 	} {
