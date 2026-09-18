@@ -241,10 +241,12 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 // constructing a Worker or starting a provider, without echoing the raw value.
 func nativeWebSearchFromEnv(get EnvLookup, provider string) (bool, error) {
 	name := "OPENLINKER_AGENT_NODE_" + strings.ToUpper(provider) + "_WEB_SEARCH"
+	// Unset means on: native search is part of the default toolset. An explicit
+	// false still turns it off, and typos still fail instead of guessing.
 	switch strings.ToLower(strings.TrimSpace(get(name))) {
-	case "", "0", "false", "no", "off":
+	case "0", "false", "no", "off":
 		return false, nil
-	case "1", "true", "yes", "on":
+	case "", "1", "true", "yes", "on":
 		return true, nil
 	default:
 		return false, fmt.Errorf("%s must be a boolean", name)

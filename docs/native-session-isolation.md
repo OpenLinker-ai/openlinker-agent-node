@@ -159,7 +159,7 @@ not automatic token extraction or a subscription proxy.
 Claude's application-level file tools are not equivalent to its sandboxed Bash
 tool. Keep the default for account-sensitive workloads; shell commands can read,
 search and edit the session's own files. `CLAUDE_WEB_SEARCH` remains separately
-controlled and is not enabled by changing this default.
+controlled (on by default, explicit `false` turns it off) and does not follow this default.
 
 Do not put hard links to sensitive host files into a session workspace. A hard
 link is another name for the same inode, not a path that can be checked with

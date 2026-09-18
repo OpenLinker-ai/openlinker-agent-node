@@ -16,7 +16,7 @@ func TestClaudeWebSearchEnvironmentValues(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"", false}, {"false", false}, {"0", false}, {"no", false}, {"off", false},
+		{"", true}, {"false", false}, {"0", false}, {"no", false}, {"off", false},
 		{"true", true}, {"1", true}, {"yes", true}, {"on", true},
 		{" TRUE ", true}, {"\tFalse\n", false}, {"YeS", true}, {"OFF", false},
 	} {
@@ -79,12 +79,15 @@ func TestClaudeWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 		want        bool
 		processEnv  bool
 	}{
-		{name: "unset", allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob"},
-		{name: "empty", value: stringPointer(""), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob"},
+		// Unset and empty now mean on; enabling search grants exactly WebSearch and
+		// WebFetch on top of the caller's list, because dontAsk refuses anything else.
+		{name: "unset", allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob,WebSearch,WebFetch", want: true},
+		{name: "empty", value: stringPointer(""), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob,WebSearch,WebFetch", want: true},
 		{name: "false", value: stringPointer("false"), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob"},
-		{name: "true", value: stringPointer("true"), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob", want: true},
-		{name: "true-from-process-environment", value: stringPointer("true"), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob", want: true, processEnv: true},
-		{name: "true-without-implicit-tool-approval", value: stringPointer("true"), allowed: `[]`, want: true},
+		{name: "true", value: stringPointer("true"), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob,WebSearch,WebFetch", want: true},
+		{name: "true-from-process-environment", value: stringPointer("true"), allowed: `["Read","Glob"]`, wantAllowed: "Read,Glob,WebSearch,WebFetch", want: true, processEnv: true},
+		{name: "true-grants-only-the-web-tools", value: stringPointer("true"), allowed: `[]`, wantAllowed: "WebSearch,WebFetch", want: true},
+		{name: "true-keeps-an-existing-web-grant-once", value: stringPointer("true"), allowed: `["WebSearch","Read"]`, wantAllowed: "WebSearch,Read,WebFetch", want: true},
 		{name: "false-deny-remains-even-if-tool-allowed", value: stringPointer("false"), allowed: `["WebSearch","WebFetch"]`, wantAllowed: "WebSearch,WebFetch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

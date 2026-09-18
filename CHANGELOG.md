@@ -7,6 +7,17 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- **Behavior change:** turn native web search on by default for both Codex and
+  Claude. `OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` and
+  `OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` now treat unset or empty as `true`;
+  explicit false/0/no/off still turns search off and invalid values still fail
+  startup. Codex receives `web_search="live"`. Because Claude runs with
+  `dontAsk`, enabling search now also adds exactly `WebSearch` and `WebFetch`
+  to `--allowedTools` (once, after the configured list); native session
+  isolation keeps its own tool list. A Node that never set the variable starts
+  searching after upgrading; set `false` before upgrading to keep it off.
+  `--check-config` reports the effective value.
+
 - Fix Codex missing-session recovery hiding incomplete native process cleanup.
   When the failed resume attempt reports both a missing session and
   `ErrProcessCleanup`, return that failure instead of retrying with a new

@@ -284,19 +284,21 @@ OPENLINKER_AGENT_NODE_ADAPTER=codex
 OPENLINKER_AGENT_NODE_CODEX_BIN=codex
 OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
-OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=false
+OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 ```
 
-`OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` defaults to **false**, explicitly passing
-`web_search="disabled"` to Codex even when the host client enables search.
-Set it to `true` to pass `web_search="live"` on new and resumed conversations.
+`OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` defaults to **true**, passing
+`web_search="live"` on new and resumed conversations. Set it to `false` to pass
+`web_search="disabled"`, which turns search off even when the host client enables it.
 This changes only the native search tool: approvals, sandbox, session reuse,
 delegation, and shell network access retain their configured policies. It does
 not enable Plugin Browser. The selected model/provider must also support search.
 
 Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,
-on/off; empty is false. Other values fail before startup without echoing their
-contents. Configuration is fixed for the Node process lifetime. Releases through
+on/off; unset or empty is true. Other values fail before startup without echoing their
+contents. Configuration is fixed for the Node process lifetime. Releases before this
+change defaulted to false, so upgrading a Node that never set the variable turns
+search on; set `false` first to keep it off. Releases through
 `v0.1.58-rc.3` did not wire this setting; changing the host Codex config or setting
 the variable cannot repair those binaries. Use a release containing this fix and
 follow the fresh-enrollment version-change procedure above.
@@ -308,20 +310,22 @@ OPENLINKER_AGENT_NODE_ADAPTER=claude
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
-OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=false
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=true
 ```
 
-`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` defaults to **false**: the bridge
-passes `--disallowedTools WebSearch,WebFetch`. Explicit `true` removes that
-bridge-level deny for both built-in tools. It does not change `dontAsk`,
-`--safe-mode`, the allowed-tools list, managed policy, Browser or delegation.
-Tool availability is not automatic approval or a guarantee of network access;
-review any required `OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS` entries separately. This is not an
-OS sandbox or a general network-deny switch.
+`OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` defaults to **true**: the bridge adds
+`WebSearch` and `WebFetch` to `--allowedTools`, because `dontAsk` refuses any tool
+that is not allowed. It adds exactly those two, once, on top of
+`OPENLINKER_AGENT_NODE_CLAUDE_ALLOWED_TOOLS`; with native session isolation the
+isolated tool list keeps its own WebSearch rule. Set `false` to pass
+`--disallowedTools WebSearch,WebFetch` instead. It does not change `dontAsk`,
+`--safe-mode`, managed policy, Browser or delegation, and it is not an OS sandbox
+or a general network-deny switch. Search still needs a model/account that offers it.
 
 Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,
-on/off; empty is false. Other values fail configuration before startup without
-echoing the value. Configuration is fixed for the Node lifetime, not hot-reloaded.
+on/off; unset or empty is true. Other values fail configuration before startup without
+echoing the value. Releases before this change defaulted to false and did not grant
+the two tools. Configuration is fixed for the Node lifetime, not hot-reloaded.
 The `v0.1.57-rc.1` binary did not read this setting; setting an environment
 variable cannot repair that binary. Use a release containing this fix and follow
 the fresh-enrollment version-change procedure above; do not relabel it as rc.1.
