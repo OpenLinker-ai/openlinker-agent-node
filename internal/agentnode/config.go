@@ -86,24 +86,16 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	isolation, err := sessionIsolationFromEnv(get)
-	if err != nil {
-		return nil, err
-	}
+	// Each case parses isolation: only Codex/Claude apply the native default.
 	authConcurrency := get("OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY")
-	if authConcurrency != "" {
-		if !isolation.Enabled() {
-			return nil, fmt.Errorf("HOST_AUTH_CONCURRENCY requires native Codex or Claude isolation")
-		}
-		if authConcurrency != "serial" && authConcurrency != "client-managed" {
-			return nil, fmt.Errorf("HOST_AUTH_CONCURRENCY must be serial or client-managed")
-		}
+	if authConcurrency != "" && authConcurrency != "serial" && authConcurrency != "client-managed" {
+		return nil, fmt.Errorf("HOST_AUTH_CONCURRENCY must be serial or client-managed")
 	}
 	envAllowlist := parseCommaList(get("OPENLINKER_AGENT_NODE_ENV_ALLOWLIST"))
 	switch mode {
 	case "http", "openclaw":
-		if isolation.Enabled() {
-			return nil, fmt.Errorf("native isolation is supported only by Codex and Claude adapters")
+		if err := unisolatedAdapterOptions(get, authConcurrency); err != nil {
+			return nil, err
 		}
 		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_HTTP_HEADERS"), "OPENLINKER_AGENT_NODE_HTTP_HEADERS")
 		if err != nil {
@@ -115,8 +107,8 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout: time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "a2a":
-		if isolation.Enabled() {
-			return nil, fmt.Errorf("native isolation is supported only by Codex and Claude adapters")
+		if err := unisolatedAdapterOptions(get, authConcurrency); err != nil {
+			return nil, err
 		}
 		headers, err := parseJSONMap(get("OPENLINKER_AGENT_NODE_A2A_HEADERS"), "OPENLINKER_AGENT_NODE_A2A_HEADERS")
 		if err != nil {
@@ -137,8 +129,8 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout:             time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "command":
-		if isolation.Enabled() {
-			return nil, fmt.Errorf("native isolation is supported only by Codex and Claude adapters")
+		if err := unisolatedAdapterOptions(get, authConcurrency); err != nil {
+			return nil, err
 		}
 		args, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_ARGS"), "OPENLINKER_AGENT_NODE_ARGS")
 		if err != nil {
@@ -156,6 +148,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Timeout:      time.Duration(timeout) * time.Millisecond,
 		}, nil
 	case "claude":
+		isolation, err := providerIsolationFromEnv(get, "claude", authConcurrency)
+		if err != nil {
+			return nil, err
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CLAUDE_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -188,12 +184,16 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Permission:    defaultString(get("OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION"), "dontAsk"),
 			WebSearch:     webSearch,
 			AllowedTools:  allowed, Timeout: time.Duration(nativeTimeout) * time.Millisecond,
-			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"), false),
+			SessionReuse: boolOption(get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_REUSE"), isolation.Enabled()),
 			SessionStore: get("OPENLINKER_AGENT_NODE_CLAUDE_SESSION_STORE"), EnvAllowlist: envAllowlist,
 			DelegationTargets: targets, DelegationProxyBin: get("OPENLINKER_AGENT_NODE_DELEGATION_PROXY_BIN"),
 			DelegationBrokerRoot: get("OPENLINKER_AGENT_NODE_DELEGATION_BROKER_ROOT"),
 		}}, nil
 	case "codex":
+		isolation, err := providerIsolationFromEnv(get, "codex", authConcurrency)
+		if err != nil {
+			return nil, err
+		}
 		webSearch, err := nativeWebSearchFromEnv(get, "codex")
 		if err != nil {
 			return nil, err
@@ -226,7 +226,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			WebSearch:            webSearch,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
-			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), false),
+			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),
 			SessionStore:         get("OPENLINKER_AGENT_NODE_CODEX_SESSION_STORE"),
 			EnvAllowlist:         envAllowlist,
 		}, nil

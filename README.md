@@ -277,10 +277,26 @@ still expects slash-style methods such as `message/send`.
 
 ### `codex`
 
-Run Codex non-interactively in an isolated workspace:
+Run Codex non-interactively. By default each conversation gets a private
+workspace under native session isolation (see
+[native session isolation](#native-session-isolation-without-docker)):
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=codex
+OPENLINKER_AGENT_NODE_CODEX_BIN=codex
+OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
+# Optional; defaults to $HOME/.local/state/openlinker-agent-node-sessions and
+# must be outside any git worktree.
+OPENLINKER_AGENT_NODE_SESSION_ROOT=/srv/openlinker/node-sessions
+```
+
+To bridge Codex in an existing workspace instead, turn isolation off
+explicitly. The model can then see that workspace's files, git status/history
+and project instructions:
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=codex
+OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off
 OPENLINKER_AGENT_NODE_CODEX_BIN=codex
 OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
@@ -305,8 +321,23 @@ follow the fresh-enrollment version-change procedure above.
 
 ### `claude`
 
+Native session isolation is the default, as for Codex:
+
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=true
+# Optional; defaults to $HOME/.local/state/openlinker-agent-node-sessions and
+# must be outside any git worktree.
+OPENLINKER_AGENT_NODE_SESSION_ROOT=/srv/openlinker/node-sessions
+```
+
+Bridging Claude in an existing workspace requires an explicit opt-out; the
+model can then see that workspace's files, git status/history and CLAUDE.md:
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
@@ -351,9 +382,10 @@ is synchronized on resume. Legacy Node Codex maps are not imported: a new
 session is seeded from Core history. The old plaintext session-key output and
 model-visible localhost helper credentials have been removed.
 
-Native session reuse defaults to **false**. Enable it explicitly when preserving
-an existing workflow; that configuration is not evidence of the default
-behavior. Workspace and session-store paths must remain stable for reuse.
+Native session reuse defaults to **true** under native isolation (the default),
+which rejects an explicit `false`. With `SESSION_ISOLATION=off` it defaults to
+**false**; enable it explicitly when preserving an existing workflow, and keep
+workspace and session-store paths stable for reuse.
 Separate directories alone do not isolate processes running under the same OS
 identity from local files or other sessions.
 
@@ -508,12 +540,15 @@ provider, network request, login or state write, and `provider_preflight` is
 model/search availability. Normal startup logs the same policy before its
 existing provider/OS preflight checks.
 
-`native_isolation_disabled` means the Node-specific native boundary is off;
-ordinary Codex `read-only` is not a substitute for that boundary.
+`native_isolation_disabled` means the Node-specific native boundary was turned
+off with `SESSION_ISOLATION=off`; ordinary Codex `read-only` is not a substitute
+for that boundary.
 `serial_host_auth_capacity_gt_one` recommends capacity 1 so assigned Runs do not
 spend their timeout waiting for the host-auth lock. These diagnostics do not
-change the default or enable search/isolation. Use `SESSION_ISOLATION=native`
-with the private session root described below to opt in. Releases through
+change any setting. Codex and Claude default to `SESSION_ISOLATION=native` with a
+private session root outside any git worktree (default
+`$HOME/.local/state/openlinker-agent-node-sessions`); set `off` explicitly to
+bridge a client in an existing workspace without isolation. Releases through
 `v0.1.58-rc.3` do not include `--check-config`.
 
 Explicit native-only `SESSION_READ_PATHS` / `SESSION_NETWORK_DOMAINS` values,
@@ -521,7 +556,7 @@ including `[]` or `null`, are rejected while isolation is off. Remove those
 settings for ordinary mode or explicitly enable native isolation; an empty
 network list must not be mistaken for an enforced offline policy in off mode.
 
-**Experimental, trusted callers only; no per-session resource quotas.** Node
+**Experimental and on by default for Codex/Claude, trusted callers only; no per-session resource quotas.** Node
 reuses the installed Codex/Claude client's authentication. Native mode does not
 require another login or new API-key environment variables. The official client
 owns authentication. Claude defaults to sandboxed Bash; its in-process file tools

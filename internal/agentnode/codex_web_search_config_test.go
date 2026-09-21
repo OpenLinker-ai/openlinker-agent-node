@@ -43,7 +43,7 @@ func TestCodexWebSearchEnvironmentValues(t *testing.T) {
 					t.Fatalf("provider WebSearch=%t, want %t", config.WebSearch, test.want)
 				}
 				if config.Sandbox != "read-only" || config.CodexApproval != "never" ||
-					config.SessionReuse || len(config.DelegationTargets) != 0 ||
+					config.SessionReuse != (isolation == "native") || len(config.DelegationTargets) != 0 ||
 					config.SessionIsolation.Enabled() != (isolation == "native") {
 					t.Fatal("web search changed unrelated security or session policy")
 				}
@@ -60,11 +60,12 @@ func TestCodexWebSearchRejectsInvalidEnvironmentBeforeExecution(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			root := t.TempDir()
 			node, err := NewFromEnvMap(Env{
-				"OPENLINKER_AGENT_NODE_ADAPTER":         "codex",
-				"OPENLINKER_AGENT_NODE_CODEX_BIN":       filepath.Join(root, "must-not-execute"),
-				"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE": root,
-				"OPENLINKER_AGENT_NODE_DATA_DIR":        filepath.Join(root, "must-not-create"),
-				codexWebSearchEnv:                       value,
+				"OPENLINKER_AGENT_NODE_ADAPTER":           "codex",
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off",
+				"OPENLINKER_AGENT_NODE_CODEX_BIN":         filepath.Join(root, "must-not-execute"),
+				"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":   root,
+				"OPENLINKER_AGENT_NODE_DATA_DIR":          filepath.Join(root, "must-not-create"),
+				codexWebSearchEnv:                         value,
 			})
 			if node != nil || err == nil || !strings.Contains(err.Error(), codexWebSearchEnv) {
 				t.Fatalf("invalid setting must reject Node construction: node=%v err=%v", node != nil, err)
@@ -101,6 +102,7 @@ func TestCodexWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 			bin := writeNodeRPCFixture(t)
 			for key, value := range map[string]string{
 				"OPENLINKER_AGENT_NODE_ADAPTER":             "codex",
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION":   "off",
 				"OPENLINKER_AGENT_NODE_CODEX_BIN":           bin,
 				"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":     workspace,
 				"OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE": "true",

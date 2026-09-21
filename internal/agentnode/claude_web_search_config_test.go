@@ -23,6 +23,7 @@ func TestClaudeWebSearchEnvironmentValues(t *testing.T) {
 		t.Run(test.value, func(t *testing.T) {
 			node, err := NewFromEnvMap(Env{
 				"OPENLINKER_AGENT_NODE_ADAPTER": "claude", claudeWebSearchEnv: test.value,
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -47,11 +48,12 @@ func TestClaudeWebSearchRejectsInvalidEnvironmentBeforeExecution(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			root := t.TempDir()
 			node, err := NewFromEnvMap(Env{
-				"OPENLINKER_AGENT_NODE_ADAPTER":          "claude",
-				"OPENLINKER_AGENT_NODE_CLAUDE_BIN":       filepath.Join(root, "must-not-execute"),
-				"OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE": root,
-				"OPENLINKER_AGENT_NODE_DATA_DIR":         filepath.Join(root, "must-not-create"),
-				claudeWebSearchEnv:                       value,
+				"OPENLINKER_AGENT_NODE_ADAPTER":           "claude",
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off",
+				"OPENLINKER_AGENT_NODE_CLAUDE_BIN":        filepath.Join(root, "must-not-execute"),
+				"OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE":  root,
+				"OPENLINKER_AGENT_NODE_DATA_DIR":          filepath.Join(root, "must-not-create"),
+				claudeWebSearchEnv:                        value,
 			})
 			if node != nil || err == nil || !strings.Contains(err.Error(), claudeWebSearchEnv) {
 				t.Fatalf("invalid setting must reject Node construction: node=%v err=%v", node != nil, err)
@@ -95,6 +97,7 @@ func TestClaudeWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 			binary := writeFakeCodex(t, "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > actual-args\ncat > actual-prompt\nprintf '%s\\n' '{\"type\":\"result\",\"result\":\"fixture completed\",\"session_id\":\"web-config-session\"}'\n")
 			env := Env{
 				"OPENLINKER_AGENT_NODE_ADAPTER":              "claude",
+				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION":    "off",
 				"OPENLINKER_AGENT_NODE_CLAUDE_BIN":           binary,
 				"OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE":     workspace,
 				"OPENLINKER_AGENT_NODE_CLAUDE_MODEL":         "fixture-model",

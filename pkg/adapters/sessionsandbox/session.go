@@ -167,6 +167,11 @@ func privateDirectory(parent, name string) (string, error) {
 
 func privateRoot(p string) (string, error) {
 	clean := filepath.Clean(p)
+	// Create missing owner-only parents so a default root under HOME works on
+	// first start; the ancestor checks below still reject shared writable ones.
+	if err := os.MkdirAll(filepath.Dir(clean), 0o700); err != nil {
+		return "", errors.New("cannot create private session root parent")
+	}
 	if _, err := privateDirectory(filepath.Dir(clean), filepath.Base(clean)); err != nil {
 		return "", err
 	}
@@ -183,7 +188,57 @@ func privateRoot(p string) (string, error) {
 			break
 		}
 	}
+	if gitWorktree(resolved) {
+		return "", ErrGitWorktree
+	}
 	return resolved, nil
+}
+
+// ErrGitWorktree rejects session storage that the client would treat as part
+// of a repository.
+var ErrGitWorktree = errors.New("session root must be outside any git worktree; the client would expose that repository's status, history and project instructions")
+
+// CheckOutsideGitWorktree is a read-only check for configuration diagnostics.
+// It inspects the path and its ancestors without creating anything; Open and
+// OpenClient repeat it on the resolved root.
+func CheckOutsideGitWorktree(p string) error {
+	if !safePath(p) {
+		return errors.New("session root must be an absolute path")
+	}
+	if gitWorktree(canonicalExisting(filepath.Clean(p))) {
+		return ErrGitWorktree
+	}
+	return nil
+}
+
+// canonicalExisting resolves the deepest existing ancestor so a not-yet-created
+// root is checked against the repository its symlinked parents point into.
+func canonicalExisting(p string) string {
+	for dir := p; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			rel, _ := filepath.Rel(dir, p)
+			return filepath.Join(resolved, rel)
+		}
+		if dir == filepath.Dir(dir) {
+			return p
+		}
+	}
+}
+
+// The trusted client collects git status, recent commits and CLAUDE.md-style
+// project instructions from its working directory and ancestors before any
+// tool sandbox applies, so a session under a repository leaks that repository.
+func gitWorktree(dir string) bool {
+	for {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // Environment never inherits the operator's HOME, configuration hooks, SSH

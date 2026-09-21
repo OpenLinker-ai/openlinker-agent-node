@@ -1,6 +1,6 @@
 # 复用主机认证的原生会话隔离
 
-**实验性，默认关闭，支持 macOS 与 Linux。** Node 调用主机已安装的 Codex 或
+**实验性，Codex/Claude 默认开启，支持 macOS 与 Linux。** Node 调用主机已安装的 Codex 或
 Claude Code。请先用运行 Node 的同一系统用户，按官方方式登录或配置客户端。
 开启 `SESSION_ISOLATION=native` 不需要在每个沙箱重新登录，也不强制提供新的
 `CODEX_API_KEY` / `ANTHROPIC_API_KEY`。Node 不读取、复制、刷新或代理订阅 token。
@@ -78,23 +78,31 @@ user/network/PID namespaces，Claude 另需 `bwrap`、`socat`、`rg`。macOS 使
 开放这些代码路径，不开放认证目录或整个 tmp 树。
 
 ```sh
-export OPENLINKER_AGENT_NODE_ADAPTER=codex # 或 claude
-export OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native
+export OPENLINKER_AGENT_NODE_ADAPTER=codex # 或 claude；默认即 native 隔离
 export OPENLINKER_AGENT_NODE_CAPACITY=1 # 默认串行模式建议值
-export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true # Claude 改为 CLAUDE_SESSION_REUSE
+# 可选：默认 $HOME/.local/state/openlinker-agent-node-sessions
 export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 # 保留原来的 HOME，以及已配置的 CODEX_HOME / CLAUDE_CONFIG_DIR。
 # 已有客户端登录时，无需增加 API key 环境变量。
 ```
 
-`SESSION_ROOT` 必须为当前用户独占的目录，不能以 root 运行。以下选项都加
+`SESSION_ROOT` 必须为当前用户独占的目录，且不能位于任何 git 工作树内（自身及上级
+目录都不能有 `.git` 目录或文件）。可信客户端会在工具沙箱生效前读取工作目录的
+git 状态、最近提交和项目说明，放在仓库内会把该仓库暴露给模型。不能以 root 运行。
+
+native 模式让每个会话使用私有工作区，因此会拒绝而不是忽略 `CODEX_WORKSPACE` /
+`CLAUDE_WORKSPACE`、`*_SESSION_REUSE=false`、`SESSION_STORE`、委派和
+`ENV_ALLOWLIST`；native 下 `*_SESSION_REUSE` 默认 `true`。不会自动退回无沙箱运行：
+不支持的平台、root 用户或上述配置都会导致启动失败，需修正配置或显式设置
+`SESSION_ISOLATION=off`。Codex mock 响应不启动客户端，保持 `off`；HTTP、A2A、
+command 适配器不做隔离。以下选项都加
 `OPENLINKER_AGENT_NODE_` 前缀：
 
 | 参数 | 含义 |
 | --- | --- |
-| `SESSION_ISOLATION` | 默认 `off`，选择 `native` 开启 |
+| `SESSION_ISOLATION` | Codex/Claude 默认 `native`，`off` 显式关闭 |
 | `HOST_AUTH_CONCURRENCY` | 仅 native：未设置/`serial` 按共享主机 HOME 与 Provider 串行运行 Node 客户端；`client-managed` 显式允许并发 |
-| `SESSION_ROOT` | 私有持久目录 |
+| `SESSION_ROOT` | 私有持久目录，不能在 git 工作树内；默认 `$HOME/.local/state/openlinker-agent-node-sessions` |
 | `SESSION_TEMP_ROOT` | 可选私有临时目录，解析后路径不超过 40 字节 |
 | `SESSION_READ_PATHS` | 为 shell 额外开放的只读代码/库路径 JSON 数组；不能暴露认证、会话和控制目录 |
 | `SESSION_NETWORK_DOMAINS` | 沙箱命令可访问的精确公网 HTTPS 主机名 JSON 数组，空数组表示命令断网 |

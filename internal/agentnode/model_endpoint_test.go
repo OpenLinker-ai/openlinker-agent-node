@@ -8,7 +8,7 @@ import (
 func TestConfiguredGatewayReachesProductionNativeAdapter(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		for _, isolated := range []bool{false, true} {
-			v := map[string]string{}
+			v := map[string]string{"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off"}
 			if isolated {
 				v = isolationValues(t, name)
 				v["OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS"] = `["gateway.example"]`

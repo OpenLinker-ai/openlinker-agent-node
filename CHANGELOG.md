@@ -7,6 +7,25 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- **Behavior change:** Codex and Claude now default to native session
+  isolation. Unset `OPENLINKER_AGENT_NODE_SESSION_ISOLATION` means `native` for
+  these adapters; HTTP, A2A, command and a Codex mock response stay `off`.
+  `SESSION_ROOT` defaults to `$HOME/.local/state/openlinker-agent-node-sessions`
+  and `*_SESSION_REUSE` to `true` in native mode. Settings native mode cannot
+  honour (`*_WORKSPACE`, `*_SESSION_REUSE=false`, `SESSION_STORE`, delegation,
+  `ENV_ALLOWLIST`), unsupported platforms and root fail startup with a hint to
+  set `SESSION_ISOLATION=off`; there is no silent unsandboxed fallback. An
+  existing Codex/Claude Node that never set the variable fails to start after
+  upgrading until it sets `off` (keeping its workspace and sessions) or removes
+  the conflicting settings. Moving to native starts new private sessions and
+  serializes clients per host HOME by default.
+- **Behavior change:** reject a native `SESSION_ROOT` inside a git worktree
+  (a `.git` directory or file in the root or any ancestor). The trusted client
+  collects git status, recent commits and project instructions from its
+  working directory before the tool sandbox applies, so such a root exposed
+  that repository to the model. Missing owner-only parents of the root are now
+  created.
+
 - **Behavior change:** turn native web search on by default for both Codex and
   Claude. `OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH` and
   `OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH` now treat unset or empty as `true`;
