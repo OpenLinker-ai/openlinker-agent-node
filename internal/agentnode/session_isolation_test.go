@@ -55,6 +55,9 @@ func TestNativeIsolationConfigurationReachesBothProductionAdapters(t *testing.T)
 func TestNativeIsolationRejectsIgnoredOptionsAndMockBypass(t *testing.T) {
 	for _, mode := range []string{"codex", "claude", "http", "openclaw", "command", "a2a"} {
 		for _, isolationMode := range []string{"", "off"} {
+			if isolationMode == "" && (mode == "codex" || mode == "claude") {
+				continue // unset means native for local clients; covered by the default tests
+			}
 			values := map[string]string{
 				"OPENLINKER_AGENT_NODE_HOST_AUTH_CONCURRENCY": "serial",
 				"OPENLINKER_AGENT_NODE_SESSION_ISOLATION":     isolationMode,
@@ -89,6 +92,9 @@ func TestNativeIsolationRejectsIgnoredOptionsAndMockBypass(t *testing.T) {
 func TestDisabledIsolationRejectsExplicitEmptyNativePolicies(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "http", "command"} {
 		for _, mode := range []string{"", "off"} {
+			if mode == "" && (provider == "codex" || provider == "claude") {
+				continue // unset means native for local clients
+			}
 			for _, key := range []string{"OPENLINKER_AGENT_NODE_SESSION_READ_PATHS", "OPENLINKER_AGENT_NODE_SESSION_NETWORK_DOMAINS"} {
 				for _, value := range []string{"[]", " null ", `["synthetic-private-path"]`} {
 					node, err := NewFromEnvMap(Env{"OPENLINKER_AGENT_NODE_ADAPTER": provider, "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": mode, key: value})

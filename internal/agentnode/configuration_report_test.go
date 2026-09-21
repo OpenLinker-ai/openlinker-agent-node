@@ -12,10 +12,11 @@ import (
 func TestStartupLogsNativePolicyBeforeProviderPreflight(t *testing.T) {
 	dir := t.TempDir()
 	node, err := NewFromEnvMap(Env{
-		"OPENLINKER_AGENT_NODE_ADAPTER":         "codex",
-		"OPENLINKER_AGENT_NODE_CODEX_BIN":       filepath.Join(dir, "missing-codex"),
-		"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE": dir,
-		"OPENLINKER_AGENT_TOKEN":                "synthetic-private-token",
+		"OPENLINKER_AGENT_NODE_ADAPTER":           "codex",
+		"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off",
+		"OPENLINKER_AGENT_NODE_CODEX_BIN":         filepath.Join(dir, "missing-codex"),
+		"OPENLINKER_AGENT_NODE_CODEX_WORKSPACE":   dir,
+		"OPENLINKER_AGENT_TOKEN":                  "synthetic-private-token",
 	})
 	if err != nil {
 		t.Fatal(err)

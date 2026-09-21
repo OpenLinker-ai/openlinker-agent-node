@@ -112,7 +112,7 @@ func TestCompiledNodeOwnsDelegationTransport(t *testing.T) {
 			command := exec.CommandContext(ctx, binary)
 			command.Dir = t.TempDir()
 			command.Env = append(transportEnv(t),
-				"OPENLINKER_AGENT_NODE_ADAPTER="+provider,
+				"OPENLINKER_AGENT_NODE_ADAPTER="+provider, "OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off",
 				"OPENLINKER_AGENT_NODE_"+strings.ToUpper(provider)+"_BIN="+client,
 				`OPENLINKER_AGENT_NODE_DELEGATION_TARGETS=["`+transportTarget+`"]`,
 				"ANTHROPIC_API_KEY=synthetic-delegation-key")
@@ -129,7 +129,7 @@ func TestCompiledNodeOwnsDelegationTransport(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		command := exec.CommandContext(ctx, binary)
-		command.Env = append(transportEnv(t), "OPENLINKER_AGENT_NODE_ADAPTER=claude",
+		command.Env = append(transportEnv(t), "OPENLINKER_AGENT_NODE_ADAPTER=claude", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off",
 			"OPENLINKER_AGENT_NODE_CLAUDE_BIN="+filepath.Join(t.TempDir(), "must-not-execute"),
 			`OPENLINKER_AGENT_NODE_DELEGATION_TARGETS=["`+transportTarget+`"]`, "CLAUDE_CODE_OAUTH_TOKEN=synthetic-oauth-only")
 		output, err := command.CombinedOutput()

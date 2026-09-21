@@ -239,10 +239,23 @@ OPENLINKER_AGENT_NODE_A2A_METHOD=SendMessage
 
 ### `codex`
 
-在隔离 workspace 中非交互运行 Codex：
+非交互运行 Codex。默认启用原生会话隔离，每个会话使用私有 workspace
+（见[不依赖 Docker 的会话隔离](#不依赖-docker-的会话隔离)）：
 
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=codex
+OPENLINKER_AGENT_NODE_CODEX_BIN=codex
+OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
+# 可选；默认 $HOME/.local/state/openlinker-agent-node-sessions，不能在 git 工作树内
+OPENLINKER_AGENT_NODE_SESSION_ROOT=/srv/openlinker/node-sessions
+```
+
+如需在既有工作目录中桥接 Codex，必须显式关闭隔离；此时模型能看到该目录的文件、
+git 状态/历史和项目说明：
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=codex
+OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off
 OPENLINKER_AGENT_NODE_CODEX_BIN=codex
 OPENLINKER_AGENT_NODE_CODEX_WORKSPACE=/srv/openlinker/codex-work
 OPENLINKER_AGENT_NODE_CODEX_SANDBOX=workspace-write
@@ -262,8 +275,22 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 
 ### `claude`
 
+与 Codex 相同，默认启用原生会话隔离：
+
 ```bash
 OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
+OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=true
+# 可选；默认 $HOME/.local/state/openlinker-agent-node-sessions，不能在 git 工作树内
+OPENLINKER_AGENT_NODE_SESSION_ROOT=/srv/openlinker/node-sessions
+```
+
+在既有工作目录中桥接 Claude 需显式关闭隔离；此时模型能看到该目录的文件、
+git 状态/历史和 CLAUDE.md：
+
+```bash
+OPENLINKER_AGENT_NODE_ADAPTER=claude
+OPENLINKER_AGENT_NODE_SESSION_ISOLATION=off
 OPENLINKER_AGENT_NODE_CLAUDE_BIN=claude
 OPENLINKER_AGENT_NODE_CLAUDE_WORKSPACE=/srv/openlinker/claude-work
 OPENLINKER_AGENT_NODE_CLAUDE_PERMISSION=dontAsk
@@ -293,7 +320,8 @@ Codex 从有界 JSONL 读取最终答复，Claude 持续发送标准化进度。
 旧 Node Codex 会话映射不自动导入，首次运行由 Core 历史建立新会话；输出不再包含明文
 session key，模型 prompt 不再携带 localhost helper 凭证。
 
-原生会话复用默认 **false**；保持已有工作流时必须显式启用，并保持 workspace 与
+原生会话复用在 native 隔离（默认）下默认 **true**，显式 `false` 会被拒绝；
+`SESSION_ISOLATION=off` 时默认 **false**，保持已有工作流须显式启用，并保持 workspace 与
 session-store 路径稳定。显式 true 的验证不能代替默认配置验证；同一 OS 身份下分开
 目录也不等于隔离本机数据或其他会话。
 
@@ -424,17 +452,19 @@ JSON 会显示构建版本、搜索/隔离/会话策略和容量，不输出凭�
 `provider_preflight` 为 `not_run`，不能当作文件隔离或模型/搜索可用性的验收。
 正常启动也会在原有客户端/OS 预检之前记录同一份配置摘要。
 
-`native_isolation_disabled` 表示未启用 Node 的 native 隔离；普通 Codex 的
+`native_isolation_disabled` 表示已用 `SESSION_ISOLATION=off` 关闭 Node 的 native 隔离；普通 Codex 的
 `read-only` 不能替代该边界。`serial_host_auth_capacity_gt_one` 提示把容量设为 1，
-避免已领取的 Run 排队等待主机认证锁并消耗超时。诊断不改变默认值，也不会自动开启
-搜索或隔离；需按下方说明显式设置 `SESSION_ISOLATION=native` 和私有会话目录。
+避免已领取的 Run 排队等待主机认证锁并消耗超时。诊断不修改任何配置。
+Codex/Claude 默认 `SESSION_ISOLATION=native`，会话目录默认
+`$HOME/.local/state/openlinker-agent-node-sessions` 且不能在 git 工作树内；
+需要在既有工作区无隔离桥接客户端时，显式设置 `off`。
 截至 `v0.1.58-rc.3` 的旧二进制没有 `--check-config`。
 
 隔离关闭时，显式的 `SESSION_READ_PATHS` / `SESSION_NETWORK_DOMAINS`（包括 `[]`
 或 `null`）会被拒绝。普通模式需去掉这些 native 专用配置，或明确开启 native；
 不能把空网络列表误认为 off 模式下已经生效的禁网策略。
 
-**实验性，仅供可信调用方，尚无会话级资源硬配额。** Node 复用主机 Codex/Claude
+**实验性，Codex/Claude 默认开启，仅供可信调用方，尚无会话级资源硬配额。** Node 复用主机 Codex/Claude
 客户端认证，不需要在沙箱重新登录，也不强制增加 API key 环境变量。官方客户端
 负责认证。Claude 默认只开沙箱 Bash，客户端内文件工具需显式开启，其安全边界不同；
 Codex 在此模式关闭客户端内图片读取与主机通知命令。一个 Node 保留多个会话并支持 A-B-A

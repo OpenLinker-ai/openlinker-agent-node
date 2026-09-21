@@ -17,7 +17,13 @@ func TestAdapterModeCompatibilityBoundary(t *testing.T) {
 		"module": "module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude",
 	}
 
-	get := func(string) string { return "" }
+	// Isolation defaults are covered separately; this checks only mode dispatch.
+	get := func(k string) string {
+		if k == "OPENLINKER_AGENT_NODE_SESSION_ISOLATION" {
+			return "off"
+		}
+		return ""
+	}
 	for _, mode := range supported {
 		t.Run("supported/"+mode, func(t *testing.T) {
 			adapter, err := adapterFromEnv(get, mode)

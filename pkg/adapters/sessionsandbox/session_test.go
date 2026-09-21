@@ -323,3 +323,41 @@ func TestNativeSandboxRealCancellation(t *testing.T) {
 		t.Fatal("ordinary descendant survived cancellation")
 	}
 }
+
+func TestSessionRootMustBeOutsideGitWorktrees(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("native isolation requires non-root macOS/Linux")
+	}
+	for _, marker := range []string{"dir", "file"} {
+		repo := t.TempDir()
+		if err := os.Chmod(repo, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		gitPath := filepath.Join(repo, ".git")
+		var err error
+		if marker == "dir" {
+			err = os.Mkdir(gitPath, 0o700)
+		} else { // linked worktrees and submodules use a .git file
+			err = os.WriteFile(gitPath, []byte("gitdir: /elsewhere\n"), 0o600)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, root := range []string{repo, filepath.Join(repo, "nested", "sessions")} {
+			c := Config{Mode: "native", Root: root, Namespace: "https://core.example"}
+			if s, err := OpenClient(context.Background(), c, "scope"); err == nil || !strings.Contains(err.Error(), "git worktree") {
+				if s != nil {
+					_ = s.Close()
+				}
+				t.Fatalf("%s marker: session root inside a repository accepted: %v", marker, err)
+			}
+		}
+	}
+	// A root outside any repository, with missing parents, is created and used.
+	root := filepath.Join(t.TempDir(), "state", "sessions")
+	s, err := OpenClient(context.Background(), Config{Mode: "native", Root: root, Namespace: "https://core.example"}, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+}

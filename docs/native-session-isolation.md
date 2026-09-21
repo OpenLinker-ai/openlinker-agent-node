@@ -1,6 +1,6 @@
 # Native sessions with host authentication
 
-**Experimental, opt-in, macOS and Linux.** Node bridges the installed Codex or
+**Experimental, on by default for Codex/Claude, macOS and Linux.** Node bridges the installed Codex or
 Claude Code client. Authenticate/configure that client once as the OS user that
 runs Node. `SESSION_ISOLATION=native` does not require another login or a new API
 key. Node does not parse, copy, refresh or proxy subscription tokens.
@@ -112,23 +112,34 @@ Node verifies that the directory contains only known aliases and an empty lock
 before granting read access. It does not grant the authentication home or tmp tree.
 
 ```sh
-export OPENLINKER_AGENT_NODE_ADAPTER=codex # or claude
-export OPENLINKER_AGENT_NODE_SESSION_ISOLATION=native
+export OPENLINKER_AGENT_NODE_ADAPTER=codex # or claude; native isolation is the default
 export OPENLINKER_AGENT_NODE_CAPACITY=1 # recommended with default serial admission
-export OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE=true # CLAUDE_SESSION_REUSE for Claude
+# Optional: defaults to $HOME/.local/state/openlinker-agent-node-sessions
 export OPENLINKER_AGENT_NODE_SESSION_ROOT=/absolute/private/node-sessions
 # Keep your existing HOME and, if configured, CODEX_HOME / CLAUDE_CONFIG_DIR.
 # No additional CODEX_API_KEY or ANTHROPIC_API_KEY is required for cached login.
 ```
 
-`SESSION_ROOT` must be owner-only and have no unsafe writable ancestors. Do not
-run Node as root. Options use the `OPENLINKER_AGENT_NODE_` prefix:
+`SESSION_ROOT` must be owner-only, have no unsafe writable ancestors and lie
+outside every git worktree (no `.git` directory or file in it or any ancestor).
+The trusted client reads its working directory's git status, recent commits and
+project instructions before any tool sandbox applies, so a session under a
+repository would expose that repository to the model. Do not run Node as root.
+
+Native mode runs each conversation in a private workspace, so it rejects
+`CODEX_WORKSPACE` / `CLAUDE_WORKSPACE`, `*_SESSION_REUSE=false`, `SESSION_STORE`,
+delegation and `ENV_ALLOWLIST` instead of ignoring them. `*_SESSION_REUSE`
+defaults to `true` in native mode. There is no automatic unsandboxed fallback:
+on unsupported platforms, as root, or with those settings, startup fails until
+you fix the setting or set `SESSION_ISOLATION=off` explicitly. A Codex mock
+response starts no client and keeps the `off` default; HTTP, A2A and command
+adapters are never isolated. Options use the `OPENLINKER_AGENT_NODE_` prefix:
 
 | Option | Meaning |
 | --- | --- |
-| `SESSION_ISOLATION` | `off` (default) or `native` |
+| `SESSION_ISOLATION` | `native` (default for Codex/Claude) or `off` |
 | `HOST_AUTH_CONCURRENCY` | Native only: unset/`serial` serializes Node clients per shared host HOME/provider; `client-managed` explicitly allows concurrent clients |
-| `SESSION_ROOT` | Private persistent storage |
+| `SESSION_ROOT` | Private persistent storage outside any git worktree; default `$HOME/.local/state/openlinker-agent-node-sessions` |
 | `SESSION_TEMP_ROOT` | Optional private, short temporary root (resolved path ≤40 bytes) |
 | `SESSION_READ_PATHS` | JSON array of additional read-only code/library paths for shell tools; may not expose auth or session/control directories |
 | `SESSION_NETWORK_DOMAINS` | JSON array of exact public HTTPS hostnames for sandboxed command networking; empty means offline commands |

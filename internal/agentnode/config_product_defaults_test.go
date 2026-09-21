@@ -10,7 +10,8 @@ func TestNativeProviderSessionReuseDefaultsStayNodeOwned(t *testing.T) {
 		for _, input := range []string{"", "true", "false"} {
 			t.Run(provider+"/"+input, func(t *testing.T) {
 				env := Env{
-					"OPENLINKER_AGENT_NODE_ADAPTER": provider,
+					"OPENLINKER_AGENT_NODE_ADAPTER":           provider,
+					"OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off",
 					// The CLI/Plugin app's setting must not override Node defaults.
 					"OPENLINKER_AGENT_SESSION_REUSE": "true",
 				}

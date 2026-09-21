@@ -24,9 +24,14 @@ func TestCompiledConfigurationCheckDoesNotStartProviderOrWorker(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, provider := range []string{"codex", "claude"} {
-		for _, mode := range []string{"off", "native"} {
+		// "" is the unset default, which must report native isolation.
+		for _, mode := range []string{"off", "native", ""} {
 			t.Run(provider+"/"+mode, func(t *testing.T) {
-				if mode == "native" && (os.Geteuid() == 0 || runtime.GOOS != "darwin" && runtime.GOOS != "linux") {
+				want := mode
+				if want == "" {
+					want = "native"
+				}
+				if want == "native" && (os.Geteuid() == 0 || runtime.GOOS != "darwin" && runtime.GOOS != "linux") {
 					t.Skip("native configuration requires non-root macOS/Linux")
 				}
 				workspace := t.TempDir()
@@ -40,11 +45,14 @@ func TestCompiledConfigurationCheckDoesNotStartProviderOrWorker(t *testing.T) {
 					"OPENLINKER_AGENT_NODE_CAPACITY=2",
 					"OPENLINKER_AGENT_NODE_PUBLIC_A2A=true", "OPENLINKER_AGENT_NODE_HELPER=true",
 					name+"_BIN="+filepath.Join(workspace, "provider-must-not-run"),
-					name+"_WORKSPACE="+workspace, name+"_WEB_SEARCH=true", name+"_SESSION_REUSE=true",
+					name+"_WEB_SEARCH=true", name+"_SESSION_REUSE=true",
 					"OPENLINKER_AGENT_TOKEN=synthetic-private-platform-token", "CODEX_API_KEY=synthetic-private-model-key",
 				)
-				if mode == "native" {
+				if want == "native" {
 					env = append(env, "OPENLINKER_AGENT_NODE_SESSION_ROOT="+sessions)
+				} else {
+					// Native mode rejects a workspace it would never use.
+					env = append(env, name+"_WORKSPACE="+workspace)
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -72,11 +80,11 @@ func TestCompiledConfigurationCheckDoesNotStartProviderOrWorker(t *testing.T) {
 				if err := json.Unmarshal(raw, &report); err != nil {
 					t.Fatal(err)
 				}
-				if report.Scope != "configured_policy" || report.ProviderPreflight != "not_run" || report.Capacity != 2 || report.Native.Provider != provider || !report.Native.WebSearch || report.Native.SessionIsolation != mode {
+				if report.Scope != "configured_policy" || report.ProviderPreflight != "not_run" || report.Capacity != 2 || report.Native.Provider != provider || !report.Native.WebSearch || report.Native.SessionIsolation != want {
 					t.Fatalf("incorrect policy report: %s", raw)
 				}
 				warning := "native_isolation_disabled"
-				if mode == "native" {
+				if want == "native" {
 					warning = "serial_host_auth_capacity_gt_one"
 					if report.Native.HostAuthConcurrency != "serial" {
 						t.Fatalf("missing default auth serialization: %s", raw)
