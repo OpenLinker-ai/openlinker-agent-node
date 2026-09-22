@@ -67,6 +67,32 @@ flowchart LR
   Proxy --> Core
 ```
 
+## Page-managed skill packages
+
+Native Codex/Claude adapters consume the same owner-selected package versions as
+Plugin hosts. Import SKILL.md and supporting UTF-8 files in OpenLinker, associate
+an exact version with the Agent, and connect a compatible Node. New Runs snapshot
+that selection; retries retain their original versions. HTTP, command and A2A
+bridges do not advertise this contract: remote backends need an explicit loader.
+
+The SDK delivers Core-owned snapshots separately from ordinary task metadata.
+After native session isolation chooses the workspace, Node verifies the payload
+and dependencies, prepares `.openlinker-skills/<agent-id>/<digest>/` there, and
+emits durable loaded/failed evidence. Git workspaces receive a local exclude rule.
+No install scripts run, and skills grant no additional tools or credentials.
+
+Adding, removing or upgrading packages starts a fresh provider session while
+preserving Core conversation history. Unchanged versions resume normally. Full
+instructions appear on a new/recovered session; resumed turns include a short
+SKILL.md path index so the model can reread after compaction. Load evidence does
+not prove model use. Immutable cache versions remain available for older Runs;
+this version does not automatically garbage-collect them.
+
+The reusable `pkg/adapters/skillpackages` leaf owns package validation, immutable
+files and prompt fragments. Plugin consumes it without depending on Node's host,
+Worker lifecycle or full execution policy. This source change requires a new Node
+release and an explicit rollout before existing installations gain support.
+
 ## Status and installation
 
 Agent Node is pre-1.0 and intended as a bridge for existing backends,

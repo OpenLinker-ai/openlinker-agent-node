@@ -28,6 +28,7 @@ func lockSession(provider, workspace, sessionKey string) func() {
 // The product binds the persisted cursor to the selected private session before
 // invoking shared filtering. A different/legacy session must replay all history.
 func runWithSessionHistory(run RunContext, path, provider, workspace, key, id string) RunContext {
+	run.SkillPackagesAlreadyLoaded = id != ""
 	if id == "" || run.Conversation == nil {
 		return run
 	}

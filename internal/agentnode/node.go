@@ -243,11 +243,12 @@ func (handler runtimeAdapterHandler) Handle(
 	assignmentMetadata := JSONMap(assignment.Metadata)
 	adapterMetadata := make(JSONMap, len(assignmentMetadata))
 	for key, value := range assignmentMetadata {
-		if key != "a2a" && key != "conversation" {
+		if key != "a2a" && key != "conversation" && key != "_openlinker_skill_packages" {
 			adapterMetadata[key] = value
 		}
 	}
 	runCtx := RunContext{
+		PackageSnapshot:   assignmentMetadata["_openlinker_skill_packages"],
 		AttemptDeadlineAt: assignment.AttemptDeadlineAt,
 		RunDeadlineAt:     assignment.RunDeadlineAt,
 		Authority:         assignment.Authority,
