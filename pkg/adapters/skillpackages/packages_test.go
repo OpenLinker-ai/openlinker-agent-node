@@ -116,18 +116,10 @@ func TestSkillPackageCacheStaysOutOfGit(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := protectSkillPackageCache(context.Background(), workspace); err != nil {
+		if _, err := Load(context.Background(), loadRequest(t), "codex", workspace, Cache{}); err != nil {
 			t.Fatal(err)
 		}
-		root, err := os.OpenRoot(workspace)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = materialize(root, ".openlinker-skills/agent/digest", map[string]string{"SKILL.md": "PRIVATE"}, false)
-		root.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
+
 		git("add", "-A")
 		if got := git("ls-files"); got != "" {
 			t.Fatalf("private package entered index: %s", got)

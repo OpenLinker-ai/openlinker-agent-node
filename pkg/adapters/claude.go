@@ -48,7 +48,7 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		workspace, _ = os.Getwd()
 	}
 	var packageErr error
-	run, packageErr = loadSkillPackages(ctx, run, "claude", workspace)
+	run, packageErr = loadSkillPackages(ctx, run, "claude", workspace, config)
 	if packageErr != nil {
 		return openlinker.RuntimeResult{}, packageErr
 	}
