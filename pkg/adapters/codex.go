@@ -38,7 +38,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		workspace, _ = os.Getwd()
 	}
 	var packageErr error
-	run, packageErr = loadSkillPackages(ctx, run, "codex", workspace)
+	run, packageErr = loadSkillPackages(ctx, run, "codex", workspace, config)
 	if packageErr != nil {
 		return openlinker.RuntimeResult{}, packageErr
 	}

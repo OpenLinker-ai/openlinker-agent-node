@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -35,6 +34,9 @@ type Request struct {
 	AgentID  string
 	Trusted  bool
 	Emit     func(string, any) error
+	// CheckCommands is supplied by the product for the Provider identity,
+	// environment and tool filesystem policy, not the Worker's PATH.
+	CheckCommands func(context.Context, []string) error
 }
 type Result struct {
 	Digest   string
@@ -137,14 +139,23 @@ func Load(ctx context.Context, req Request, provider, workspace string, cache Ca
 		}
 		return Result{}, cause
 	}
+	var commands []string
 	for _, bundle := range bundles {
 		for _, command := range bundle.RequiredCommands {
 			if !packageCommandPattern.MatchString(command) {
 				return fail(errors.New("invalid required command"), "package_invalid")
 			}
-			if _, err := exec.LookPath(command); err != nil {
-				return fail(fmt.Errorf("required command is unavailable: %s", command), "dependency_missing")
+			if !slices.Contains(commands, command) {
+				commands = append(commands, command)
 			}
+		}
+	}
+	if len(commands) > 0 {
+		if req.CheckCommands == nil {
+			return fail(errors.New("Provider command availability checker is unavailable"), "dependency_missing")
+		}
+		if err := req.CheckCommands(ctx, commands); err != nil {
+			return fail(err, "dependency_missing")
 		}
 	}
 	directory := cache.Directory
@@ -191,18 +202,33 @@ func Load(ctx context.Context, req Request, provider, workspace string, cache Ca
 		return fail(err, "package_materialization_failed")
 	}
 	defer root.Close()
+	if cache.Directory == "" {
+		// A cache may live below an enclosing repository we must not modify.
+		// A local ignore file also covers those workspaces without Git discovery.
+		if err := writeCacheIgnore(root); err != nil {
+			return fail(err, "package_materialization_failed")
+		}
+	}
 	// Assignment aggregation order is not part of skill selection identity.
 	versions := append([]Version(nil), snapshot.Bundles...)
 	slices.SortFunc(versions, func(a, b Version) int { return strings.Compare(a.PackageID, b.PackageID) })
 	raw, _ := json.Marshal(versions)
 	digest := sha256.Sum256(raw)
 	result := Result{Digest: hex.EncodeToString(digest[:])}
+	recovered := map[string]string{}
 	for i, bundle := range bundles {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
 		relative := filepath.Join(req.AgentID, snapshot.Bundles[i].Digest)
-		if err := materialize(root, relative, bundle.Files, cache.GroupID != 0); err != nil {
+		err := materialize(root, relative, bundle.Files, cache.GroupID != 0)
+		if err != nil && cache.GroupID == 0 {
+			// Same-UID tools can alter read-only cache files. Keep that damaged
+			// tree untouched and select a fresh verified copy for later Runs.
+			relative, err = recoverPrivatePackage(root, req.AgentID, snapshot.Bundles[i].Digest, bundle.Files)
+			recovered[snapshot.Bundles[i].PackageID] = relative
+		}
+		if err != nil {
 			return fail(fmt.Errorf("could not materialize pinned skill package: %w", err), "package_materialization_failed")
 		}
 		names := make([]string, 0, len(bundle.Files))
@@ -211,6 +237,13 @@ func Load(ctx context.Context, req Request, provider, workspace string, cache Ca
 		}
 		slices.Sort(names)
 		result.Packages = append(result.Packages, Package{Name: bundle.Name, Instructions: bundle.Files["SKILL.md"], Directory: filepath.Join(directory, relative), Files: names})
+	}
+	if len(recovered) > 0 {
+		// Old sessions retain file locations. Recovering to a new location must
+		// inject the full, verified instructions into a fresh native session.
+		locations, _ := json.Marshal(recovered)
+		digest = sha256.Sum256(append(raw, locations...))
+		result.Digest = hex.EncodeToString(digest[:])
 	}
 	if err := req.Emit("run.skill_packages.loaded", map[string]any{"bindings": receipt}); err != nil {
 		return Result{}, err

@@ -112,4 +112,4 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Reuse private skill cache with Windows permission semantics
-        run: go test -count=1 -run '^TestLoadReusesPrivateFiles$' ./pkg/adapters/skillpackages
+        run: go test -count=1 -run 'Test(LoadReusesPrivateFiles|DamagedPrivateCache|CommandsUseProviderEnvironment)' ./pkg/adapters/skillpackages

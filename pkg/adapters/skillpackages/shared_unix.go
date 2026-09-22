@@ -26,5 +26,18 @@ func CheckSharedCache(directory string, groupID int) error {
 	if err != nil || resolved != filepath.Clean(directory) {
 		return errors.New("shared skill cache must not have symlink ancestors")
 	}
-	return nil
+	// Correct ownership on a read-only image layer is insufficient. Probe the
+	// actual mount before advertising support; never touch package contents.
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	name := ".write-probe-" + randomPackageSuffix()
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, writeErr := f.WriteString("probe")
+	return errors.Join(writeErr, f.Close(), root.Remove(name))
 }

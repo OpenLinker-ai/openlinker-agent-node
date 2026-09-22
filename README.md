@@ -78,7 +78,9 @@ bridges do not advertise this contract: remote backends need an explicit loader.
 The SDK delivers Core-owned snapshots separately from ordinary task metadata.
 After native session isolation chooses the workspace, Node verifies the payload
 and dependencies, prepares `.openlinker-skills/<agent-id>/<digest>/` there, and
-emits durable loaded/failed evidence. Git workspaces receive a local exclude rule.
+emits durable loaded/failed evidence. Only a repository rooted at the execution
+workspace with an internal gitdir receives a local exclude rule; a cache-local
+.gitignore protects nested or external worktrees without editing their metadata.
 No install scripts run, and skills grant no additional tools or credentials.
 
 Adding, removing or upgrading packages starts a fresh provider session while
@@ -86,7 +88,12 @@ preserving Core conversation history. Unchanged versions resume normally. Full
 instructions appear on a new/recovered session; resumed turns include a short
 SKILL.md path index so the model can reread after compaction. Load evidence does
 not prove model use. Immutable cache versions remain available for older Runs;
-this version does not automatically garbage-collect them.
+this version does not automatically garbage-collect them. Damaged same-UID cache
+entries are replaced with a separate verified recovery copy, leaving the original
+tree untouched and starting a fresh provider session. This is recovery from prior
+corruption, not protection against a still-running process with the Host UID.
+Prerequisite lookup uses the Provider PATH and configured native tool read roots;
+it does not execute commands or certify that all runtime dependencies will work.
 
 The reusable `pkg/adapters/skillpackages` leaf owns package validation, immutable
 files and prompt fragments. Plugin consumes it without depending on Node's host,
