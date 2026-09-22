@@ -114,6 +114,21 @@ func TestSkillPackagesUseIsolatedSessionWorkspace(t *testing.T) {
 			config.Bin = filepath.Join(t.TempDir(), name)
 			if name == "codex" {
 				writeCodexRPCFixture(t, config.Bin, "ephemeral")
+				// The real app-server creates these aliases before initialize.
+				// Linux validates them when restricting the model's filesystem.
+				script, err := os.ReadFile(config.Bin)
+				if err != nil {
+					t.Fatal(err)
+				}
+				setup := `set -eu
+test -r .openlinker-skills/55555555-5555-4555-8555-555555555555/*/references/example.txt
+helper_dir="${CODEX_HOME:-$HOME/.codex}/tmp/arg0/codex-arg0-fixture"
+mkdir -p "$helper_dir"
+ln -s "$0" "$helper_dir/codex-linux-sandbox"
+`
+				if err := os.WriteFile(config.Bin, []byte(strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\n"+setup, 1)), 0700); err != nil {
+					t.Fatal(err)
+				}
 			} else {
 				bin, _ := reviewFakeCLI(t, `cat >/dev/null
 test -r .openlinker-skills/55555555-5555-4555-8555-555555555555/*/references/example.txt || exit 4
