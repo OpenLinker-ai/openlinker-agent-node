@@ -268,7 +268,7 @@ func materialize(root *os.Root, directory string, files map[string]string, share
 		}
 		existingMatches := func() error {
 			info, err := root.Lstat(target)
-			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != fileMode {
+			if err != nil || !info.Mode().IsRegular() || (shared && info.Mode().Perm() != fileMode) {
 				return errors.New("package cache entry is not a regular file")
 			}
 			content, err := root.ReadFile(target)

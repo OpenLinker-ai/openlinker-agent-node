@@ -2,6 +2,9 @@ package skillpackages
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +12,47 @@ import (
 	"sync"
 	"testing"
 )
+
+// Windows represents an owner-read-only file as 0444 rather than Unix 0400.
+// Reusing verified private files must work on every native Host platform.
+func TestLoadReusesPrivateFiles(t *testing.T) {
+	payload, err := json.Marshal(Contents{Name: "portable", Providers: []string{"codex"}, Files: map[string]string{"SKILL.md": "PRIVATE-INSTRUCTION", "references/input.txt": "reference"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(payload)
+	version := Version{BindingID: "11111111-1111-4111-8111-111111111111", PackageID: "22222222-2222-4222-8222-222222222222", VersionID: "33333333-3333-4333-8333-333333333333", Digest: hex.EncodeToString(digest[:]), Payload: string(payload)}
+	loaded := 0
+	req := Request{AgentID: "55555555-5555-4555-8555-555555555555", Trusted: true, Snapshot: Snapshot{Schema: 1, Bundles: []Version{version}}, Emit: func(kind string, _ any) error {
+		if kind == "run.skill_packages.loaded" {
+			loaded++
+		}
+		return nil
+	}}
+	workspace := t.TempDir()
+	first, err := Load(context.Background(), req, "codex", workspace, Cache{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Also reproduce Windows' permission representation on Unix. This is a
+	// private, same-identity cache; strict shared-group permissions are separate.
+	for _, name := range first.Packages[0].Files {
+		if err := os.Chmod(filepath.Join(first.Packages[0].Directory, name), 0444); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second, err := Load(context.Background(), req, "codex", workspace, Cache{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != 2 || first.Digest != second.Digest {
+		t.Fatal("cache reuse lost load evidence or changed selection")
+	}
+	index := Instructions(second.Packages, true)
+	if strings.Contains(index, "PRIVATE-INSTRUCTION") || !strings.Contains(index, "SKILL.md") {
+		t.Fatal("resumed turn must retain a compact file index")
+	}
+}
 
 func TestSkillPackageMaterializationIsConcurrentAndConfined(t *testing.T) {
 	dir := t.TempDir()
