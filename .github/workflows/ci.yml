@@ -101,3 +101,15 @@ jobs:
 
       - name: Build
         run: go build ./cmd/openlinker-agent-node
+
+  portable-skill-cache:
+    runs-on: windows-2025
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Reuse private skill cache with Windows permission semantics
+        run: go test -count=1 -run '^TestLoadReusesPrivateFiles$' ./pkg/adapters/skillpackages
