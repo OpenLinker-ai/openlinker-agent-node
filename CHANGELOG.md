@@ -7,6 +7,16 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Restore effective OS login names in native Codex/Claude client environments.
+  Derive `USER` and `LOGNAME` from the effective identity, replacing supplied
+  values, so native authentication receives the same login name as ordinary
+  launches. The shared process leaf now also adds `LOGNAME` to its other
+  consumers. Claude Bash inherits these names under the supported client policy;
+  Codex keeps its separately configured tool environment. This does not change
+  process UIDs, tool grants, authentication homes or session storage. Synthetic
+  official-client acceptance covers tool inheritance and credential isolation;
+  personal Keychain login and live-model authentication remain unverified.
+
 - **Behavior change:** Codex and Claude now default to native session
   isolation. Unset `OPENLINKER_AGENT_NODE_SESSION_ISOLATION` means `native` for
   these adapters; HTTP, A2A, command and a Codex mock response stay `off`.

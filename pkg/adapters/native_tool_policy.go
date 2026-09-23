@@ -334,6 +334,9 @@ func nativeHostCommand(ctx context.Context, c ProviderConfig, bin string, args [
 		}
 		command.Env = append(command.Env, "CLAUDE_CODE_TMPDIR="+c.sandbox.Temp(), "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="+scrub, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_PROJECT_DIR_NAME=openlinker-"+sessionsandbox.Scope(c.SessionStore))
 	}
+	// Restore the OS login identity omitted by the scrubbed client environment.
+	// Tools may inherit these names according to the client's environment policy.
+	command.Env = providerprocess.WithIdentity(command.Env)
 	providerprocess.Configure(command)
 	return command
 }

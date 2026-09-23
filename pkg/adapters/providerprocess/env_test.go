@@ -7,18 +7,18 @@ import (
 )
 
 func TestEnvironmentUsesEffectiveIdentityWithoutLeakingParentCredentials(t *testing.T) {
-	input := []string{"PATH=/bin", "HOME=/provider", "USER=forged", "USER=other", "OPENLINKER_AGENT_TOKEN=secret", "ANTHROPIC_API_KEY=allowed", "LC_ALL=en_US"}
+	input := []string{"PATH=/bin", "HOME=/provider", "USER=forged", "USER=other", "LOGNAME=forged", "LOGNAME=other", "OPENLINKER_AGENT_TOKEN=secret", "ANTHROPIC_API_KEY=allowed", "LC_ALL=en_US"}
 	snapshot := append([]string(nil), input...)
-	got := Environment(input, []string{"ANTHROPIC_API_KEY", "USER"})
+	got := Environment(input, []string{"ANTHROPIC_API_KEY", "USER", "LOGNAME"})
 	counts := map[string]int{}
 	for _, entry := range got {
 		key, value, _ := strings.Cut(entry, "=")
 		counts[key]++
-		if key == "OPENLINKER_AGENT_TOKEN" || (key == "USER" && value != effectiveUsername()) {
+		if key == "OPENLINKER_AGENT_TOKEN" || ((key == "USER" || key == "LOGNAME") && value != effectiveUsername()) {
 			t.Fatalf("unexpected environment key %q", key)
 		}
 	}
-	if effectiveUsername() != "" && counts["USER"] != 1 {
+	if effectiveUsername() != "" && (counts["USER"] != 1 || counts["LOGNAME"] != 1) {
 		t.Fatal("effective identity must be present exactly once")
 	}
 	if counts["ANTHROPIC_API_KEY"] != 1 || counts["LC_ALL"] != 1 || !reflect.DeepEqual(input, snapshot) {
@@ -27,7 +27,7 @@ func TestEnvironmentUsesEffectiveIdentityWithoutLeakingParentCredentials(t *test
 }
 
 func TestWithIdentityIsIdempotent(t *testing.T) {
-	one := WithIdentity([]string{"PATH=/bin", "USER=forged"})
+	one := WithIdentity([]string{"PATH=/bin", "USER=forged", "LOGNAME=forged"})
 	if !reflect.DeepEqual(one, WithIdentity(one)) {
 		t.Fatal("identity normalization must be idempotent")
 	}
