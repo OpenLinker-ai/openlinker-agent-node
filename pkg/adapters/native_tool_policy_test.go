@@ -95,7 +95,7 @@ func TestNativeHostCommandUsesEffectiveIdentity(t *testing.T) {
 func assertEffectiveIdentity(env []string) error {
 	want, err := user.LookupId(strconv.Itoa(os.Geteuid()))
 	if err != nil {
-		return nil
+		return fmt.Errorf("look up effective identity: %w", err)
 	}
 	for _, key := range []string{"USER", "LOGNAME"} {
 		var got []string

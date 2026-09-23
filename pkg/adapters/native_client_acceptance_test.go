@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,7 +27,13 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				t.Skip("set both official client paths for real tool-boundary acceptance")
 			}
 			c := isolationConfig(t, provider)
+			identityMarker := ""
 			if provider == "claude" {
+				identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
+				if err != nil {
+					t.Fatal("look up effective identity:", err)
+				}
+				identityMarker = "OPENLINKER_BASH_IDENTITY:" + identity.Username + ":" + identity.Username
 				// Direct-path file-tool checks are an explicit opt-in. The
 				// default Bash-only policy has separate link-matrix coverage.
 				c.AllowedTools = []string{"Bash", "Read", "Edit", "Write", "Glob", "Grep"}
@@ -166,6 +174,11 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				// this test merely by refusing an absolute path before OS execution.
 				script := "printf allowed > own.txt\nif printf forbidden > " + jsonString(filepath.Join(conf, "tool-write")) + "; then echo AUTH_WRITE_SUCCEEDED; fi\ncat escape\ncat " + jsonString(other) + "\ncat " + jsonString(filepath.Join(conf, "auth.json")) + "\ncat " + jsonString(filepath.Join(conf, ".credentials.json")) + "\n/bin/ps eww -p $PPID\nfor e in /proc/[0-9]*/environ; do grep -aoh synthetic-parent-env-canary \"$e\" 2>/dev/null; done\nenv\n/usr/bin/curl -sSf --max-time 2 " + jsonString(server.URL+"/tool-egress") + " >/dev/null && echo NETWORK_ESCAPE\n"
 				script += "cat " + jsonString(stateCanary) + "\nrm -f " + jsonString(lockPath) + "\nprintf forbidden > " + jsonString(stateWrite) + "\n"
+				if provider == "claude" {
+					// Claude's scrubbed Bash environment retains OS login names;
+					// they are not restricted to the trusted client process.
+					script += "printf 'OPENLINKER_BASH_IDENTITY:%s:%s\\n' \"${USER-unset}\" \"${LOGNAME-unset}\"\n"
+				}
 				mustWrite(filepath.Join(prepared.Workspace, "probe.sh"), script+keychainProbe)
 				if err := os.Symlink(other, filepath.Join(prepared.Workspace, "escape")); err != nil {
 					t.Fatal(err)
@@ -282,7 +295,11 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 					t.Fatal("host notifier executed", err)
 				}
 			}
+			identitySeen := identityMarker == ""
 			for _, body := range bodies {
+				if identityMarker != "" && strings.Contains(body, identityMarker) {
+					identitySeen = true
+				}
 				for _, secret := range []string{canary, parentCanary, "never-forward-this", "NETWORK_ESCAPE", "synthetic-keychain-canary"} {
 					if strings.Contains(body, secret) {
 						i := strings.Index(body, secret)
@@ -291,6 +308,9 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 						t.Fatalf("tool output leaked a synthetic secret (%s): %s", secret, body[a:b])
 					}
 				}
+			}
+			if !identitySeen {
+				t.Fatal("Claude Bash did not receive the effective OS login names")
 			}
 			t.Logf("%s: cached auth reused in %d fixture requests, A-B-A resumed, tools wrote only allowed files and returned no synthetic credential", provider, calls)
 		})

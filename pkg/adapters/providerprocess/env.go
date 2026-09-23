@@ -35,10 +35,9 @@ func Environment(environment, allowlist []string) []string {
 }
 
 // WithIdentity derives USER and LOGNAME from the process's effective OS
-// identity, never from caller input. macOS clients resolve their login
-// Keychain item from these names. Launchers that drop privileges must call
-// this again after the drop. It does not expose credentials or widen the
-// environment allowlist.
+// identity, never from caller input. Launchers that drop privileges must call
+// this again after the drop. It does not expose credentials or forward other
+// environment variables.
 func WithIdentity(environment []string) []string {
 	result := make([]string, 0, len(environment)+2)
 	for _, item := range environment {

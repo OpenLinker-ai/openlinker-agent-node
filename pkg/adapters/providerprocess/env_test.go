@@ -7,9 +7,9 @@ import (
 )
 
 func TestEnvironmentUsesEffectiveIdentityWithoutLeakingParentCredentials(t *testing.T) {
-	input := []string{"PATH=/bin", "HOME=/provider", "USER=forged", "USER=other", "LOGNAME=forged", "OPENLINKER_AGENT_TOKEN=secret", "ANTHROPIC_API_KEY=allowed", "LC_ALL=en_US"}
+	input := []string{"PATH=/bin", "HOME=/provider", "USER=forged", "USER=other", "LOGNAME=forged", "LOGNAME=other", "OPENLINKER_AGENT_TOKEN=secret", "ANTHROPIC_API_KEY=allowed", "LC_ALL=en_US"}
 	snapshot := append([]string(nil), input...)
-	got := Environment(input, []string{"ANTHROPIC_API_KEY", "USER"})
+	got := Environment(input, []string{"ANTHROPIC_API_KEY", "USER", "LOGNAME"})
 	counts := map[string]int{}
 	for _, entry := range got {
 		key, value, _ := strings.Cut(entry, "=")
