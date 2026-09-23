@@ -29,7 +29,7 @@ func buildPrompt(
 	if conversation != nil {
 		lines = append(lines, "", "conversation.history_before_current contains Core-owned prior messages.", "The current user request is in input; do not ask the user to resend prior messages.")
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n") + skillPackageInstructions(run)
 }
 
 func buildCodexPrompt(

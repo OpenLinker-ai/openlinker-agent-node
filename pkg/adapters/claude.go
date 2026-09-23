@@ -47,6 +47,11 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
+	var packageErr error
+	run, packageErr = loadSkillPackages(ctx, run, "claude", workspace, config)
+	if packageErr != nil {
+		return openlinker.RuntimeResult{}, packageErr
+	}
 	permission := strings.TrimSpace(config.Permission)
 	if permission == "" {
 		permission = "dontAsk"
@@ -66,7 +71,7 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "claude", workspace)
 	sessionID := ""
-	clientMode := providerSessionClientMode(config)
+	clientMode := providerSessionClientMode(config) + skillPackageSessionMode(run)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
 		if config.sandbox == nil {

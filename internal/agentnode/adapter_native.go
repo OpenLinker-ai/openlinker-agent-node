@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/skillpackages"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
@@ -57,10 +58,11 @@ func (adapter *NativeAdapter) Preflight(ctx context.Context) error {
 }
 
 func (adapter *NativeAdapter) RuntimeFeatures() []string {
+	features := skillpackages.Features(adapter.Config.Provider)
 	if len(adapter.Config.DelegationTargets) > 0 {
-		return []string{openlinker.RuntimeDelegatedRunReadFeature}
+		features = append(features, openlinker.RuntimeDelegatedRunReadFeature)
 	}
-	return nil
+	return features
 }
 
 func (adapter *NativeAdapter) Run(ctx context.Context, input any, run RunContext) (any, error) {
@@ -69,7 +71,8 @@ func (adapter *NativeAdapter) Run(ctx context.Context, input any, run RunContext
 		return nil, err
 	}
 	native := agentexec.RunContext{
-		RunID: run.RunID, AgentID: run.AgentID, Input: input,
+		PackageSnapshot: run.PackageSnapshot,
+		RunID:           run.RunID, AgentID: run.AgentID, Input: input,
 		Metadata: map[string]any(run.Metadata), A2A: map[string]any(run.A2A),
 		AttemptDeadlineAt: run.AttemptDeadlineAt, RunDeadlineAt: run.RunDeadlineAt, Authority: run.Authority,
 		ReadDelegatedRun: run.ReadDelegatedRun,

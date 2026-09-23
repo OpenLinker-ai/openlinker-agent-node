@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/sessionsandbox"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/skillpackages"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
@@ -65,21 +66,25 @@ type ConversationMessage struct {
 }
 
 type RunContext struct {
-	ReadDelegatedRun   func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error)
-	DelegationSocket   string
-	DelegationProxyBin string
-	RunID              string
-	AgentID            string
-	AttemptDeadlineAt  time.Time
-	RunDeadlineAt      time.Time
-	Authority          *openlinker.RuntimeAuthorityContext
-	Input              any
-	Metadata           map[string]any
-	A2A                map[string]any
-	Conversation       *ConversationContext
-	RuntimeExtensions  *openlinker.RuntimeExtensions
-	Emit               func(string, any) error
-	CallAgent          func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error)
+	PackageSnapshot            any
+	SkillPackagesAlreadyLoaded bool
+	SkillPackagesDigest        string
+	LoadedSkillPackages        []skillpackages.Package
+	ReadDelegatedRun           func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error)
+	DelegationSocket           string
+	DelegationProxyBin         string
+	RunID                      string
+	AgentID                    string
+	AttemptDeadlineAt          time.Time
+	RunDeadlineAt              time.Time
+	Authority                  *openlinker.RuntimeAuthorityContext
+	Input                      any
+	Metadata                   map[string]any
+	A2A                        map[string]any
+	Conversation               *ConversationContext
+	RuntimeExtensions          *openlinker.RuntimeExtensions
+	Emit                       func(string, any) error
+	CallAgent                  func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error)
 }
 
 type Provider interface {

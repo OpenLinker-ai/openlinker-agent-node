@@ -37,6 +37,11 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
+	var packageErr error
+	run, packageErr = loadSkillPackages(ctx, run, "codex", workspace, config)
+	if packageErr != nil {
+		return openlinker.RuntimeResult{}, packageErr
+	}
 	sandbox := strings.TrimSpace(config.Sandbox)
 	if sandbox == "" {
 		sandbox = "read-only"
@@ -56,7 +61,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	sessionKey := conversationSessionKey(run)
 	sessionPath := sessionStorePath(config.SessionStore, "codex", workspace)
 	sessionID := ""
-	clientMode := "codex_rpc_v1:" + providerSessionClientMode(config)
+	clientMode := "codex_rpc_v1:" + providerSessionClientMode(config) + skillPackageSessionMode(run)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
 		if config.sandbox == nil {

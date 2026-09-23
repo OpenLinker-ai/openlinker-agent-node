@@ -60,7 +60,12 @@ func (a *CodexAdapter) Preflight(ctx context.Context) error {
 	return a.native().Preflight(ctx)
 }
 
-func (a *CodexAdapter) RuntimeFeatures() []string { return a.native().RuntimeFeatures() }
+func (a *CodexAdapter) RuntimeFeatures() []string {
+	if a.MockResponse != "" {
+		return nil
+	}
+	return a.native().RuntimeFeatures()
+}
 
 func (a *CodexAdapter) Run(ctx context.Context, input any, run RunContext) (any, error) {
 	if a.MockResponse != "" {
