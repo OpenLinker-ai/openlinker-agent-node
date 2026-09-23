@@ -334,6 +334,9 @@ func nativeHostCommand(ctx context.Context, c ProviderConfig, bin string, args [
 		}
 		command.Env = append(command.Env, "CLAUDE_CODE_TMPDIR="+c.sandbox.Temp(), "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="+scrub, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_PROJECT_DIR_NAME=openlinker-"+sessionsandbox.Scope(c.SessionStore))
 	}
+	// The scrubbed client environment omits the login identity; macOS clients
+	// need it to find their existing Keychain login.
+	command.Env = providerprocess.WithIdentity(command.Env)
 	providerprocess.Configure(command)
 	return command
 }
