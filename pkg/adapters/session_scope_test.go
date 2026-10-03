@@ -107,7 +107,7 @@ func sessionScopeHandle(t *testing.T, config ProviderConfig, run RunContext) ope
 		RunID: run.RunID, AgentID: run.AgentID, Authority: run.Authority, Input: run.Input, Metadata: metadata,
 	})
 	if err != nil || result.Status != "success" {
-		t.Fatalf("Handler failed: %v %#v", err, result)
+		t.Fatalf("Handler failed: %v %#v; provider error: %+v", err, result, result.Error)
 	}
 	return result
 }
@@ -298,6 +298,23 @@ func TestProviderSessionScopePreservesExistingNativeMappings(t *testing.T) {
 			fixture, _, _ := sessionScopeFixture(t, name)
 			config := isolationConfig(t, name)
 			config.Bin = fixture.Bin
+			if name == "codex" && runtime.GOOS == "linux" {
+				// The real app-server creates helper aliases before initialize.
+				// Keep Linux's production file-grant validation active in this
+				// session-map fixture, including repeated calls in the same home.
+				script, err := os.ReadFile(config.Bin)
+				if err != nil {
+					t.Fatal(err)
+				}
+				setup := `set -eu
+helper_dir="${CODEX_HOME:-$HOME/.codex}/tmp/arg0/codex-arg0-fixture"
+mkdir -p "$helper_dir"
+ln -sf "$0" "$helper_dir/codex-linux-sandbox"
+`
+				if err := os.WriteFile(config.Bin, []byte(strings.Replace(string(script), "#!/bin/sh\n", "#!/bin/sh\n"+setup, 1)), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
 			run := isolationRun("existing-conversation")
 			prepared, closeSession, err := prepareIsolatedSession(context.Background(), config, run)
 			if err != nil {
