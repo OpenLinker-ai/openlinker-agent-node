@@ -134,7 +134,7 @@ func TestClaudeWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 				run := RunContext{RunID: []string{"first", "second"}[turn], Conversation: &ConversationContext{
 					Source: "core", SessionKey: "web-config-conversation",
 				}}
-				result, runErr := node.Adapter.Run(context.Background(), "synthetic task", run)
+				result, runErr := node.Adapter.Run(context.Background(), "synthetic task", withSessionAuthority(run))
 				if runErr != nil {
 					t.Fatal(runErr)
 				}

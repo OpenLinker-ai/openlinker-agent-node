@@ -58,19 +58,19 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	}
 	defer func() { resultErr = errors.Join(resultErr, releaseAuth()) }()
 
-	sessionKey := conversationSessionKey(run)
+	sessionNamespace, sessionKey := providerSessionScope("codex", config, run)
 	sessionPath := sessionStorePath(config.SessionStore, "codex", workspace)
 	sessionID := ""
 	clientMode := "codex_rpc_v1:" + providerSessionClientMode(config) + skillPackageSessionMode(run)
 	clientModeGeneration := uint64(1)
 	if config.SessionReuse && sessionKey != "" {
 		if config.sandbox == nil {
-			unlock := lockSession("codex", workspace, sessionKey)
+			unlock := lockSession(sessionNamespace, workspace, sessionKey)
 			defer unlock()
 		}
 		sessionID, clientModeGeneration, _ = loadSessionForClientMode(
 			sessionPath,
-			"codex",
+			sessionNamespace,
 			workspace,
 			sessionKey,
 			clientMode,
@@ -82,7 +82,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	for attempt := 0; attempt < 2; attempt++ {
 		var err error
 		observed, summary, err = runCodexRPC(requestCtx, bin, workspace, sandbox, sessionID,
-			buildCodexPrompt(runWithSessionHistory(run, sessionPath, "codex", workspace, sessionKey, sessionID), config.WebSearch),
+			buildCodexPrompt(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config.WebSearch),
 			config.SessionReuse && sessionKey != "", config, run.Emit)
 		if requestCtx.Err() != nil {
 			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), err, timeout)
@@ -91,7 +91,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 			break
 		}
 		if codexRecoversMissingSession(sessionID, attempt, err) {
-			if err := deleteSessionID(sessionPath, "codex", workspace, sessionKey); err != nil {
+			if err := deleteSessionID(sessionPath, sessionNamespace, workspace, sessionKey); err != nil {
 				return openlinker.RuntimeResult{}, err
 			}
 			sessionID = ""
@@ -101,14 +101,14 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		if errors.Is(err, codexturn.ErrResponseMessageLimit) && config.SessionReuse && sessionKey != "" && observed != "" {
 			// Keep the already-executed tool context for an explicit next turn.
 			// Do not rotate the attachment or retry the failed request.
-			if saveErr := saveSessionForClientMode(sessionPath, "codex", workspace, sessionKey, observed, clientMode, clientModeGeneration, run); saveErr != nil {
+			if saveErr := saveSessionForClientMode(sessionPath, sessionNamespace, workspace, sessionKey, observed, clientMode, clientModeGeneration, run); saveErr != nil {
 				return openlinker.RuntimeResult{}, errors.Join(err, sessionPersistenceError("Codex", saveErr))
 			}
 		}
 		return openlinker.RuntimeResult{}, fmt.Errorf("Codex failed: %w", err)
 	}
 	if config.SessionReuse && sessionKey != "" {
-		if err := saveSessionForClientMode(sessionPath, "codex", workspace, sessionKey, observed, clientMode, clientModeGeneration, run); err != nil {
+		if err := saveSessionForClientMode(sessionPath, sessionNamespace, workspace, sessionKey, observed, clientMode, clientModeGeneration, run); err != nil {
 			return openlinker.RuntimeResult{}, sessionPersistenceError("Codex", err)
 		}
 	}
@@ -122,7 +122,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 
 	if config.SessionReuse && sessionKey != "" {
 		result["codex_session_reuse"] = true
-		result["codex_session_key_hash"] = sessionKeyHash("codex", workspace, sessionKey)
+		result["codex_session_key_hash"] = sessionKeyHash(sessionNamespace, workspace, sessionKey)
 		result["codex_session_resumed"] = resumed
 		result["codex_session_recovered"] = recovered
 	}

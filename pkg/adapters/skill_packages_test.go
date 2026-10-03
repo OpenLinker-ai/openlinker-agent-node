@@ -53,6 +53,7 @@ printf '%s\n' '{"type":"result","subtype":"success","result":"answer","session_i
 				}
 				return nil
 			}}
+			run = sessionTestRun(run)
 			run.PackageSnapshot = testPackageSnapshot(name, "FIRST-PRIVATE-INSTRUCTION")
 			if _, err := provider.Run(context.Background(), run); err != nil {
 				t.Fatal(err)
@@ -192,6 +193,7 @@ printf '%s\n' '{"type":"result","subtype":"success","result":"ok","session_id":"
 			}
 			snapshot := testPackageSnapshot(name, "PINNED-INSTRUCTION")
 			run := RunContext{AgentID: "55555555-5555-4555-8555-555555555555", Authority: &openlinker.RuntimeAuthorityContext{PrincipalScopeID: "scope"}, Conversation: &ConversationContext{SessionKey: "conversation"}, PackageSnapshot: snapshot, Emit: func(string, any) error { return nil }}
+			run = sessionTestRun(run)
 			if _, err := provider.Run(context.Background(), run); err != nil {
 				t.Fatal(err)
 			}
