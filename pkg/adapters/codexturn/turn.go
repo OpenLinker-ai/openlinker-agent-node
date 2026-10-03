@@ -122,19 +122,20 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 	turnID := ""
 	turnRequested := false
 	defer func() {
-		if (ctx.Err() != nil || errors.Is(resultErr, ErrResponseMessageLimit)) && turnRequested {
+		interrupted := ctx.Err() != nil || errors.Is(resultErr, ErrResponseMessageLimit)
+		if interrupted && turnRequested {
 			interruptCodexRPC(client, threadID, turnID)
 		}
-		if resultErr == nil || ctx.Err() != nil {
+		if resultErr == nil || interrupted {
 			// EOF requests app-server shutdown and lets native rollout writes
 			// finish. Drain StdoutPipe before Wait: Wait closes that pipe and
 			// would race the RPC reader's final read with a successful exit.
 			// A wedged shutdown still has a bounded process-tree kill.
-			// interrupted is a protocol outcome, not proof that tool processes
-			// have exited. Give canceled providers an EOF shutdown opportunity
-			// as well; the identity-scoped native guard remains the fallback.
+			// An interrupt acknowledgement does not prove rollout writes or tool
+			// teardown finished. A message-limit stop also needs this EOF drain
+			// before the product persists its session for an explicit follow-up.
 			grace := 2 * time.Second
-			if ctx.Err() != nil {
+			if interrupted {
 				grace = 500 * time.Millisecond
 			}
 			_ = stdin.Close()

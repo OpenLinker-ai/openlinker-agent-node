@@ -225,7 +225,16 @@ func CodexRPCFixtureProcess() {
 	}
 	if strings.HasPrefix(scenario, "message-limit") {
 		if f.mode == "resume" {
+			if scenario == "message-limit-shutdown-flush" {
+				data, err := os.ReadFile(f.log + ".rollout")
+				if err != nil || string(data) != "completed-tool" {
+					os.Exit(4)
+				}
+			}
 			f.Finish("provider answer")
+		}
+		if scenario == "message-limit-shutdown-flush" {
+			f.logFile(".tool-effects", "completed-tool\n", true)
 		}
 		known := "private prompt Bearer synthetic-secret https://private.invalid Incomplete response returned, reason: max_messages"
 		message, details := known, ""
@@ -248,6 +257,15 @@ func CodexRPCFixtureProcess() {
 		for {
 			var message codexrpc.Message
 			if f.decoder.Decode(&message) != nil {
+				if scenario == "message-limit-shutdown-flush" {
+					// A completed tool may still be awaiting a rollout write when
+					// the client acknowledges interruption. EOF lets it flush.
+					time.Sleep(80 * time.Millisecond)
+					f.logFile(".rollout", "completed-tool", false)
+				}
+				if scenario == "message-limit-shutdown-hang" {
+					time.Sleep(30 * time.Second)
+				}
 				os.Exit(0)
 			}
 			if message.Method == "turn/interrupt" {
@@ -434,7 +452,7 @@ func jsonString(value string) string { raw, _ := json.Marshal(value); return str
 // that ignores interruption and the absence of an event subscriber.
 func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, string, func(string, any) error) (string, error), isLimit func(error) bool) {
 	t.Helper()
-	for _, scenario := range []string{"message-limit", "message-limit-details", "message-limit-terminal", "message-limit-ignore"} {
+	for _, scenario := range []string{"message-limit", "message-limit-details", "message-limit-terminal", "message-limit-ignore", "message-limit-shutdown-hang"} {
 		for _, eventsEnabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/events=%t", scenario, eventsEnabled), func(t *testing.T) {
 				dir := t.TempDir()
@@ -484,15 +502,30 @@ func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, s
 // relaunching the first failed task or recovering into a new thread.
 func CodexRPCMessageLimitPreservesSession(t *testing.T, run CodexRun, isLimit func(error) bool) {
 	t.Helper()
+	for _, scenario := range []string{"message-limit", "message-limit-shutdown-flush"} {
+		t.Run(scenario, func(t *testing.T) {
+			codexRPCMessageLimitPreservesSession(t, run, isLimit, scenario)
+		})
+	}
+}
+
+func codexRPCMessageLimitPreservesSession(t *testing.T, run CodexRun, isLimit func(error) bool, scenario string) {
+	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex")
-	WriteCodexRPCFixture(t, bin, "message-limit")
+	WriteCodexRPCFixture(t, bin, scenario)
 	config := CodexConfig{Bin: bin, Workspace: dir, SessionStore: filepath.Join(dir, "sessions.json"), SessionReuse: true, Timeout: 5 * time.Second}
 	if err := run(context.Background(), config, "first task", "conversation"); !isLimit(err) {
 		t.Fatal("first Run did not report message limit", err)
 	}
 	if err := run(context.Background(), config, "explicit follow-up", "conversation"); err != nil {
 		t.Fatal("follow-up did not resume", err)
+	}
+	if scenario == "message-limit-shutdown-flush" {
+		raw, err := os.ReadFile(bin + ".trace.tool-effects")
+		if err != nil || string(raw) != "completed-tool\n" {
+			t.Fatalf("completed tool was replayed or lost: %q %v", raw, err)
+		}
 	}
 	raw, err := os.ReadFile(bin + ".trace.requests")
 	if err != nil {
