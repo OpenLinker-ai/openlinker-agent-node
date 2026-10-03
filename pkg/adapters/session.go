@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/providersession"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/sessionsandbox"
 )
 
 // These adapters preserve each product's existing callers and public evidence.
@@ -111,6 +112,31 @@ func providerSessionClientMode(config ProviderConfig) string {
 		return "host-auth-tools-v1"
 	}
 	return delegationSessionMode(config, "standard")
+}
+
+// Provider reuse requires the Core-owned caller and current conversation. The
+// platform conversation key alone is caller-chosen, not globally owner-unique.
+// Missing authority keeps ordinary one-shot execution available without reading
+// or writing a private-session mapping.
+func providerSessionScope(provider string, config ProviderConfig, run RunContext) (namespace, key string) {
+	namespace = provider
+	if config.sandbox != nil {
+		// prepareIsolatedSession already binds the workspace/store to Core,
+		// principal, Agent and conversation. Preserve those existing mappings.
+		return namespace, conversationSessionKey(run)
+	}
+	// A separate provider hash domain cannot alias any legacy caller-chosen
+	// conversation key. The physical store path and legacy records stay intact.
+	namespace += "/principal-v1"
+	if run.Authority == nil || strings.TrimSpace(run.Authority.PrincipalScopeID) == "" ||
+		strings.TrimSpace(run.AgentID) == "" || run.RunID == "" || run.Conversation == nil ||
+		run.Conversation.Source != "core" || run.Conversation.CurrentRunID != run.RunID ||
+		strings.TrimSpace(run.Conversation.SessionKey) == "" {
+		return namespace, ""
+	}
+	key = sessionsandbox.Scope("provider-principal-v1", run.AgentID,
+		run.Authority.PrincipalScopeID, conversationSessionKey(run))
+	return namespace, key
 }
 
 func deleteSessionID(path, provider, workspace, sessionKey string) error {

@@ -35,7 +35,7 @@ func runCodexFixture(ctx context.Context, c providertest.CodexConfig, input any,
 	if sessionKey != "" {
 		run.Conversation = &ConversationContext{SessionKey: sessionKey}
 	}
-	_, err := (CodexProvider{Config: config}).Run(ctx, run)
+	_, err := (CodexProvider{Config: config}).Run(ctx, sessionTestRun(run))
 	return err
 }
 
@@ -70,7 +70,7 @@ func TestCodexRPCFailureDoesNotPersistSession(t *testing.T) {
 
 func TestCodexRPCDoesNotRecoverUnrelatedResumeErrors(t *testing.T) {
 	providertest.CodexRPCDoesNotRecoverUnrelatedResumeErrors(t, runCodexFixture, func(store, workspace string) error {
-		return saveSessionForClientMode(store, "codex", workspace, "conversation", fixtureThread, "codex_rpc_v1:standard", 1)
+		return seedOwnedTestSession(store, "codex", workspace, "conversation", fixtureThread, "codex_rpc_v1:standard")
 	})
 }
 

@@ -98,7 +98,10 @@ discards any partial final answer and returns `ErrResponseMessageLimit`, even
 without an event subscriber or when `willRetry` is false. An unresponsive client
 still has bounded shutdown. This prevents repeated native retries of the known
 message-limit response; other retry notifications retain `provider_retrying`
-and the client's existing retry behavior.
+and the client's existing retry behavior. After scoped interruption, a message-limit
+stop closes stdin and allows up to 500 ms for EOF shutdown and pending rollout
+writes before the existing process-tree fallback. Acknowledging interruption alone
+does not prove that the just-completed tool context has reached persistent storage.
 
 The optional failure event contains only `provider=codex`,
 `status=provider_failed`, `phase=failed`, `provider_error_kind=incomplete_response`

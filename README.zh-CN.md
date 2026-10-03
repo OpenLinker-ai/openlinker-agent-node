@@ -325,6 +325,12 @@ session key，模型 prompt 不再携带 localhost helper 凭证。
 session-store 路径稳定。显式 true 的验证不能代替默认配置验证；同一 OS 身份下分开
 目录也不等于隔离本机数据或其他会话。
 
+关闭隔离时，Claude/Codex 复用除 provider 与 workspace 外，还绑定 Core 提供的调用者、
+Agent 和当前 Core conversation。缺少这些可信上下文时仍执行调用，但不读写复用映射。
+旧的无归属映射保留但不再续接：新作用域首次调用从 Core 历史建立会话。已有 native
+隔离映射继续在原先已隔离的 workspace/store 中续接。默认值、存储路径、历史同步和
+missing-session 恢复策略不变。
+
 Claude 成功结果增加两个长期、可选的诊断字段：
 
 - `claude_resume_session_id_sha256`：最终成功调用实际传给 `--resume` 的非空 ID 哈希；
