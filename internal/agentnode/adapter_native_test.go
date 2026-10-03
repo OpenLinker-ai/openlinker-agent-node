@@ -16,6 +16,15 @@ import (
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
 )
 
+func withSessionAuthority(run RunContext) RunContext {
+	run.AgentID = "11111111-1111-4111-8111-111111111111"
+	run.Authority = &openlinker.RuntimeAuthorityContext{PrincipalScopeID: "ps1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+	conversation := *run.Conversation
+	conversation.CurrentRunID = run.RunID
+	run.Conversation = &conversation
+	return run
+}
+
 func TestNativeHostProbeIsReusedAfterPreflight(t *testing.T) {
 	for _, compatibility := range []bool{false, true} {
 		t.Run(fmtBool(compatibility), func(t *testing.T) {
@@ -98,7 +107,7 @@ func TestNativeAdaptersShareExecutionAndSessionContract(t *testing.T) {
 				adapter = &NativeAdapter{Config: agentexec.ProviderConfig{Provider: name, Bin: binary, Workspace: workspace, SessionReuse: true, SessionStore: filepath.Join(workspace, "sessions.json")}}
 			}
 			run := RunContext{RunID: "first", Helper: testHelperInfo(), Conversation: &ConversationContext{SessionKey: "private-conversation", Source: "core", HistoryBeforeCurrent: []ConversationMessage{{Content: "Core history"}}}}
-			first, err := adapter.Run(context.Background(), "first task", run)
+			first, err := adapter.Run(context.Background(), "first task", withSessionAuthority(run))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +120,7 @@ func TestNativeAdaptersShareExecutionAndSessionContract(t *testing.T) {
 				t.Fatalf("history/helper boundary: %s", prompt)
 			}
 			run.RunID = "second"
-			second, err := adapter.Run(context.Background(), "next task", run)
+			second, err := adapter.Run(context.Background(), "next task", withSessionAuthority(run))
 			if err != nil {
 				t.Fatal(err)
 			}

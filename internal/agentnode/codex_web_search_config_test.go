@@ -115,10 +115,10 @@ func TestCodexWebSearchEnvironmentReachesExecutedArguments(t *testing.T) {
 				t.Fatal(err)
 			}
 			for turn := 0; turn < 2; turn++ {
-				result, err := node.Adapter.Run(context.Background(), "synthetic search-policy task", RunContext{
+				result, err := node.Adapter.Run(context.Background(), "synthetic search-policy task", withSessionAuthority(RunContext{
 					RunID:        []string{"first", "second"}[turn],
 					Conversation: &ConversationContext{Source: "core", SessionKey: "search-policy-session"},
-				})
+				}))
 				if err != nil {
 					t.Fatal(err)
 				}

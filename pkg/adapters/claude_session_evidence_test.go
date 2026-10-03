@@ -63,10 +63,11 @@ esac
 			bin, dir := reviewFakeCLI(t, body)
 			store := filepath.Join(dir, "sessions.json")
 			if test.storedID != "" {
-				if err := saveSessionForClientMode(store, "claude", dir, "synthetic-context", test.storedID, "standard", 1); err != nil {
+				if err := seedOwnedTestSession(store, "claude", dir, "synthetic-context", test.storedID, "standard"); err != nil {
 					t.Fatal(err)
 				}
-				if record := readSessionStore(store).Sessions[sessionStoreKey("claude", dir, "synthetic-context")]; record.SessionID != strings.TrimSpace(test.storedID) {
+				namespace, scope := providerSessionScope("claude", ProviderConfig{}, sessionTestRun(RunContext{Conversation: &ConversationContext{SessionKey: "synthetic-context"}}))
+				if record := readSessionStore(store).Sessions[sessionStoreKey(namespace, dir, scope)]; record.SessionID != strings.TrimSpace(test.storedID) {
 					t.Fatal("existing mapping precondition was not established")
 				}
 			}
@@ -78,10 +79,10 @@ esac
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := provider.Run(context.Background(), RunContext{
+			result, err := provider.Run(context.Background(), sessionTestRun(RunContext{
 				RunID: "synthetic-run", Input: "synthetic task",
 				Conversation: &ConversationContext{SessionKey: "synthetic-context"},
-			})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +144,7 @@ func TestClaudeSessionEvidenceAbsentWhenProcessDoesNotSucceed(t *testing.T) {
 				bin = filepath.Join(dir, "missing-provider")
 			}
 			store := filepath.Join(dir, "sessions.json")
-			if err := saveSessionForClientMode(store, "claude", dir, "synthetic-context", "synthetic-previous-session", "standard", 1); err != nil {
+			if err := seedOwnedTestSession(store, "claude", dir, "synthetic-context", "synthetic-previous-session", "standard"); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -154,7 +155,7 @@ func TestClaudeSessionEvidenceAbsentWhenProcessDoesNotSucceed(t *testing.T) {
 			result, err := (ClaudeProvider{Config: ProviderConfig{
 				Bin: bin, Workspace: dir, Timeout: 5 * time.Second, SessionReuse: true, SessionStore: store,
 				Env: []string{"PATH=/usr/bin:/bin", "HOME=" + dir},
-			}}).Run(ctx, RunContext{Conversation: &ConversationContext{SessionKey: "synthetic-context"}})
+			}}).Run(ctx, sessionTestRun(RunContext{Conversation: &ConversationContext{SessionKey: "synthetic-context"}}))
 			if err == nil || result.Output != nil || result.Status != "" {
 				t.Fatal("unsuccessful process manufactured successful session evidence")
 			}

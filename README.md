@@ -357,6 +357,14 @@ behavior. Workspace and session-store paths must remain stable for reuse.
 Separate directories alone do not isolate processes running under the same OS
 identity from local files or other sessions.
 
+With isolation off, Claude/Codex reuse is scoped to the Core-provided principal,
+Agent and current Core conversation, in addition to provider and workspace.
+Without that trusted context, calls still execute but do not read or write reuse
+maps. Existing unscoped maps are retained, but are not resumed: the first call
+under the new scope starts a session from Core history. Existing native-isolation
+maps continue to resume in their already scoped workspace/store. Defaults, store
+paths, history synchronization and missing-session recovery are unchanged.
+
 Successful Claude results provide two optional, long-lived diagnostics:
 
 - `claude_resume_session_id_sha256`: SHA256 of the exact ID passed to `--resume`
