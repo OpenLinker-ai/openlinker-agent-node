@@ -34,18 +34,19 @@ func Environment(environment, allowlist []string) []string {
 	return WithIdentity(result)
 }
 
-// WithIdentity derives USER from the process's effective OS identity, never
-// from caller input. Launchers that drop privileges must call this again after
-// the drop. It does not expose credentials or widen the environment allowlist.
+// WithIdentity derives USER and LOGNAME from the process's effective OS
+// identity, never from caller input. Launchers that drop privileges must call
+// this again after the drop. It does not expose credentials or forward other
+// environment variables.
 func WithIdentity(environment []string) []string {
-	result := make([]string, 0, len(environment)+1)
+	result := make([]string, 0, len(environment)+2)
 	for _, item := range environment {
-		if !strings.HasPrefix(item, "USER=") {
+		if !strings.HasPrefix(item, "USER=") && !strings.HasPrefix(item, "LOGNAME=") {
 			result = append(result, item)
 		}
 	}
 	if name := effectiveUsername(); name != "" {
-		result = append(result, "USER="+name)
+		result = append(result, "USER="+name, "LOGNAME="+name)
 	}
 	return result
 }

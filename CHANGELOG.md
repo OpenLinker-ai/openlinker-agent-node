@@ -7,6 +7,25 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- **Behavior change:** when native session isolation is off, Codex/Claude reuse
+  is now scoped to the SDK-provided trusted principal, Agent and current Core
+  conversation. Legacy unbound mappings remain on disk but are not resumed;
+  the first call under the new scope starts a fresh private session using
+  available Core history, and later calls can resume it normally.
+  Direct adapter callers without this trusted context still execute, but do not
+  read or write private-session mappings. Native isolation retains its existing
+  mappings. Defaults, credentials and persistent paths are unchanged.
+
+- Restore effective OS login names in native Codex/Claude client environments.
+  Derive `USER` and `LOGNAME` from the effective identity, replacing supplied
+  values, so native authentication receives the same login name as ordinary
+  launches. The shared process leaf now also adds `LOGNAME` to its other
+  consumers. Claude Bash inherits these names under the supported client policy;
+  Codex keeps its separately configured tool environment. This does not change
+  process UIDs, tool grants, authentication homes or session storage. Synthetic
+  official-client acceptance covers tool inheritance and credential isolation;
+  personal Keychain login and live-model authentication remain unverified.
+
 - **Behavior change:** Codex and Claude now default to native session
   isolation. Unset `OPENLINKER_AGENT_NODE_SESSION_ISOLATION` means `native` for
   these adapters; HTTP, A2A, command and a Codex mock response stay `off`.
@@ -61,8 +80,9 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   file/network sandbox; other OS/process factories keep their existing scope.
 
 - Stop a Codex turn at the first scoped `max_messages` incomplete-response
-  diagnostic instead of allowing repeated native retries. Interrupt and close
-  the client, report a fixed failure reason and discard partial final output.
+  diagnostic instead of allowing repeated native retries. Interrupt the client,
+  close stdin and allow up to 500 ms for EOF shutdown and pending rollout writes
+  before bounded cleanup, then report a fixed failure and discard partial output.
   Preserve its native session for an explicit follow-up when reuse is enabled;
   do not replay the failed Run. Unknown diagnostics retain native retry behavior.
   The shared lifecycle exports no raw provider errors, credentials, endpoints or
