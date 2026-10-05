@@ -49,7 +49,7 @@ function checkRelease(args, env = process.env) {
   return result;
 }
 
-test("the executable release gate allows only canonical pre-1.0 test prereleases", () => {
+test("the executable release gate retains canonical pre-1.0 test prereleases", () => {
   for (const tag of ["v0.0.0-alpha.0", "v0.1.59-alpha.1", "v0.1.59-beta.2", "v0.1.59-rc.1", "v0.20.100-rc.10"]) {
     const result = checkRelease([tag]);
     assert.equal(result.status, 0, tag);
@@ -58,9 +58,9 @@ test("the executable release gate allows only canonical pre-1.0 test prereleases
   }
 });
 
-test("the executable release gate rejects missing, stable, production and malformed versions", () => {
+test("the executable release gate rejects missing, untested stable, production and malformed versions", () => {
   for (const args of [
-    [], [""], ["v0.1.59"], ["v1.0.0"], ["v1.0.0-rc.1"], ["v2.0.0-alpha.1"],
+    [], [""], ["v0.1.59"], ["v0.2.1"], ["v0.3.0"], ["v0.2.0\n"], ["v0.2.0", "extra"], ["v1.0.0"], ["v1.0.0-rc.1"], ["v2.0.0-alpha.1"],
     ["dev"], ["latest"], ["sha-0123456789ab"], ["0.1.59-rc.1"], ["refs/tags/v0.1.59-rc.1"],
     ["v0.01.59-rc.1"], ["v0.1.059-rc.1"], ["v0.1.59-rc.01"], ["v00.1.59-rc.1"],
     ["v0.1.59-preview.1"], ["v0.1.59-RC.1"], ["v0.1.59-rc"], ["v0.1.59-rc.-1"],
@@ -70,8 +70,14 @@ test("the executable release gate rejects missing, stable, production and malfor
     const result = checkRelease(args);
     assert.equal(result.status, 1, JSON.stringify(args));
     assert.equal(result.stdout, "", JSON.stringify(args));
-    assert.match(result.stderr, /^NODE_TEST_PRERELEASE_REQUIRED:/, JSON.stringify(args));
+    assert.match(result.stderr, /^NODE_SUPPORTED_RELEASE_REQUIRED:/, JSON.stringify(args));
   }
+});
+
+test("the exact supported stable version remains a candidate pending artifact acceptance", () => {
+  const result = checkRelease(["v0.2.0"]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /^NODE_CONTROLLED_RELEASE_CANDIDATE:/);
 });
 
 test("environment values cannot replace or bypass the explicit release tag", () => {
@@ -88,7 +94,7 @@ test("environment values cannot replace or bypass the explicit release tag", () 
   }
 });
 
-test("release workflow gates the actual tag and keeps tested six-platform prerelease packaging", async () => {
+test("release workflow gates the actual tag and keeps tested six-platform packaging behind artifact acceptance", async () => {
   // Wiring coverage, distinct from the real gate and binary executions above.
   const workflow = await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
   const packaging = workflow.slice(workflow.indexOf("  package-binaries:"), workflow.indexOf("  publish-release:"));
@@ -103,8 +109,12 @@ test("release workflow gates the actual tag and keeps tested six-platform prerel
   assert.ok(packaging.includes('version="sha-${GITHUB_SHA::12}"'));
   assert.ok(packaging.includes("sha256sum"));
   assert.ok(packaging.includes(".sha256"));
-  assert.match(workflow, /publish-release:[\s\S]*?if: github\.ref_type == 'tag'/);
-  assert.match(workflow, /needs: package-binaries/);
-  assert.match(workflow, /gh release create "\$\{tag\}"[^\n]*--prerelease/);
-  assert.match(workflow, /gh release edit "\$\{tag\}"[^\n]*--prerelease/);
+  assert.match(workflow, /publish-release:[\s\S]*?always\(\) && github\.ref_type == 'tag'/);
+  assert.match(workflow, /needs: \[package-binaries, controlled-upgrade\]/);
+  assert.match(workflow, /controlled-upgrade:[\s\S]*?needs: package-binaries[\s\S]*?uses: \.\/\.github\/workflows\/controlled-upgrade\.yml/);
+  assert.match(workflow, /artifact_name: openlinker-agent-node-v0\.2\.0-linux-amd64/);
+  assert.match(workflow, /prerelease="false"/);
+  assert.match(workflow, /\[\[ "\$\{tag\}" == \*-\* \]\] && prerelease="true"/);
+  assert.match(workflow, /gh release create "\$\{tag\}"[^\n]*--prerelease="\$prerelease"/);
+  assert.match(workflow, /gh release edit "\$\{tag\}" --prerelease="\$prerelease"/);
 });

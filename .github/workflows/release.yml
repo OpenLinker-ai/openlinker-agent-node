@@ -49,7 +49,7 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Require a pre-1.0 test prerelease tag
+      - name: Require a supported release tag
         if: github.ref_type == 'tag'
         run: node scripts/check-release-upgrade-readiness.mjs "$GITHUB_REF_NAME"
 
@@ -117,10 +117,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  controlled-upgrade:
+    name: Verify the exact packaged stable binary
+    if: github.ref_type == 'tag' && github.ref_name == 'v0.2.0'
+    needs: package-binaries
+    uses: ./.github/workflows/controlled-upgrade.yml
+    with:
+      artifact_name: openlinker-agent-node-v0.2.0-linux-amd64
+
   publish-release:
     name: Publish GitHub release artifacts
-    if: github.ref_type == 'tag'
-    needs: package-binaries
+    if: >-
+      always() && github.ref_type == 'tag' && needs.package-binaries.result == 'success' &&
+      ((github.ref_name == 'v0.2.0' && needs.controlled-upgrade.result == 'success') ||
+       (github.ref_name != 'v0.2.0' && needs.controlled-upgrade.result == 'skipped'))
+    needs: [package-binaries, controlled-upgrade]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -128,8 +139,16 @@ jobs:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v8
         with:
+          pattern: openlinker-agent-node-*
           path: dist
           merge-multiple: true
+
+      - name: Download stable compatibility evidence
+        if: github.ref_name == 'v0.2.0'
+        uses: actions/download-artifact@v8
+        with:
+          name: controlled-upgrade-evidence
+          path: evidence
 
       - name: Publish release assets
         env:
@@ -139,9 +158,18 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
+          prerelease="false"
+          [[ "${tag}" == *-* ]] && prerelease="true"
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes --prerelease
+            gh release create "${tag}" --title "${tag}" --generate-notes --prerelease="$prerelease"
           else
-            gh release edit "${tag}" --prerelease
+            gh release edit "${tag}" --prerelease="$prerelease"
           fi
           gh release upload "${tag}" dist/* --clobber
+
+      - name: Retain stable compatibility evidence with the release
+        if: github.ref_name == 'v0.2.0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" evidence/controlled-upgrade.json --clobber

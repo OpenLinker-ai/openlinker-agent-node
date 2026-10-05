@@ -77,10 +77,10 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
 统一构建入口为 `node scripts/build-agent-node.mjs <version> <output>`，需要 Node.js 22
 与 Go；运行已下载二进制不需要这些构建工具。
 
-**本候选仅允许 pre-1.0 测试预发布，不支持已经登记的 Node 原地升级。** 发布门禁只
-接受规范的 `v0.x.y-alpha.N`、`v0.x.y-beta.N` 或 `v0.x.y-rc.N` tag，数字均为无前导零的
-非负整数；稳定版、v1+、缺参和格式错误均拒绝，没有环境变量旁路。非 tag 的 SHA 产物
-仍可用于 CI 测试，但不创建 GitHub Release。
+正式 v0.2.0 还必须通过使用真实旧/候选二进制及不可变提交的 Core 受控升级门禁。
+精确支持范围和操作顺序见[受控升级指南](docs/controlled-upgrade.md)；已验证版本对要求
+Core v0.3.0 / schema 095。这不代表任意旧版本可原地替换，也不提供自动回滚。
+规范的 pre-1.0 测试预发布仍可使用，未列明的正式版及 v1+ 版本继续阻断。
 
 对于没有真实用户的测试部署，变更版本采用显式重新登记：
 
@@ -93,9 +93,10 @@ Linux、macOS、Windows 预构建二进制及相邻的 `.sha256` 文件发布在
    有意改变 Node 身份，不是旧登记的升级，也不提供自动回滚。
 
 **active** Node 的普通重启保留相同精确二进制版本、Node 身份、凭据和 SDK DataDir，
-由 SDK 轮换 Runtime Session；不要每次重启都新建目录。该行为不涵盖已撤销或被行政
-drain 的 Node。原登记直接替换成不同版本不受支持，可能返回 `ContractMismatch`，
-不得伪报旧版本绕过。新的测试登记不依赖 Core 受控升级扩展或通用迁移控制器。
+由 SDK 轮换 Runtime Session；不要每次重启都新建目录。已撤销 Node 不能恢复；行政
+drain 后恢复和精确验证版本对使用[Core 受控操作](docs/controlled-upgrade.md)。未经授权
+替换其他版本仍不受支持，可能返回 `ContractMismatch`，不得伪报旧版本绕过。
+新的测试登记不依赖 Core 受控升级扩展或通用迁移控制器。
 
 上述是源码兼容性与发布策略边界，不代表本候选已经发布、部署。宣称目标环境通过前，
 仍须记录真实 WebSocket 和 pull 的登记、任务执行及同 DataDir 重启测试结果。
@@ -309,7 +310,7 @@ OPENLINKER_AGENT_NODE_CLAUDE_WEB_SEARCH=true
 的发布物，并遵循上方版本变更的新身份登记流程，不得将新代码伪标成 rc.1。
 
 两端均使用本仓库的 `pkg/adapters`，共同协议解析、私有会话存储和进程机制在公开叶子包内。
-SDK 固定为 `v0.2.0-rc8.0.20260908135527-31afbf9c1a18`。
+SDK 固定为 `v0.2.0-rc8.0.20260914164420-63fc87d73406`。
 启动前检查原生 CLI 版本及所需参数，当前验证基线是 Codex 0.153.0、Claude 2.1.259。
 Codex app-server 的完整轮次流程通过公开叶子
 [`codexturn`](pkg/adapters/codexturn/README.md) 共享；Node/Plugin 各自保留启动、工具和
