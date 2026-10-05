@@ -10,6 +10,9 @@ permissions:
   contents: read
 
 jobs:
+  controlled-upgrade:
+    uses: ./.github/workflows/controlled-upgrade.yml
+
   native-session-isolation:
     strategy:
       fail-fast: false

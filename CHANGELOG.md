@@ -7,6 +7,19 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-05
+
+- Formal six-platform packaging with a required Linux amd64 packaged-binary
+  Core-controlled upgrade/restart/reverse gate for the documented version pair
+  and state scope. macOS arm64 release artifacts require separate verification.
+- Preserve the existing exact Go SDK pin at source `63fc87d73406`, also tagged
+  as SDK v0.2.0. Worker implementation and provider execution are unchanged.
+- Same-identity controlled operations require Core v0.3.0 / schema 095 and an
+  administrator-authorized drain/stop/operation/start/activate sequence. See
+  [supported state and platform limits](docs/controlled-upgrade.md).
+
+The following session-hardening changes were already in v0.1.62-rc.1:
+
 - **Behavior change:** when native session isolation is off, Codex/Claude reuse
   is now scoped to the SDK-provided trusted principal, Agent and current Core
   conversation. Legacy unbound mappings remain on disk but are not resumed;

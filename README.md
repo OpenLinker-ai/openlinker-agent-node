@@ -127,12 +127,12 @@ exact `v...` tag or `sha-...` identity. The release builder is
 `node scripts/build-agent-node.mjs <version> <output>` (Node.js 22 and Go are
 build tools, not requirements for running a downloaded binary).
 
-**This candidate is eligible only for pre-1.0 test prereleases, not an in-place
-upgrade of an enrolled Node.** The release gate accepts only canonical
-`v0.x.y-alpha.N`, `v0.x.y-beta.N`, or `v0.x.y-rc.N` tags. Numeric components are
-nonnegative with no leading zeroes. Stable tags, v1+ tags, and missing or malformed
-arguments are rejected; there is no environment bypass. Non-tag SHA artifacts
-remain available for CI testing but are not GitHub releases.
+Stable v0.2.0 packaging additionally requires the executable Core-controlled
+upgrade gate, using real old/candidate binaries and immutable source commits.
+See [the exact compatibility scope and operator procedure](docs/controlled-upgrade.md).
+The tested pair requires Core v0.3.0 / schema 095; this does not authorize
+arbitrary version replacement or automatic rollback. Canonical pre-1.0 test
+prereleases remain available, while unsupported stable/v1+ tags stay blocked.
 
 For a test deployment with no real users, the supported change-of-version path
 is explicit fresh enrollment:
@@ -151,10 +151,10 @@ is explicit fresh enrollment:
 An ordinary restart of an **active** Node retains the exact binary version,
 Node identity, credential and SDK DataDir. The SDK rotates the Runtime Session;
 do not create a fresh directory on each restart. This does not cover a revoked
-or administratively drained Node. Changing the version under the original
-enrollment is unsupported and can fail with `ContractMismatch`; never spoof
-the old version to avoid it. No Core-controlled upgrade extension or generic
-migration controller is required for fresh test enrollment.
+Node. Administrative drain recovery and the tested version pair instead use
+[Core-controlled operations](docs/controlled-upgrade.md). Replacing other enrolled
+versions without authorization is unsupported and can fail with `ContractMismatch`;
+never spoof the old version. Fresh test enrollment needs no upgrade extension.
 
 These are source-level compatibility and release-policy boundaries, not proof
 that this candidate has been published or deployed. Record real WebSocket and
@@ -406,7 +406,7 @@ or hostile-code isolation guarantee; see the leaf's [ownership and test
 limits](pkg/adapters/codexturn/README.md#macos-native-cancellation-and-ownership).
 No SDK, credential, session-store or tool-policy configuration changes are required.
 The pinned SDK is
-`v0.2.0-rc8.0.20260908135527-31afbf9c1a18`. Startup checks the installed
+`v0.2.0-rc8.0.20260914164420-63fc87d73406`. Startup checks the installed
 CLI version and required flags (tested baselines: Codex 0.153.0, Claude 2.1.259).
 Codex uses bounded JSONL final messages; Claude streams normalized progress.
 `CODEX_SESSION_REUSE` / `CLAUDE_SESSION_REUSE` and `*_SESSION_STORE` with the

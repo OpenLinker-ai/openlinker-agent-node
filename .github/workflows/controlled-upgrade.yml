@@ -1,0 +1,113 @@
+name: Controlled upgrade compatibility
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Exact packaged release artifact to verify; empty builds a PR candidate.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOWORK: "off"
+      GOFLAGS: "-mod=readonly"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: node
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: node/go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read the pinned public Core commit
+        id: lock
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          lock = json.loads(Path('node/tools/controlled-upgrade/fixture-lock.json').read_text())
+          assert all(re.fullmatch(r'[a-f0-9]{40}', lock[k]) for k in ['core_commit', 'root_commit'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('core_commit=' + lock['core_commit'] + '\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: OpenLinker-ai/openlinker-core
+          ref: ${{ steps.lock.outputs.core_commit }}
+          path: core
+      - name: Verify and unpack root-owned synthetic fixture
+        run: |
+          python3 node/scripts/prepare-controlled-upgrade.test.py
+          python3 node/scripts/prepare-controlled-upgrade.py "$RUNNER_TEMP/upgrade-integration"
+          node --test "$RUNNER_TEMP/upgrade-integration/scripts/verify-node-controlled-upgrade.test.mjs"
+      - name: Download public modules before acceptance disables Go downloads
+        run: |
+          (cd core && go mod download && go mod verify)
+          (cd node && go mod download && go mod verify)
+      - name: Build clean PR candidate
+        if: inputs.artifact_name == ''
+        run: node node/scripts/build-agent-node.mjs v0.2.0 "$RUNNER_TEMP/upgrade-node"
+      - name: Download the exact packaged release candidate
+        if: inputs.artifact_name != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/upgrade-package
+      - name: Verify and extract the packaged release candidate
+        if: inputs.artifact_name != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/upgrade-package"
+          sha256sum --check openlinker-agent-node-v0.2.0-linux-amd64.tar.gz.sha256
+          tar -xzf openlinker-agent-node-v0.2.0-linux-amd64.tar.gz
+          cp openlinker-agent-node-v0.2.0-linux-amd64/openlinker-agent-node "$RUNNER_TEMP/upgrade-node"
+      - name: Download and verify the real published predecessor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/upgrade-old"
+          cd "$RUNNER_TEMP/upgrade-old"
+          gh release download v0.1.62-rc.1 --repo OpenLinker-ai/openlinker-agent-node --pattern openlinker-agent-node-v0.1.62-rc.1-linux-amd64.tar.gz
+          python3 - <<'PY' | sha256sum --check -
+          import json, os
+          from pathlib import Path
+          source = Path(os.environ['RUNNER_TEMP']) / 'upgrade-integration/scripts/fixtures/node-upgrade-old-binaries.json'
+          pin = json.loads(source.read_text())['platforms']['linux-x64']
+          assert pin['archive'] == 'openlinker-agent-node-v0.1.62-rc.1-linux-amd64.tar.gz'
+          print(pin['archive_sha256'] + '  ' + pin['archive'])
+          PY
+          tar -xzf openlinker-agent-node-v0.1.62-rc.1-linux-amd64.tar.gz
+      - name: Run actual WS, pull and auto upgrade, restart and reverse
+        shell: bash
+        env:
+          GOPROXY: "off"
+        run: |
+          set -euo pipefail
+          test "$(git -C node rev-parse HEAD)" = "$GITHUB_SHA"
+          node "$RUNNER_TEMP/upgrade-integration/scripts/verify-node-controlled-upgrade.mjs" \
+            --core-dir "$GITHUB_WORKSPACE/core" \
+            --core-commit "$(git -C core rev-parse HEAD)" \
+            --node-binary "$RUNNER_TEMP/upgrade-node" \
+            --node-commit "$(git -C node rev-parse HEAD)" \
+            --old-binary "$RUNNER_TEMP/upgrade-old/openlinker-agent-node-v0.1.62-rc.1-linux-amd64/openlinker-agent-node" \
+            --report "$RUNNER_TEMP/controlled-upgrade.json"
+      - name: Keep bounded provenance and compatibility evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: controlled-upgrade-evidence
+          path: ${{ runner.temp }}/controlled-upgrade.json
+          if-no-files-found: error
+          retention-days: 90

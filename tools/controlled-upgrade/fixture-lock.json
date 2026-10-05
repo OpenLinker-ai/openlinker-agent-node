@@ -1,0 +1,43 @@
+{
+  "root_commit": "d3153f3d46fd20155fddc81d9c6f95b4ac54b941",
+  "sha256": "63a558d1aaae125f5e099f7dab4f5ef9e80f87096062743687d9546c4a1c9990",
+  "files": [
+    {
+      "path": "scripts/verify-node-controlled-upgrade.mjs",
+      "mode": "100644",
+      "git_blob": "71472750bfe6795b97b559a6d86068cf35fb6973",
+      "sha256": "a9675cf9e9901020292bee822a4e20f0688bee96277a53e33a80e93ecb636d77"
+    },
+    {
+      "path": "scripts/verify-node-controlled-upgrade.test.mjs",
+      "mode": "100644",
+      "git_blob": "b4187547b6cdd9dfbe3623d720baecd0fafaa445",
+      "sha256": "3d1e078569756583ba4582e3de57665c2cda6b721e11598cd3065178bdf9ad31"
+    },
+    {
+      "path": "scripts/verify-node-direct-registration.mjs",
+      "mode": "100644",
+      "git_blob": "d7f56b1951ad1433365802924b20134d30dfa480",
+      "sha256": "b3f645915d8fa5edecc4d1825e7a6a80d43b7c7f66621fedc90fe3ba7460fdd5"
+    },
+    {
+      "path": "scripts/fixtures/node-controlled-upgrade-core_test.go",
+      "mode": "100644",
+      "git_blob": "6be3da046219b6dc5fae9fa8b9bea9afef76cb7e",
+      "sha256": "89a5ae4da22b91030dc4822ef11ff566ca2826555f8cbe58a4c0eb84d078750a"
+    },
+    {
+      "path": "scripts/fixtures/node-controlled-upgrade-provider.mjs",
+      "mode": "100755",
+      "git_blob": "dbb2913a072d760f6d16964ca4afc1463301e0d6",
+      "sha256": "6ea16efa97bac9f590fb6d2b93340043170eadc6622d14df72a616a7eec354e8"
+    },
+    {
+      "path": "scripts/fixtures/node-upgrade-old-binaries.json",
+      "mode": "100644",
+      "git_blob": "95ed56853f6a5b5656c3ce0b80ab9c2afd0e68c7",
+      "sha256": "ee52a246202c9b718b1c897a4a300b63184c1f35d606486fd292c78c99a39de7"
+    }
+  ],
+  "core_commit": "1dbde02cab21b2a2773a68d65783780a561fba3f"
+}
