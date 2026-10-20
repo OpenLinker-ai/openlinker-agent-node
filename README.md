@@ -130,7 +130,7 @@ build tools, not requirements for running a downloaded binary).
 Stable v0.2.0 packaging additionally requires the executable Core-controlled
 upgrade gate, using real old/candidate binaries and immutable source commits.
 See [the exact compatibility scope and operator procedure](docs/controlled-upgrade.md).
-The tested pair requires Core v0.3.0 / schema 095; this does not authorize
+The MCP-capable candidate matrix requires Core schema 099 with explicit target features; this does not authorize
 arbitrary version replacement or automatic rollback. Canonical pre-1.0 test
 prereleases remain available, while unsupported stable/v1+ tags stay blocked.
 
