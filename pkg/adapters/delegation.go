@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -17,39 +18,79 @@ import (
 type delegationProvider struct {
 	provider Provider
 	config   ProviderConfig
+	host     *agenthost.Resolver
 }
 
 func withDelegation(provider Provider, config ProviderConfig) (Provider, error) {
+	host := agenthost.NewResolver(config.DelegationProxyBin, "delegation_proxy")
 	if len(config.DelegationTargets) == 0 {
-		return provider, nil
+		return delegationProvider{provider: provider, config: config, host: host}, nil
 	}
 	if err := agentdelegation.ValidateTargets(config.DelegationTargets); err != nil {
 		return nil, err
 	}
-	binary, err := agenthost.Resolve(context.Background(), config.DelegationProxyBin, "delegation_proxy")
+	binary, err := host.Resolve(context.Background())
 	if err != nil {
 		return nil, err
 	}
 	config.DelegationProxyBin = binary
-	return delegationProvider{provider: provider, config: config}, nil
+	return delegationProvider{provider: provider, config: config, host: host}, nil
 }
 
 func (provider delegationProvider) Run(ctx context.Context, run RunContext) (openlinker.RuntimeResult, error) {
-	if run.ReadDelegatedRun == nil {
-		return openlinker.RuntimeResult{}, openlinker.ErrRuntimeDelegationUnsupported
-	}
-	broker, err := agentdelegation.Start(ctx, provider.config.DelegationBrokerRoot, run.RunID, provider.config.DelegationTargets, agentdelegation.Callbacks{
-		CallAgent: run.CallAgent, ReadRun: run.ReadDelegatedRun,
-	})
+	tools, digest, err := agentdelegation.DecodeBound(run.MCPSnapshot, run.Authority != nil)
 	if err != nil {
 		return openlinker.RuntimeResult{}, err
 	}
+	if len(tools) == 0 && len(provider.config.DelegationTargets) == 0 {
+		return provider.provider.Run(ctx, run)
+	}
+	unavailable := func(err error) (openlinker.RuntimeResult, error) {
+		if len(tools) == 0 {
+			return openlinker.RuntimeResult{}, err
+		}
+		if run.Emit != nil {
+			if emitErr := run.Emit("run.mcp_bindings.failed", agentdelegation.BoundReceipt(tools)); emitErr != nil {
+				return openlinker.RuntimeResult{}, emitErr
+			}
+		}
+		return failedResult("MCP_TOOLS_UNAVAILABLE", "Selected MCP tools could not be loaded. Review the Host and tool configuration."), nil
+	}
+	binary, err := provider.host.Resolve(ctx)
+	if err != nil {
+		return unavailable(err)
+	}
+	run.BoundMCPTools, run.BoundMCPDigest = tools, digest
+
+	if run.ReadDelegatedRun == nil {
+		return unavailable(openlinker.ErrRuntimeDelegationUnsupported)
+	}
+	broker, err := agentdelegation.StartBound(ctx, provider.config.DelegationBrokerRoot, run.RunID, provider.config.DelegationTargets, tools, agentdelegation.Callbacks{
+		CallAgent: run.CallAgent, ReadRun: run.ReadDelegatedRun,
+		BoundToolUsed: func(tool agentdelegation.BoundTool) error {
+			if run.Emit == nil {
+				return nil
+			}
+			return run.Emit("run.mcp_bindings.used", agentdelegation.BoundReceipt([]agentdelegation.BoundTool{tool}))
+		},
+	}, func() error {
+		if len(tools) == 0 || run.Emit == nil {
+			return nil
+		}
+		return run.Emit("run.mcp_bindings.ready", agentdelegation.BoundReceipt(tools))
+	})
+	if err != nil {
+		return unavailable(err)
+	}
 	defer broker.Close()
 	run.DelegationSocket = broker.Socket
-	run.DelegationProxyBin = provider.config.DelegationProxyBin
+	run.DelegationProxyBin = binary
 	result, err := provider.provider.Run(ctx, run)
 	if err == nil && result.Error == nil && (result.Status == "" || result.Status == "success") {
 		if completionErr := broker.EnsureComplete(); completionErr != nil {
+			if errors.Is(completionErr, agentdelegation.ErrBoundToolsUnavailable) {
+				return unavailable(completionErr)
+			}
 			return failedResult("DELEGATION_UNFINISHED", "A delegated Run is unfinished or its result could not be verified."), nil
 		}
 	}
@@ -60,6 +101,7 @@ func providerConfigForDelegationRun(config ProviderConfig, run RunContext) Provi
 	if run.DelegationSocket == "" {
 		return config
 	}
+	config.boundMCPTools, config.boundMCPDigest = run.BoundMCPTools, run.BoundMCPDigest
 	config.DelegationSocket = run.DelegationSocket
 	config.DelegationProxyBin = run.DelegationProxyBin
 	environment := config.Env
@@ -87,7 +129,7 @@ func codexDelegationMCPArguments(config ProviderConfig) []string {
 	}
 	command, _ := json.Marshal(config.DelegationProxyBin)
 	arguments, _ := json.Marshal(agenthost.DelegationProxyArguments("codex"))
-	names, _ := json.Marshal(agentdelegation.ToolNames)
+	names, _ := json.Marshal(agentdelegation.BoundToolNames(config.DelegationTargets, config.boundMCPTools))
 	return []string{
 		"-c", "mcp_servers.openlinker_delegation.command=" + string(command),
 		"-c", "mcp_servers.openlinker_delegation.args=" + string(arguments),
@@ -112,6 +154,9 @@ func claudeRunMCPConfig(config ProviderConfig) string {
 }
 
 func delegationSessionMode(config ProviderConfig, mode string) string {
+	if config.boundMCPDigest != "" {
+		mode += "_mcp_v1_" + config.boundMCPDigest
+	}
 	if len(config.DelegationTargets) == 0 {
 		return mode
 	}

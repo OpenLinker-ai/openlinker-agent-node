@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
@@ -37,11 +38,15 @@ var ToolNames = []string{"delegate_agent", "get_delegated_run", "wait_delegated_
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Callbacks struct {
-	CallAgent func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error)
-	ReadRun   func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error)
+	BoundToolUsed func(BoundTool) error
+	CallAgent     func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error)
+	ReadRun       func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error)
 }
 
+var ErrBoundToolsUnavailable = errors.New("selected MCP tools were not discovered by the provider")
+
 type Broker struct {
+	toolsReady  atomic.Bool
 	Socket      string
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -49,6 +54,8 @@ type Broker struct {
 	directory   string
 	runID       string
 	targets     []string
+	boundTools  []BoundTool
+	onTools     func() error
 	callbacks   Callbacks
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
@@ -82,7 +89,16 @@ func ValidateTargets(targets []string) error {
 }
 
 func Start(parent context.Context, root, runID string, targets []string, callbacks Callbacks) (*Broker, error) {
-	if len(targets) == 0 || callbacks.CallAgent == nil || callbacks.ReadRun == nil || !uuidPattern.MatchString(runID) {
+	return StartBound(parent, root, runID, targets, nil, callbacks, nil)
+}
+
+// StartBound reuses the same private transport and active-Attempt callbacks for
+// owner-selected MCP tools. It does not create a Worker or hold credentials.
+func StartBound(parent context.Context, root, runID string, targets []string, bound []BoundTool, callbacks Callbacks, onTools func() error) (*Broker, error) {
+	if err := ValidateBoundTools(bound); err != nil {
+		return nil, err
+	}
+	if len(targets) == 0 && len(bound) == 0 || callbacks.CallAgent == nil || callbacks.ReadRun == nil || !uuidPattern.MatchString(runID) {
 		return nil, safeToolError("delegation requires targets and active Attempt callbacks with result support")
 	}
 	if err := ValidateTargets(targets); err != nil {
@@ -123,7 +139,7 @@ func Start(parent context.Context, root, runID string, targets []string, callbac
 	}
 	ctx, cancel := context.WithCancel(parent)
 	broker := &Broker{Socket: socket, ctx: ctx, cancel: cancel, listener: listener, directory: directory,
-		runID: runID, targets: append([]string(nil), targets...), callbacks: callbacks,
+		runID: runID, targets: append([]string(nil), targets...), boundTools: append([]BoundTool(nil), bound...), onTools: onTools, callbacks: callbacks,
 		connections: map[net.Conn]struct{}{}, requests: map[string]delegationRequest{}}
 	broker.wg.Add(1)
 	go broker.accept()
@@ -215,6 +231,12 @@ func (b *Broker) dispatch(request rpcRequest) (any, error) {
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
+		if b.onTools != nil {
+			if err := b.onTools(); err != nil {
+				return nil, safeToolError("tool readiness could not be recorded")
+			}
+		}
+		b.toolsReady.Store(true)
 		return map[string]any{"tools": b.tools()}, nil
 	case "tools/call":
 		var call struct {
@@ -225,7 +247,7 @@ func (b *Broker) dispatch(request rpcRequest) (any, error) {
 		if err := decodeArguments(request.Params, &call); err != nil {
 			return nil, err
 		}
-		value, err := b.call(call.Name, call.Arguments)
+		value, err := b.callTool(call.Name, call.Arguments)
 		result := map[string]any{}
 		var text string
 		if err != nil {
@@ -264,7 +286,9 @@ func decodeArguments(raw []byte, target any) error {
 	return nil
 }
 
-func (b *Broker) call(name string, raw []byte) (any, error) {
+func (b *Broker) call(name string, raw []byte) (any, error) { return b.callWithBinding(name, raw, nil) }
+
+func (b *Broker) callWithBinding(name string, raw []byte, bound *BoundTool) (any, error) {
 	b.calls.Lock()
 	defer b.calls.Unlock()
 	if err := b.ctx.Err(); err != nil {
@@ -283,7 +307,7 @@ func (b *Broker) call(name string, raw []byte) (any, error) {
 		if err := decodeArguments(raw, &request); err != nil {
 			return nil, err
 		}
-		allowed := false
+		allowed := bound != nil && bound.TargetID == request.Target
 		for _, target := range b.targets {
 			if request.Target == target {
 				allowed = true
@@ -327,9 +351,11 @@ func (b *Broker) call(name string, raw []byte) (any, error) {
 			b.requests[request.Key] = delegationRequest{Digest: digest}
 		}
 		keyDigest := sha256.Sum256([]byte(b.runID + "\x00" + request.Key))
-		result, err := b.callbacks.CallAgent(callCtx, request.Target, request.Input, openlinker.RuntimeCallOptions{
-			Reason: request.Reason, IdempotencyKey: "native-delegation-" + hex.EncodeToString(keyDigest[:]),
-		})
+		options := openlinker.RuntimeCallOptions{Reason: request.Reason, IdempotencyKey: "native-delegation-" + hex.EncodeToString(keyDigest[:])}
+		if bound != nil {
+			options.Metadata = map[string]any{CallMetadataKey: map[string]any{"binding_id": bound.BindingID, "digest": bound.Digest}}
+		}
+		result, err := b.callbacks.CallAgent(callCtx, request.Target, request.Input, options)
 		if err != nil {
 			if reason := definiteRejection(err); reason != "" && !exists {
 				// A prior ambiguous attempt may already have created a child. A
@@ -413,7 +439,14 @@ func (b *Broker) tools() []any {
 	}
 	waitProperties := readProperties()
 	waitProperties["wait_ms"] = map[string]any{"type": "integer", "minimum": 0, "maximum": 30000, "default": 30000}
-	return []any{
+	tools := []any{}
+	for _, t := range b.boundTools {
+		tools = append(tools, map[string]any{"name": t.Name, "description": t.Title + ": " + t.Description + ". Reuse request_key when retrying this call. If running, call again with the same request_key to get its result.", "inputSchema": object(map[string]any{"arguments": t.InputSchema, "request_key": map[string]any{"type": "string", "minLength": 1, "maxLength": 128}}, "arguments", "request_key")})
+	}
+	if len(b.targets) == 0 {
+		return tools
+	}
+	return append(tools,
 		map[string]any{"name": "delegate_agent", "description": "Delegate an explicit task/context to an allowed Agent. Reuse request_key for retries. One child may run at a time. This returns a Run ID; use wait_delegated_run to obtain its result before finishing.", "inputSchema": object(map[string]any{
 			"target_agent_id": map[string]any{"type": "string", "enum": b.targets},
 			"input":           map[string]any{"type": "object"}, "reason": map[string]any{"type": "string", "maxLength": 500},
@@ -421,12 +454,15 @@ func (b *Broker) tools() []any {
 		}, "target_agent_id", "input", "request_key")},
 		map[string]any{"name": "get_delegated_run", "description": "Read status, output and error of a direct child Run of this active parent.", "inputSchema": object(readProperties(), "child_run_id")},
 		map[string]any{"name": "wait_delegated_run", "description": "Wait up to 30 seconds for a direct child result. A running response requires another wait. The wait stops with the parent Attempt.", "inputSchema": object(waitProperties, "child_run_id")},
-	}
+	)
 }
 
 // EnsureComplete prevents the parent provider's prose from disguising an
 // unresolved creation or a still-running child as a successful delegation.
 func (b *Broker) EnsureComplete() error {
+	if len(b.boundTools) > 0 && !b.toolsReady.Load() {
+		return ErrBoundToolsUnavailable
+	}
 	b.calls.Lock()
 	defer b.calls.Unlock()
 	ctx, cancel := context.WithTimeout(b.ctx, 30*time.Second)
@@ -496,4 +532,23 @@ func definiteRejection(err error) string {
 	default:
 		return ""
 	}
+}
+
+// CheckBrokerRoot probes the real private socket path before a Host advertises
+// MCP support, including setgid Provider roots and read-only container mounts.
+func CheckBrokerRoot(root string) error {
+	const id = "11111111-1111-4111-8111-111111111111"
+	broker, err := Start(context.Background(), root, id, []string{id}, Callbacks{
+		CallAgent: func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error) {
+			return nil, errors.New("preflight only")
+		},
+		ReadRun: func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error) {
+			return nil, errors.New("preflight only")
+		},
+	})
+	if err != nil {
+		return err
+	}
+	broker.Close()
+	return nil
 }

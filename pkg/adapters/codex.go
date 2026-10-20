@@ -20,7 +20,6 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Codex is processing the task."})
 	}
 	config := provider.Config
-	config = providerConfigForDelegationRun(config, run)
 	if config.SessionIsolation.Enabled() {
 		config.Provider = "codex"
 	}
@@ -29,6 +28,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 		return openlinker.RuntimeResult{}, isolationErr
 	}
 	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
+	config = providerConfigForDelegationRun(config, run)
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
 		bin = "codex"
@@ -152,7 +152,6 @@ func codexCanceledResult(cause, executionErr error, timeout time.Duration) error
 
 func codexLaunchConfiguration(config ProviderConfig, sandbox string) []string {
 	args := []string{}
-	args = append(args, codexDelegationMCPArguments(config)...)
 	if value := strings.TrimSpace(config.CodexApproval); value != "" {
 		args = append(args, "-c", fmt.Sprintf("approval_policy=%q", value))
 	}

@@ -2,6 +2,8 @@ package agentnode
 
 import (
 	"context"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agenthost"
 	"sync"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
@@ -59,7 +61,9 @@ func (adapter *NativeAdapter) Preflight(ctx context.Context) error {
 
 func (adapter *NativeAdapter) RuntimeFeatures() []string {
 	features := skillpackages.Features(adapter.Config.Provider)
-	if len(adapter.Config.DelegationTargets) > 0 {
+	if _, err := agenthost.Resolve(context.Background(), adapter.Config.DelegationProxyBin, "delegation_proxy"); err == nil && agentdelegation.CheckBrokerRoot(adapter.Config.DelegationBrokerRoot) == nil {
+		features = append(features, agentdelegation.Feature, openlinker.RuntimeDelegatedRunReadFeature)
+	} else if len(adapter.Config.DelegationTargets) > 0 {
 		features = append(features, openlinker.RuntimeDelegatedRunReadFeature)
 	}
 	return features
@@ -71,6 +75,7 @@ func (adapter *NativeAdapter) Run(ctx context.Context, input any, run RunContext
 		return nil, err
 	}
 	native := agentexec.RunContext{
+		MCPSnapshot:     run.MCPSnapshot,
 		PackageSnapshot: run.PackageSnapshot,
 		RunID:           run.RunID, AgentID: run.AgentID, Input: input,
 		Metadata: map[string]any(run.Metadata), A2A: map[string]any(run.A2A),

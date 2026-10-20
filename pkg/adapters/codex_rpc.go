@@ -51,6 +51,8 @@ func codexAppServerArguments(config ProviderConfig, workspace, sandbox string) [
 	} else {
 		args = append(args, "-c", `cli_auth_credentials_store="file"`)
 	}
+	// Apply only the current Core selection after the isolation policy clears ambient servers.
+	args = append(args, codexDelegationMCPArguments(config)...)
 	args = append(args, "-c", "projects={"+jsonString(workspace)+"={trust_level=\"untrusted\"}}")
 	return append(args, "app-server", "--listen", "stdio://")
 }
