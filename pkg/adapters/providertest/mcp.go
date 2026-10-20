@@ -51,7 +51,7 @@ func MCPFixtureProcess() {
 	}
 	var rpc *RPCFixture
 	if provider == "codex" {
-		dir := filepath.Join(os.Getenv("HOME"), ".codex/tmp/arg0/mcp-fixture")
+		dir := filepath.Join(os.Getenv("HOME"), ".codex/tmp/arg0/codex-arg0-mcp-fixture")
 		_ = os.MkdirAll(dir, 0700)
 		binary, _ := os.Executable()
 		_ = os.Symlink(binary, filepath.Join(dir, "codex-linux-sandbox"))
