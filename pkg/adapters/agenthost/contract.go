@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -102,4 +103,28 @@ func (output *probeOutput) Write(value []byte) (int, error) {
 		return 0, errors.New("host capability response exceeds limit")
 	}
 	return output.buffer.Write(value)
+}
+
+// Resolver caches a successful handshake for one immutable embedding-host configuration. Failed or canceled probes may be retried. Providers
+// retain it for their lifetime; per-Attempt socket paths are never cached here.
+type Resolver struct {
+	mu                     sync.Mutex
+	configured, capability string
+	binary                 string
+}
+
+func NewResolver(configured, capability string) *Resolver {
+	return &Resolver{configured: configured, capability: capability}
+}
+func (r *Resolver) Resolve(ctx context.Context) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.binary != "" {
+		return r.binary, nil
+	}
+	binary, err := Resolve(ctx, r.configured, r.capability)
+	if err == nil {
+		r.binary = binary
+	}
+	return binary, err
 }

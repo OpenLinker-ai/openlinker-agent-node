@@ -35,11 +35,12 @@ func (handler Handler) Handle(ctx context.Context, assignment openlinker.Runtime
 	assignmentMetadata := map[string]any(assignment.Metadata)
 	metadata := make(map[string]any, len(assignmentMetadata))
 	for key, value := range assignmentMetadata {
-		if key != "a2a" && key != "conversation" {
+		if key != "a2a" && key != "conversation" && key != "_openlinker_mcp_bindings" && key != "_openlinker_mcp_binding" {
 			metadata[key] = value
 		}
 	}
 	run := RunContext{
+		MCPSnapshot:       assignmentMetadata["_openlinker_mcp_bindings"],
 		RunID:             assignment.RunID,
 		AgentID:           assignment.AgentID,
 		AttemptDeadlineAt: assignment.AttemptDeadlineAt,

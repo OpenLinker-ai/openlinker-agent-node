@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
 	"os"
 	"os/exec"
 	"strings"
@@ -30,7 +31,6 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		_ = run.Emit("run.message.delta", map[string]any{"text": "Claude Code is processing the task."})
 	}
 	config := provider.Config
-	config = providerConfigForDelegationRun(config, run)
 	if config.SessionIsolation.Enabled() {
 		config.Provider = "claude"
 	}
@@ -39,6 +39,7 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		return openlinker.RuntimeResult{}, isolationErr
 	}
 	defer func() { resultErr = errors.Join(resultErr, closeSandbox()) }()
+	config = providerConfigForDelegationRun(config, run)
 	bin := strings.TrimSpace(config.Bin)
 	if bin == "" {
 		bin = "claude"
@@ -202,7 +203,10 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 func claudeArguments(config ProviderConfig, permission, sessionID string) []string {
 	args := []string{"--safe-mode", "--no-chrome", "--disable-slash-commands"}
 	if config.sandbox != nil {
-		args = append(args, "--restricted", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--permission-prompts", "none", "--settings", config.toolPolicy.claude)
+		if len(config.boundMCPTools) > 0 {
+			args = []string{"--bare", "--no-chrome", "--disable-slash-commands"}
+		}
+		args = append(args, "--restricted", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config), "--permission-prompts", "none", "--settings", config.toolPolicy.claude)
 		permission = "default"
 		args = append(args, "--tools", strings.Join(nativeClaudeTools(config), ","))
 	} else if config.DelegationSocket != "" {
@@ -230,7 +234,7 @@ func claudeArguments(config ProviderConfig, permission, sessionID string) []stri
 		}
 	}
 	if config.DelegationSocket != "" {
-		for _, tool := range []string{"delegate_agent", "get_delegated_run", "wait_delegated_run"} {
+		for _, tool := range agentdelegation.BoundToolNames(config.DelegationTargets, config.boundMCPTools) {
 			allowed = appendUniqueString(allowed, "mcp__openlinker_delegation__"+tool)
 		}
 	}

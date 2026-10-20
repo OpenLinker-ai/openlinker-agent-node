@@ -50,6 +50,7 @@ type HelperEndpoints struct {
 }
 
 type RunContext struct {
+	MCPSnapshot       any
 	PackageSnapshot   any
 	AttemptDeadlineAt time.Time
 	RunDeadlineAt     time.Time

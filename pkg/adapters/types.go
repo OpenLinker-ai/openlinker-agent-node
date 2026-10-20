@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"fmt"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 type ProviderConfig struct {
+	boundMCPTools  []agentdelegation.BoundTool
+	boundMCPDigest string
 	// SessionIsolation is experimental; its configuration is not a stable API.
 	SessionIsolation sessionsandbox.Config
 	// HostAuthConcurrency is experimental: native mode defaults to serial
@@ -66,6 +69,9 @@ type ConversationMessage struct {
 }
 
 type RunContext struct {
+	MCPSnapshot                any
+	BoundMCPTools              []agentdelegation.BoundTool
+	BoundMCPDigest             string
 	PackageSnapshot            any
 	SkillPackagesAlreadyLoaded bool
 	SkillPackagesDigest        string

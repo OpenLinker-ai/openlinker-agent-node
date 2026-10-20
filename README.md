@@ -130,7 +130,7 @@ build tools, not requirements for running a downloaded binary).
 Stable v0.2.0 packaging additionally requires the executable Core-controlled
 upgrade gate, using real old/candidate binaries and immutable source commits.
 See [the exact compatibility scope and operator procedure](docs/controlled-upgrade.md).
-The tested pair requires Core v0.3.0 / schema 095; this does not authorize
+The MCP-capable candidate matrix requires Core schema 099 with explicit target features; this does not authorize
 arbitrary version replacement or automatic rollback. Canonical pre-1.0 test
 prereleases remain available, while unsupported stable/v1+ tags stay blocked.
 
@@ -612,3 +612,22 @@ See [host-auth native isolation](docs/native-session-isolation.md) for macOS/Lin
 setup, supported clients, migration, gateway behavior and verification limits.
 This changes source behavior; it does not upgrade installed binaries or switch
 running Agents automatically. Ordinary/delegation behavior remains unchanged.
+
+## Owner-selected MCP tools
+
+Select registered MCP service tools on the Agent's Skill / MCP settings page.
+A compatible Host advertises `mcp_bindings.v1` after checking its local proxy and
+writable broker root. Core supplies a trusted selection snapshot on the next Run;
+the Host configures the installed Codex/Claude client with only those tools.
+No service credential is sent to the client. The same selection resumes the
+existing scoped conversation; changing or removing tools starts a fresh model
+session so stale tool configuration is not reused. Existing scope and native
+isolation defaults remain unchanged. Tool discovery and successful calls report
+separate receipts. A configured tool proxy that never loads fails the Run with
+`MCP_TOOLS_UNAVAILABLE`, rather than silently claiming tools are available.
+
+Calls use Core-authorized child Runs and may continue for up to 30 seconds per
+MCP request. A pending result includes a request key that can be repeated without
+executing the operation again. Removal revokes subsequent calls even from an
+already running parent. Owner-private associations are not public listings;
+callers may still discover tool names/results and exercise granted side effects.

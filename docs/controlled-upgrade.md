@@ -4,14 +4,14 @@ Agent Node v0.2.0 retains the existing Go SDK pin
 `v0.2.0-rc8.0.20260914164420-63fc87d73406` (source `63fc87d73406`,
 also tagged as SDK v0.2.0), matching CLI and Plugin.
 It does not add a second Worker or change provider execution, session scope,
-credentials, defaults or persistent paths. Core v0.3.0 / schema 095 owns the new
+credentials, defaults or persistent paths. Core schema 099 owns the extended
 administrative operation and admission fences. Upgrade Core with a coordinated
 maintenance window before attempting this Node operation.
 
 Agent Node v0.2.0 保留现有 SDK 精确锁定，与 CLI、Plugin、旧包一致；
 源码提交 `63fc87d73406` 同时已有 SDK v0.2.0 正式标签。
 Node 不复制 Worker，不改变 Provider 执行、会话作用域、凭据、默认值或持久路径。
-受控版本变更和 drain 后恢复归 Core v0.3.0（schema 095）授权；Core 须先完成协调维护升级。
+受控版本变更和 drain 后恢复归 Core schema 099 授权；Core 须先完成协调维护升级。
 
 ## Tested scope
 
@@ -49,8 +49,15 @@ v0.1.62-rc.1，不包含历史 v0.1.62 标签及其他旧版本。
 ## Procedure
 
 1. Pin the exact supported binary pair and read Core's
-   [controlled upgrade guide](https://github.com/OpenLinker-ai/openlinker-core/blob/v0.3.0/docs/runtime-node-upgrade.md).
-   The target must keep the same wire contract and advertised feature set.
+   [controlled upgrade guide](https://github.com/OpenLinker-ai/openlinker-core/blob/066606eca172dc97f4ac208bd206cc784b564136/docs/runtime-node-upgrade.md).
+   The target must keep the same wire contract. When extensions change, explicitly
+   authorize the complete exact `target_features` set; omitting it preserves the
+   enrolled set and never learns features from the successor. The current fixture
+   adds `mcp_bindings.v1` and `delegated_run_read.v1` to the predecessor's unchanged
+   required and Skill features; the reverse operation explicitly restores the
+   predecessor's set. An unstarted feature-changing operation requires an explicit
+   set when changing version again. GET exposes the outstanding operation's
+   before/after sets. Same-version restart cannot change features.
 2. Drain the whole Node; finish every Attempt, event/result ACK and SDK spool
    entry under the existing identity. Stop all processes using its DataDir.
 3. Use an administrator JWT to GET then POST
@@ -70,7 +77,7 @@ Do not spoof an old version, clear spool, overwrite current state with a snapsho
 resurrect an old Session ID, or run two Workers on one DataDir. A downgrade is a
 new Core-authorized operation, never an automatic rollback. If the old binary
 cannot read current state, stop it and recover using a compatible binary through
-the controlled flow. Do not roll back Core schema 095 to force a Node to start.
+the controlled flow. Do not roll back Core schemas 095/099 to force a Node to start.
 
 先排空并停机，再由管理员授权精确版本/revision 变更；原身份和当前 DataDir 保持不变。
 新 Session 以更高 epoch、draining/零容量接入，核实后再激活。超时须先用原 operation ID
@@ -92,3 +99,14 @@ publication. The macOS arm64 downloaded release binary is checked separately
 from the root after publication; its result is not a pre-publication gate. The
 Linux report is retained as `controlled-upgrade.json` on the stable release. `auto` covers forced WebSocket failure and long-poll fallback;
 it does not exercise a successful automatic WebSocket selection.
+
+
+The MCP feature upgrade repair changes the pinned Core and root-owned acceptance
+bundle, not the Node Worker, runtime source or published public leaves. Schema 099
+must be deployed before using this extension to the administrative operation;
+source/CI completion does not upgrade an existing Core installation. The matrix
+still requires the real published predecessor and clean candidate, all three
+transports, same DataDir/identity, result ACKs, empty spool, provider-session reuse,
+a failed pre-activation start/retry, same-version restart and explicit reverse.
+Feature-set evidence now proves exact addition and removal, with no skip or
+expected-failure exception.

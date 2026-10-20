@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
 )
 
 // This reader only supplies the checked-in example to the production Env parser.
@@ -114,9 +112,18 @@ func TestClaudeFreshRegistrationExampleUsesNativeConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claude, ok := provider.(adapters.ClaudeProvider)
-	if !ok || !reflect.DeepEqual(claude.Config, adapter.Config) {
-		t.Fatalf("expected unchanged Node ClaudeProvider config without a Plugin wrapper, got %T", provider)
+	prepared, err := adapter.configuration()
+	if err != nil || !reflect.DeepEqual(prepared, adapter.Config) {
+		t.Fatalf("Node registration rewrote the reviewed configuration: %v", err)
+	}
+	// Node's own per-Run tool wrapper is allowed; Plugin orchestration remains
+	// forbidden. Configuration and adapter ownership stay with Node.
+	kind := reflect.TypeOf(provider)
+	if kind.Kind() == reflect.Pointer {
+		kind = kind.Elem()
+	}
+	if kind.PkgPath() != "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters" {
+		t.Fatalf("unexpected provider owner %T", provider)
 	}
 }
 
