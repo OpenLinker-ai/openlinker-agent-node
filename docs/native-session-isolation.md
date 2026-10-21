@@ -250,3 +250,7 @@ fix before switching this Node/Host. Schema 099 alone is insufficient; the
 release notes pin the minimum Core commit. Preserve the existing identity,
 private key, DataDir and spool. Do not clear local state after a Core database
 reset; recover the matching server identity through an administrative plan.
+
+The minimum Core source for this renewal-compatible release is
+[`a855ba45b0ec14dc45dc2b0f29899a2f915c8d5a`](https://github.com/OpenLinker-ai/openlinker-core/commit/a855ba45b0ec14dc45dc2b0f29899a2f915c8d5a)
+(or a descendant containing that fix). Deploy it before upgrading an mTLS Node/Host.
