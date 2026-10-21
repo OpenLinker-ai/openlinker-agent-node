@@ -15,8 +15,14 @@ Its model-controlled tools are restricted separately:
   overrides are omitted so they cannot replace that profile.
   The in-process `view_image` tool and the host-configured `notify` command are
   explicitly disabled, including when the user's configuration enables them.
-- Claude retains its normal authentication home, uses `--safe-mode --restricted`
-  (not `--bare`), a strict empty MCP configuration and an explicit tool set.
+- Claude retains its normal authentication home and uses `--restricted`, a strict
+  MCP configuration and an explicit tool set. Without selected MCP tools it also
+  uses `--safe-mode`. With Core-selected tools, it uses explicit customization
+  controls instead: user/project/local settings are ignored, hooks and skills are
+  disabled, automatic memory is off and ambient instruction files are excluded.
+  Only the supplied MCP configuration is loaded. Neither path uses `--bare`, so
+  the official client can retain its OAuth/Keychain login. Managed policy still
+  applies. Node never copies login tokens into MCP configuration.
   **Bash is the only default local tool.** Read/Edit/Write/Glob/Grep require an
   explicit operator opt-in; they use client permission checks, not an OS sandbox.
   Bash uses the built-in
@@ -32,8 +38,9 @@ Its model-controlled tools are restricted separately:
   Codex tool HOME is private; Claude keeps its auth home in the trusted client
   and denies it to tools. A network filter is not used as a substitute for
   preventing readable credentials from returning in Run output.
-- Host plugins, custom MCP servers, hooks and cross-session/desktop/browser
-  tools are not part of this mode. Node does not implement another model loop.
+- Host plugins, ambient MCP servers, hooks and cross-session/desktop/browser
+  tools are not part of this mode. Owner-selected MCP tools arrive through Core's
+  trusted snapshot and per-call authorization. Node does not implement another model loop.
 
 The official binary, OS user/admin, client settings delivered by an administrator
 and allowed code/library paths are trusted. This is not isolation from a hostile
@@ -237,3 +244,9 @@ There are still **no per-session disk, memory or process-count hard quotas**.
 `SESSION_TEMP_ROOT` and timeouts do not provide them. A task can exhaust its
 filesystem or account budget without reading credentials. See the
 [follow-up record](native-session-isolation-follow-ups.md).
+
+For mTLS deployments, upgrade Core with the certificate-renewal compatibility
+fix before switching this Node/Host. Schema 099 alone is insufficient; the
+release notes pin the minimum Core commit. Preserve the existing identity,
+private key, DataDir and spool. Do not clear local state after a Core database
+reset; recover the matching server identity through an administrative plan.

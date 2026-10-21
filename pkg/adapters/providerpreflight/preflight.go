@@ -112,7 +112,7 @@ func Check(ctx context.Context, config Config) (string, error) {
 	}
 	// Claude remains a one-shot process with a streaming JSON transport.
 	args := []string{"--help"}
-	flags := []string{"--safe-mode", "--bare", "--no-chrome", "--disable-slash-commands", "--permission-mode", "--resume", "stream-json", "--verbose", "--include-partial-messages", "--strict-mcp-config"}
+	flags := []string{"--restricted", "--settings", "--permission-prompts", "--tools", "--safe-mode", "--bare", "--no-chrome", "--disable-slash-commands", "--permission-mode", "--resume", "stream-json", "--verbose", "--include-partial-messages", "--strict-mcp-config"}
 
 	help, err := probe(args...)
 	if err != nil {

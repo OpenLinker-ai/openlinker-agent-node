@@ -26,7 +26,7 @@ func main() {
 		return
 	}
 	if !codex && args == "--help" {
-		fmt.Println("--safe-mode --bare --no-chrome --disable-slash-commands --permission-mode --resume stream-json --verbose --include-partial-messages --strict-mcp-config")
+		fmt.Println("--restricted --settings --permission-prompts --tools --safe-mode --bare --no-chrome --disable-slash-commands --permission-mode --resume stream-json --verbose --include-partial-messages --strict-mcp-config")
 		return
 	}
 	if codex {

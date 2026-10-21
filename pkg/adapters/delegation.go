@@ -86,6 +86,15 @@ func (provider delegationProvider) Run(ctx context.Context, run RunContext) (ope
 	run.DelegationSocket = broker.Socket
 	run.DelegationProxyBin = binary
 	result, err := provider.provider.Run(ctx, run)
+	if len(tools) > 0 && !broker.ToolsDiscovered() && (err != nil || result.Error != nil || (result.Status != "" && result.Status != "success")) && run.Emit != nil {
+		// Record the observed stage without relabeling authentication/network/
+		// cancellation as an MCP failure or exposing raw provider diagnostics.
+		receipt := agentdelegation.BoundReceipt(tools)
+		receipt["stage"] = "provider_ended_before_discovery"
+		if emitErr := run.Emit("run.mcp_bindings.failed", receipt); emitErr != nil && err == nil {
+			return result, emitErr
+		}
+	}
 	if err == nil && result.Error == nil && (result.Status == "" || result.Status == "success") {
 		if completionErr := broker.EnsureComplete(); completionErr != nil {
 			if errors.Is(completionErr, agentdelegation.ErrBoundToolsUnavailable) {
