@@ -631,3 +631,17 @@ MCP request. A pending result includes a request key that can be repeated withou
 executing the operation again. Removal revokes subsequent calls even from an
 already running parent. Owner-private associations are not public listings;
 callers may still discover tool names/results and exercise granted side effects.
+
+### Existing-identity mTLS preparation
+
+With a compatible Core/SDK release, a stopped Node can run
+`openlinker-agent-node runtime-credential prepare --data-dir PATH --node-id ID --agent-id ID --worker-id ID`
+as the existing Runtime data owner with the original `OPENLINKER_NODE_ID` (or
+original `OPENLINKER_AGENT_TOKEN` for a token-derived Node ID) in its environment.
+The command checks that configuration against `--node-id` before writing a key,
+then delegates offline key/CSR
+preparation to the SDK. It starts no Provider or Worker and preserves the original
+Worker epoch and acknowledged spool. Core must separately authorize the exact
+key, credential, revision and drained Node before migration or early rotation.
+Default native isolation remains enabled. Keep Runtime keys outside Provider
+workspaces and validate that the sandbox cannot read them.

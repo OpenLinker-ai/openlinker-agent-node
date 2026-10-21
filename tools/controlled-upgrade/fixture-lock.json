@@ -1,18 +1,18 @@
 {
-  "root_commit": "507867ec1d59455f5c4c239fd8375efec51f3e69",
-  "sha256": "4404b2a4666b643131c97a662ac8b8b31e221a744b2603de01addf729df39c0a",
+  "root_commit": "aa8ce7bceab9ff42063bbb4cff2d2177699a3945",
+  "sha256": "e803666ef3111e69c9248f357d0985e1f013611be23488d7f9954a7beffed1a9",
   "files": [
     {
       "path": "scripts/verify-node-controlled-upgrade.mjs",
       "mode": "100644",
-      "git_blob": "1f54c20eaf6134535c86a0697d6945df9b0fbfb8",
-      "sha256": "9c9050b8c88fd3022a81b3800aaa10af05cad29ed1ef2978b543087457e73229"
+      "git_blob": "44ade19209a51c6b3cf711e85065b8a1481e1f7e",
+      "sha256": "e100bb5ff6bd91492721120a003389db173609de446c2f918d298febc4079e8c"
     },
     {
       "path": "scripts/verify-node-controlled-upgrade.test.mjs",
       "mode": "100644",
-      "git_blob": "8dbbb11bb59345f80bde0b9fc341cf1fc4801829",
-      "sha256": "433c9537a38f7d3ee49f871c8654213db57c40e03ecb0126c1fe6df758b8bf0e"
+      "git_blob": "d1d8c99760db22522dceba884e2d91842357b23f",
+      "sha256": "3106e0435553c72a4db8192dc158a76f0b9fba109d563ec85a3127a356948d9d"
     },
     {
       "path": "scripts/verify-node-direct-registration.mjs",
@@ -23,8 +23,8 @@
     {
       "path": "scripts/fixtures/node-controlled-upgrade-core_test.go",
       "mode": "100644",
-      "git_blob": "f27a8a115a9661be8de950e5a3998161ed8d6228",
-      "sha256": "d0dd42c3380b9323ca59015b1823bb2602212ee68941c013e2fd3f2656c4bd71"
+      "git_blob": "ca78717dead2315867a80bbfc02998112a39094b",
+      "sha256": "44c7717426ff46e5892002abd42c0f0c6548c519e7a7aa82626c39c4e2ab475a"
     },
     {
       "path": "scripts/fixtures/node-controlled-upgrade-provider.mjs",
@@ -35,9 +35,9 @@
     {
       "path": "scripts/fixtures/node-upgrade-old-binaries.json",
       "mode": "100644",
-      "git_blob": "03d815d6de44b79a421f229b65986de4907487c9",
-      "sha256": "92dc0db5ff312bb59342c46914e9d30a54e4b70538cfc90050c5bfff2433d5b7"
+      "git_blob": "ba3e16a5302004a24a6e21a9011a16a5e3b34303",
+      "sha256": "8abf5b077305e097e7fa4ebd43d1f93d1e67a6e24266ff185325e812a221fce0"
     }
   ],
-  "core_commit": "8e99cc1580d5420888f5b9ac1fcf4195aafe60ab"
+  "core_commit": "06b4514f37c65b6c74baeddbf30babc13712f13f"
 }
