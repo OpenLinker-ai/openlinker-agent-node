@@ -481,3 +481,12 @@ Codex 在此模式关闭客户端内图片读取与主机通知命令。一个 N
 详见[主机认证与原生隔离](docs/native-session-isolation.zh-CN.md)：macOS/Linux 安装、
 版本要求、迁移、网关行为及验收边界。这是源码变更，不会自动升级二进制或切换运行中
 Agent。普通模式和委派模式维持原有行为。
+
+### 原身份 mTLS 凭据准备
+
+Core schema 100 和兼容 SDK 可授权原身份迁移。先停止 Node，再以原 Runtime 用户运行
+`openlinker-agent-node runtime-credential prepare --data-dir PATH --node-id ID --agent-id ID --worker-id ID`。
+保留原 `OPENLINKER_NODE_ID`，或原 `OPENLINKER_AGENT_TOKEN` 用于计算默认 Node ID；
+命令会先交叉校验，再委托 SDK 准备公开 CSR，不启动 Provider/Worker、不增加 epoch。
+Core 仍要求精确授权、排空、原身份和零容量后继。默认原生隔离保持开启，私钥不放在
+模型工作区。源码支持不表示发布或实机验收已完成。
