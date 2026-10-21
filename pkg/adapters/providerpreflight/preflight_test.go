@@ -74,7 +74,7 @@ func fixtureConfig(t *testing.T, provider string) (Config, string) {
 	version, help := "codex-cli 0.153.0", "app-server generate-json-schema --listen --config --disable"
 	if provider == "claude" {
 		version = "2.1.259 (Claude Code)"
-		help = "--safe-mode --bare --no-chrome --disable-slash-commands --permission-mode --resume stream-json --verbose --include-partial-messages --strict-mcp-config"
+		help = "--restricted --settings --permission-prompts --tools --safe-mode --bare --no-chrome --disable-slash-commands --permission-mode --resume stream-json --verbose --include-partial-messages --strict-mcp-config"
 	}
 	return Config{Provider: provider, Bin: bin, Env: []string{
 		fixturePrefix + "FIXTURE=1", fixturePrefix + "VERSION=" + version,

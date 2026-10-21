@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/providertest"
+	openlinker "github.com/OpenLinker-ai/openlinker-go"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +22,21 @@ import (
 
 // Actual installed clients execute deterministic tool calls from a loopback
 // fixture. No live model, personal account or real credential is used.
-func TestNativeHostAuthInstalledClients(t *testing.T) {
+func TestNativeHostAuthInstalledClients(t *testing.T) { testNativeHostAuthInstalledClients(t, false) }
+func TestNativeClaudeMCPAuthenticationInstalledClient(t *testing.T) {
+	testNativeHostAuthInstalledClients(t, true)
+}
+func TestMCPProviderFixtureProcess(t *testing.T) { providertest.MCPFixtureProcess() }
+
+func claudeFixtureEvents(w http.ResponseWriter, n int, content map[string]any, tool bool) {
+	providertest.ClaudeFixtureEvents(w, n, content, tool)
+}
+
+func testNativeHostAuthInstalledClients(t *testing.T, selectedMCP bool) {
 	for _, provider := range []string{"codex", "claude"} {
+		if selectedMCP && provider != "claude" {
+			continue
+		}
 		t.Run(provider, func(t *testing.T) {
 			bin := os.Getenv("OPENLINKER_TEST_NATIVE_" + strings.ToUpper(provider) + "_BIN")
 			if bin == "" {
@@ -38,6 +54,12 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				// default Bash-only policy has separate link-matrix coverage.
 				c.AllowedTools = []string{"Bash", "Read", "Edit", "Write", "Glob", "Grep"}
 			}
+			tool := agentdelegation.BoundTool{BindingID: "11111111-1111-4111-8111-111111111111", TargetID: "22222222-2222-4222-8222-222222222222", Digest: strings.Repeat("a", 64), Name: "mcp_22222222222242228222222222222222", InputSchema: map[string]any{"type": "object"}}
+			if selectedMCP {
+				c.DelegationProxyBin = filepath.Join(t.TempDir(), "host")
+				providertest.WriteMCPFixture(t, c.DelegationProxyBin, provider)
+			}
+			boundCalls, boundReady := 0, 0
 			c.Bin = bin
 			diagnostics := filepath.Join(t.TempDir(), "client-stderr")
 			wrapper := filepath.Join(t.TempDir(), provider)
@@ -72,6 +94,7 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			keychainProbe := syntheticKeychainProbe(t)
 			var mu sync.Mutex
 			calls, authed := 0, 0
+			activeTurn, cachedRequests, keyRequests := 0, 0, 0
 			var bodies []string
 			var tools []string
 			activeWorkspace := ""
@@ -91,6 +114,12 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				calls++
 				bodies = append(bodies, string(raw))
 				auth := r.Header.Get("Authorization") + r.Header.Get("X-Api-Key")
+				if strings.Contains(auth, canary) {
+					cachedRequests++
+				}
+				if strings.Contains(auth, parentCanary) {
+					keyRequests++
+				}
 				if strings.Contains(auth, canary) || strings.Contains(auth, parentCanary) {
 					authed++
 				}
@@ -125,7 +154,11 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 					} else if toolDone && !strings.Contains(string(raw), "fixture_outside_write") {
 						content = map[string]any{"type": "tool_use", "id": "fixture_outside_write", "name": "Write", "input": map[string]any{"file_path": filepath.Join(conf, "tool-write"), "content": "forbidden"}}
 					}
-					claudeFixtureEvents(w, calls, content, content["type"] == "tool_use")
+					mcpCallID := fmt.Sprintf("fixture_selected_mcp_%d", activeTurn)
+					if selectedMCP && !strings.Contains(string(raw), mcpCallID) {
+						content = map[string]any{"type": "tool_use", "id": mcpCallID, "name": "mcp__openlinker_delegation__" + tool.Name, "input": map[string]any{"arguments": map[string]any{}, "request_key": mcpCallID}}
+					}
+					providertest.ClaudeFixtureEvents(w, calls, content, content["type"] == "tool_use")
 				} else {
 					content := map[string]any{"id": "msg_fixture", "type": "message", "role": "assistant", "phase": "final_answer", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": "fixture complete", "annotations": []any{}}}}
 					if !toolDone {
@@ -148,6 +181,10 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				c.Env = append(c.Env, "CLAUDE_CONFIG_DIR="+conf, "ANTHROPIC_BASE_URL="+server.URL)
 				mustWrite(filepath.Join(conf, ".credentials.json"), jsonObject(map[string]any{"claudeAiOauth": map[string]any{"accessToken": canary, "refreshToken": "synthetic-refresh", "expiresAt": time.Now().Add(time.Hour).UnixMilli(), "scopes": []string{"user:inference", "user:profile"}, "subscriptionType": "pro", "rateLimitTier": "default_claude_pro"}}))
 				mustWrite(filepath.Join(home, ".claude.json"), `{"hasCompletedOnboarding":true,"oauthAccount":{"accountUuid":"00000000-0000-4000-8000-000000000001","organizationUuid":"00000000-0000-4000-8000-000000000002","emailAddress":"fixture@example.invalid"}}`)
+			}
+			if selectedMCP {
+				mustWrite(filepath.Join(conf, "CLAUDE.md"), "ambient-instruction-must-not-load")
+				mustWrite(filepath.Join(conf, "settings.json"), jsonObject(map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "touch " + jsonString(notifyMarker)}}}}}}))
 			}
 			lockPath, err := hostAuthLockPath(c)
 			if err != nil {
@@ -184,6 +221,9 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 					t.Fatal(err)
 				}
 				mustWrite(filepath.Join(prepared.Workspace, "private-memory"), canary)
+				if selectedMCP {
+					providertest.SeedClaudeAmbient(t, prepared.Workspace, notifyMarker)
+				}
 				if err := close(); err != nil {
 					t.Fatal(err)
 				}
@@ -207,6 +247,7 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			for i, key := range []string{"a", "b", "a"} {
 				mu.Lock()
 				activeWorkspace = workspaces[key]
+				activeTurn = i
 				mu.Unlock()
 				if i == 1 {
 					keyName := "CODEX_API_KEY"
@@ -221,9 +262,31 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 				}
 				run := isolationRun(key)
 				run.RunID = fmt.Sprint("run-", i)
+				if selectedMCP {
+					run.RunID = fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i+1)
+				}
 				run.Conversation.CurrentRunID = run.RunID
 				run.Input = "Use the supplied fixture tool call."
+				if selectedMCP {
+					run.MCPSnapshot = agentdelegation.BoundSnapshot{Schema: 1, Tools: []agentdelegation.BoundTool{tool}}
+					run.Emit = func(kind string, _ any) error {
+						if kind == "run.mcp_bindings.ready" {
+							boundReady++
+						}
+						return nil
+					}
+					run.CallAgent = func(context.Context, string, any, openlinker.RuntimeCallOptions) (any, error) {
+						boundCalls++
+						return openlinker.RuntimeRunSummary{RunID: "33333333-3333-4333-8333-333333333333", Status: openlinker.RuntimeRunSuccess}, nil
+					}
+					run.ReadDelegatedRun = func(context.Context, string) (*openlinker.RuntimeDelegatedRun, error) {
+						return &openlinker.RuntimeDelegatedRun{RuntimeRunSummary: openlinker.RuntimeRunSummary{RunID: "33333333-3333-4333-8333-333333333333", Status: openlinker.RuntimeRunSuccess}, Output: map[string]any{"proof": "selected-tool-proof"}}, nil
+					}
+				}
 				result, err := p.Run(ctx, run)
+				if result.Error != nil {
+					t.Fatalf("provider result error: %v", result.Error)
+				}
 				if err != nil {
 					raw, _ := os.ReadFile(diagnostics)
 					trace, _ := os.ReadFile(diagnostics + ".rpc")
@@ -282,6 +345,19 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
+			if selectedMCP {
+				if _, err := os.Stat(notifyMarker); !os.IsNotExist(err) {
+					t.Fatal("ambient hook executed", err)
+				}
+				for _, body := range bodies {
+					if strings.Contains(body, "ambient-instruction-must-not-load") {
+						t.Fatal("ambient instructions reached model")
+					}
+				}
+			}
+			if selectedMCP && (boundCalls != 3 || boundReady < 3 || cachedRequests == 0 || keyRequests == 0) {
+				t.Fatalf("MCP first/resumed delivery failed: calls=%d ready=%d tools=%v", boundCalls, boundReady, tools)
+			}
 			if authed == 0 || authed != calls {
 				t.Fatalf("cached authentication not reused: %d/%d", authed, calls)
 			}
@@ -315,23 +391,4 @@ func TestNativeHostAuthInstalledClients(t *testing.T) {
 			t.Logf("%s: cached auth reused in %d fixture requests, A-B-A resumed, tools wrote only allowed files and returned no synthetic credential", provider, calls)
 		})
 	}
-}
-
-func claudeFixtureEvents(w http.ResponseWriter, n int, b map[string]any, tool bool) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	emit := func(kind string, v any) { fmt.Fprintf(w, "event: %s\ndata: %s\n\n", kind, jsonObject(v)) }
-	emit("message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": fmt.Sprint("msg_fixture_", n), "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": []any{}, "usage": map[string]int{"input_tokens": 20, "output_tokens": 1}}})
-	start := map[string]any{"type": "text", "text": ""}
-	delta := map[string]any{"type": "text_delta", "text": b["text"]}
-	stop := "end_turn"
-	if tool {
-		start = map[string]any{"type": "tool_use", "id": b["id"], "name": b["name"], "input": map[string]any{}}
-		delta = map[string]any{"type": "input_json_delta", "partial_json": jsonObject(b["input"])}
-		stop = "tool_use"
-	}
-	emit("content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": start})
-	emit("content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": delta})
-	emit("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
-	emit("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop, "stop_sequence": nil}, "usage": map[string]int{"output_tokens": 20}})
-	emit("message_stop", map[string]any{"type": "message_stop"})
 }

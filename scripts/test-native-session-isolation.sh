@@ -9,4 +9,12 @@ fi
 : "${OPENLINKER_TEST_NATIVE_CLAUDE_BIN:?Set the pinned official Claude executable.}"
 export GOWORK=off
 node --test scripts/native-sandbox-runner.test.mjs
-go test -race -count=1 -v ./pkg/adapters/sessionsandbox ./pkg/adapters/providerprocess ./pkg/adapters/codexturn ./pkg/adapters ./internal/agentnode
+native_test_log=$(mktemp)
+trap 'rm -f "$native_test_log"' EXIT
+go test -race -count=1 -v ./pkg/adapters/sessionsandbox ./pkg/adapters/providerprocess ./pkg/adapters/codexturn ./pkg/adapters ./internal/agentnode | tee "$native_test_log"
+grep -q '^--- PASS: TestNativeClaudeMCPAuthenticationInstalledClient ' "$native_test_log"
+grep -q '^[[:space:]]*--- PASS: TestNativeClaudeMCPAuthenticationInstalledClient/claude ' "$native_test_log"
+if grep -q -- '--- SKIP: TestNativeClaudeMCPAuthenticationInstalledClient' "$native_test_log"; then
+  echo 'Claude MCP authentication acceptance must not skip.' >&2
+  exit 1
+fi

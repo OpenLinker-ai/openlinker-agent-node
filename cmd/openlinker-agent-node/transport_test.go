@@ -138,7 +138,7 @@ func TestCompiledNodeOwnsDelegationTransport(t *testing.T) {
 		}
 	})
 	t.Run("ordinary Claude keeps native authentication", func(t *testing.T) {
-		adapter := &agentnode.NativeAdapter{Config: agentexec.ProviderConfig{Provider: "claude", Bin: claude, Env: transportEnv(t)}}
+		adapter := &agentnode.NativeAdapter{Config: agentexec.ProviderConfig{Provider: "claude", Bin: claude, DelegationProxyBin: binary, Env: transportEnv(t)}}
 		if err := adapter.Preflight(context.Background()); err != nil {
 			t.Fatal("ordinary Claude now requires API key", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/claudepolicy"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -282,6 +283,9 @@ func newNativeToolPolicy(c ProviderConfig, s *sessionsandbox.Session) (*nativeTo
 			"filesystem": map[string]any{"disabled": false, "denyRead": denied, "allowRead": read, "allowWrite": writes, "denyWrite": nativeHostPaths(c.Env)},
 			"network":    map[string]any{"strictAllowlist": true, "allowedDomains": append([]string{}, c.SessionIsolation.AllowedDomains...), "allowLocalBinding": false, "allowAllUnixSockets": false, "allowUnixSockets": []string{}, "deniedResolvedAddresses": []string{"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "::/128", "::1/128", "fe80::/10", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7", "224.0.0.0/4", "ff00::/8"}},
 		},
+	}
+	for key, value := range claudepolicy.Settings() {
+		settings[key] = value
 	}
 	commandReadRoots := append([]string(nil), read...)
 	if c.Provider == "codex" && runtime.GOOS == "linux" {

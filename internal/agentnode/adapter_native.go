@@ -2,6 +2,7 @@ package agentnode
 
 import (
 	"context"
+	"fmt"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agenthost"
 	"sync"
@@ -55,17 +56,22 @@ func (adapter *NativeAdapter) Preflight(ctx context.Context) error {
 	if _, err := agentexec.CheckProviderCLI(ctx, config); err != nil {
 		return err
 	}
+	if len(config.DelegationTargets) == 0 {
+		if _, err = agenthost.Resolve(ctx, config.DelegationProxyBin, "delegation_proxy"); err != nil {
+			return fmt.Errorf("MCP delivery preflight: delegation proxy unavailable: %w", err)
+		}
+	}
+	if err = agentdelegation.CheckBrokerRoot(config.DelegationBrokerRoot); err != nil {
+		return fmt.Errorf("MCP delivery preflight: private broker unavailable: %w", err)
+	}
 	_, err = adapter.backend()
 	return err
 }
 
 func (adapter *NativeAdapter) RuntimeFeatures() []string {
 	features := skillpackages.Features(adapter.Config.Provider)
-	if _, err := agenthost.Resolve(context.Background(), adapter.Config.DelegationProxyBin, "delegation_proxy"); err == nil && agentdelegation.CheckBrokerRoot(adapter.Config.DelegationBrokerRoot) == nil {
-		features = append(features, agentdelegation.Feature, openlinker.RuntimeDelegatedRunReadFeature)
-	} else if len(adapter.Config.DelegationTargets) > 0 {
-		features = append(features, openlinker.RuntimeDelegatedRunReadFeature)
-	}
+	// Startup preflight fails explicitly; transient failures must not shrink an enrolled feature set.
+	features = append(features, agentdelegation.Feature, openlinker.RuntimeDelegatedRunReadFeature)
 	return features
 }
 

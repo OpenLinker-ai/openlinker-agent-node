@@ -457,6 +457,9 @@ func (b *Broker) tools() []any {
 	)
 }
 
+// ToolsDiscovered reports observed MCP discovery, not model/provider health.
+func (b *Broker) ToolsDiscovered() bool { return b.toolsReady.Load() }
+
 // EnsureComplete prevents the parent provider's prose from disguising an
 // unresolved creation or a still-running child as a successful delegation.
 func (b *Broker) EnsureComplete() error {

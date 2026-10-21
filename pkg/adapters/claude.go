@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/claudepolicy"
 	"os"
 	"os/exec"
 	"strings"
@@ -204,11 +205,13 @@ func claudeArguments(config ProviderConfig, permission, sessionID string) []stri
 	args := []string{"--safe-mode", "--no-chrome", "--disable-slash-commands"}
 	if config.sandbox != nil {
 		if len(config.boundMCPTools) > 0 {
-			args = []string{"--bare", "--no-chrome", "--disable-slash-commands"}
+			args = claudepolicy.MCPArgs(claudeRunMCPConfig(config), config.toolPolicy.claude, nativeClaudeTools(config))
+		} else {
+			args = append(args, "--restricted", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config), "--permission-prompts", "none", "--settings", config.toolPolicy.claude, "--tools", strings.Join(nativeClaudeTools(config), ","))
 		}
-		args = append(args, "--restricted", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config), "--permission-prompts", "none", "--settings", config.toolPolicy.claude)
 		permission = "default"
-		args = append(args, "--tools", strings.Join(nativeClaudeTools(config), ","))
+	} else if len(config.boundMCPTools) > 0 && len(config.DelegationTargets) == 0 {
+		args = claudepolicy.MCPArgs(claudeRunMCPConfig(config), "", claudepolicy.BuiltinTools(config.AllowedTools, config.WebSearch))
 	} else if config.DelegationSocket != "" {
 		args = []string{"--bare", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config", "--mcp-config", claudeRunMCPConfig(config)}
 	}
