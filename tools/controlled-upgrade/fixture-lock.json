@@ -1,6 +1,6 @@
 {
-  "root_commit": "6cee31bfe00a9ee3c6604d1a68eeb6aea1298aa5",
-  "sha256": "8f966cccd22bab774d0f31e820931386d58034ad821a22bf35f3d7c80f2e415d",
+  "root_commit": "aa8ce7bceab9ff42063bbb4cff2d2177699a3945",
+  "sha256": "e803666ef3111e69c9248f357d0985e1f013611be23488d7f9954a7beffed1a9",
   "files": [
     {
       "path": "scripts/verify-node-controlled-upgrade.mjs",
@@ -23,8 +23,8 @@
     {
       "path": "scripts/fixtures/node-controlled-upgrade-core_test.go",
       "mode": "100644",
-      "git_blob": "d2c2c09b16d3ee43081a794ca2ebe835a2c5df74",
-      "sha256": "cff5f9a931eac236c11d88557bdf700dba9cce80dbe543553eb779a9895ee3c2"
+      "git_blob": "ca78717dead2315867a80bbfc02998112a39094b",
+      "sha256": "44c7717426ff46e5892002abd42c0f0c6548c519e7a7aa82626c39c4e2ab475a"
     },
     {
       "path": "scripts/fixtures/node-controlled-upgrade-provider.mjs",
