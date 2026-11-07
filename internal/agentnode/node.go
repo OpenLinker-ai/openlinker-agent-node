@@ -51,6 +51,8 @@ type Node struct {
 
 	// drainTimeout overrides DefaultDrainTimeout in tests; zero means default.
 	drainTimeout time.Duration
+	// drainWorker replaces the SDK Worker Drain call in tests; nil in production.
+	drainWorker func(context.Context, *openlinker.RuntimeWorker, openlinker.RuntimeWorkerDrainOptions) error
 }
 
 func (node *Node) Start(parent context.Context) (retErr error) {

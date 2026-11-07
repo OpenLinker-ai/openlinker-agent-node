@@ -284,6 +284,117 @@ func TestServeDrainTimeoutStillGrantsSDKGrace(t *testing.T) {
 	}
 }
 
+// stuckDrain stands in for an SDK Drain blocked on a store mutex that a spool
+// write holds across a stalled fsync: it ignores its context until released.
+type stuckDrain struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	enter   sync.Once
+}
+
+func newStuckDrain(t *testing.T) *stuckDrain {
+	drain := &stuckDrain{entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(drain.unblock)
+	return drain
+}
+
+func (drain *stuckDrain) unblock() { drain.once.Do(func() { close(drain.release) }) }
+
+func (drain *stuckDrain) run(context.Context, *openlinker.RuntimeWorker, openlinker.RuntimeWorkerDrainOptions) error {
+	drain.enter.Do(func() { close(drain.entered) })
+	<-drain.release
+	return errors.New("store write stalled")
+}
+
+func waitForStuckDrain(t *testing.T, drain *stuckDrain) {
+	t.Helper()
+	select {
+	case <-drain.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not reach the drain")
+	}
+}
+
+func waitForDrainTestNodeStopped(t *testing.T, node *Node) {
+	t.Helper()
+	eventuallyForTest(t, 20*time.Second, func() bool {
+		node.mu.Lock()
+		defer node.mu.Unlock()
+		return !node.started
+	}, "background Node shutdown")
+}
+
+// With the drain blocked indefinitely, Serve still returns at the outer
+// budget through the existing timeout path.
+func TestServeReturnsWithinBudgetWhenDrainIsBlocked(t *testing.T) {
+	core := newDrainTestCore(t, drainTestRunA)
+	adapter := newDrainTestAdapter()
+	output := &drainTestLog{}
+	node := newDrainTestNode(t, core, adapter, output)
+	drain := newStuckDrain(t)
+	node.drainWorker = drain.run
+	budget := 500 * time.Millisecond
+	signals := make(chan os.Signal, 2)
+	served := make(chan error, 1)
+	go func() { served <- node.serve(signals, budget) }()
+
+	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
+	signaled := time.Now()
+	signals <- os.Interrupt
+	waitForStuckDrain(t, drain)
+	err := waitForServe(t, served, 10*time.Second)
+	var timeout *ShutdownTimeoutError
+	if !errors.As(err, &timeout) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked drain returned %v, want the shutdown timeout", err)
+	}
+	if elapsed := time.Since(signaled); elapsed > budget+time.Second {
+		t.Fatalf("Serve took %s with a %s budget while the drain was blocked", elapsed, budget)
+	}
+	// Let the stuck shutdown finish so the test leaves nothing running.
+	drain.unblock()
+	close(adapter.release)
+	waitForDrainTestNodeStopped(t, node)
+	assertDrainTestStoreClosed(t, node)
+}
+
+// A second signal stops the Worker even while the drain is blocked, and Serve
+// returns without waiting for the stuck drain or the outer budget.
+func TestServeSecondSignalStopsWhileDrainIsBlocked(t *testing.T) {
+	core := newDrainTestCore(t, drainTestRunA)
+	adapter := newDrainTestAdapter()
+	output := &drainTestLog{}
+	node := newDrainTestNode(t, core, adapter, output)
+	drain := newStuckDrain(t)
+	node.drainWorker = drain.run
+	budget := 20 * time.Second
+	signals := make(chan os.Signal, 2)
+	served := make(chan error, 1)
+	go func() { served <- node.serve(signals, budget) }()
+
+	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
+	signals <- os.Interrupt
+	waitForStuckDrain(t, drain)
+	signaled := time.Now()
+	signals <- os.Interrupt
+	eventuallyForTest(t, 5*time.Second, func() bool {
+		return strings.Contains(output.String(), "second signal")
+	}, "second signal handling")
+	close(adapter.release)
+	if err := waitForServe(t, served, budget); err != nil {
+		t.Fatalf("forced stop with a blocked drain returned %v; logs:\n%s", err, output.String())
+	}
+	if elapsed := time.Since(signaled); elapsed > 5*time.Second {
+		t.Fatalf("second signal took %s to stop while the drain was blocked", elapsed)
+	}
+	select {
+	case <-drain.release:
+		t.Fatal("Serve waited for the stuck drain")
+	default:
+	}
+	assertDrainTestStoreClosed(t, node)
+}
+
 // A real SIGTERM to the built binary drains the in-flight Run and exits 0.
 func TestCompiledNodeDrainsOnSIGTERM(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {

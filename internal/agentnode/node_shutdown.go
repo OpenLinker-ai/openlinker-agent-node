@@ -51,8 +51,15 @@ func (node *Node) Shutdown(ctx context.Context) error {
 	}
 	// Only the drain depends on readiness.
 	if ready && worker != nil {
-		err := worker.Drain(ctx, openlinker.RuntimeWorkerDrainOptions{Timeout: node.effectiveDrainTimeout()})
-		if err != nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
+		options := openlinker.RuntimeWorkerDrainOptions{Timeout: node.effectiveDrainTimeout()}
+		var err error
+		if node.drainWorker != nil {
+			err = node.drainWorker(ctx, worker, options)
+		} else {
+			err = worker.Drain(ctx, options)
+		}
+		// An abandoned drain (second signal or budget) is not a drain failure.
+		if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
 			node.Logger.Printf("openlinker agent node drain did not complete; stopping: %v", err)
 		}
 	}
@@ -104,32 +111,74 @@ func (node *Node) serve(signals <-chan os.Signal, budget time.Duration) error {
 	defer cancelShutdown()
 	drainCtx, cancelDrain := context.WithCancel(shutdownCtx)
 	defer cancelDrain()
+
+	// The shutdown sequence can block in SDK store I/O (for example a stalled
+	// fsync under a store mutex), so it runs on its own goroutine; this one
+	// enforces the process budget and reacts to a second signal regardless.
+	forced := make(chan struct{})
 	go func() {
 		select {
 		case <-signals:
 			if node.Logger != nil {
 				node.Logger.Printf("openlinker agent node received a second signal; stopping without waiting for the drain")
 			}
+			close(forced)
 			cancelDrain()
+			cancelStart()
+			// Request the stop directly too: the drain may be blocked and never
+			// reach the Stop that follows it inside Shutdown.
+			go func() { _ = node.Stop(shutdownCtx) }()
 		case <-drainCtx.Done():
 		}
 	}()
-	if err := node.Shutdown(drainCtx); err != nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
-		node.Logger.Printf("openlinker agent node shutdown: %v", err)
-	}
-	// Covers a signal that arrived before Start marked the Node as started.
-	cancelStart()
-
-	select {
-	case err := <-stopped:
-		return unexpectedStop(err)
-	case <-shutdownCtx.Done():
-		select {
-		case err := <-stopped:
-			return unexpectedStop(err)
-		default:
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		if err := node.Shutdown(drainCtx); err != nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
+			node.Logger.Printf("openlinker agent node shutdown: %v", err)
 		}
-		return &ShutdownTimeoutError{Err: shutdownCtx.Err()}
+		// Covers a signal that arrived before Start marked the Node as started.
+		cancelStart()
+	}()
+
+	// A graceful shutdown ends when Start has returned and Shutdown has finished
+	// (it waits for in-flight public A2A requests). After a second signal only
+	// Start has to return. The budget bounds both, as before.
+	var (
+		startErr     error
+		startDone    bool
+		shutdownOver bool
+		forcedStop   bool
+	)
+	stoppedChannel, shutdownChannel, forcedChannel := stopped, shutdownDone, forced
+	for {
+		if startDone && (shutdownOver || forcedStop) {
+			return unexpectedStop(startErr)
+		}
+		select {
+		case startErr = <-stoppedChannel:
+			startDone, stoppedChannel = true, nil
+		case <-shutdownChannel:
+			shutdownOver, shutdownChannel = true, nil
+		case <-forcedChannel:
+			forcedStop, forcedChannel = true, nil
+		case <-shutdownCtx.Done():
+			// Prefer a completion that raced with the deadline.
+			select {
+			case startErr = <-stoppedChannel:
+				startDone = true
+			default:
+			}
+			select {
+			case <-shutdownChannel:
+				shutdownOver = true
+			default:
+			}
+			if startDone && (shutdownOver || forcedStop) {
+				return unexpectedStop(startErr)
+			}
+			return &ShutdownTimeoutError{Err: shutdownCtx.Err()}
+		}
 	}
 }
 
