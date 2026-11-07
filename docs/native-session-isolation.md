@@ -112,6 +112,14 @@ Install supported official clients (tested baseline: Codex 0.153.0 and Claude Co
 2.1.259). Configure/login to the selected client normally **as the Node OS user**.
 Linux needs functioning unprivileged user/network/PID namespaces; Claude also
 needs `bwrap`, `socat` and `rg`. macOS uses the client's Seatbelt sandbox.
+On Ubuntu 26.04 the `apparmor` package already enforces a
+`bwrap-userns-restrict` profile for `/usr/bin/bwrap`, so no extra AppArmor setup
+is needed (sandboxed children run without capabilities). Do not also load a
+custom profile that attaches `/usr/bin/bwrap`, such as one written for Ubuntu
+24.04: the kernel then applies neither profile (`conflicting profile
+attachments` in the audit log), bwrap fails with `loopback: Failed RTM_NEWADDR`,
+and Node's startup probe rejects native isolation. Remove such a profile with
+`sudo apparmor_parser -R <file>` and delete it from `/etc/apparmor.d`.
 A separate npm installation of SRT is no longer required for Node's native mode.
 Authentication/session directories must be outside system/code read roots.
 On Linux Codex needs its per-process helper-alias directory and executable;

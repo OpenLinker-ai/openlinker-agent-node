@@ -7,6 +7,12 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- CI runs native session isolation on Ubuntu 24.04 and 26.04. On runners whose
+  installed AppArmor policy already authorizes `/usr/bin/bwrap` (Ubuntu 26.04's
+  `bwrap-userns-restrict`), CI no longer loads its own profile for the same
+  path, which made the kernel apply neither. Node runtime behavior is unchanged;
+  the setup guide notes the same conflict for hosts with a custom bwrap profile.
+
 ## 0.2.0 - 2026-10-05
 
 - Formal six-platform packaging with a required Linux amd64 packaged-binary
