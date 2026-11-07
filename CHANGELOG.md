@@ -19,6 +19,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   command or A2A adapter whose target variable is unset
   (`http_adapter_url_missing`, `command_adapter_command_missing`,
   `a2a_adapter_base_url_missing`). Startup success or failure is unchanged.
+- CI no longer loads its bubblewrap AppArmor profile when the installed policy
+  already authorizes `/usr/bin/bwrap`. Next to Ubuntu 26.04's
+  `bwrap-userns-restrict` the two profiles conflicted and the kernel applied
+  neither. The native-isolation job runs on Ubuntu 24.04 and macOS. Node
+  runtime behavior is unchanged.
+- Documented Ubuntu 26.04: under the default bwrap policy, Codex native
+  isolation works, but Claude Bash calls fail closed because Claude's sandbox
+  needs capability-bearing nested user namespaces.
 
 ## 0.2.0 - 2026-10-05
 

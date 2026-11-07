@@ -118,6 +118,24 @@ On Linux Codex needs its per-process helper-alias directory and executable;
 Node verifies that the directory contains only known aliases and an empty lock
 before granting read access. It does not grant the authentication home or tmp tree.
 
+Ubuntu 26.04's `apparmor` package enforces a `bwrap-userns-restrict` profile for
+`/usr/bin/bwrap`: bwrap can create namespaces, but every process it starts runs
+without capabilities, including in further user namespaces. Under this default,
+Codex native isolation works and Node's startup probe passes, but Claude's
+sandbox cannot start its seccomp helper, which needs a capability-bearing nested
+user namespace. Every Claude Bash call then fails closed with `apply-seccomp:
+write /proc/self/setgroups (nested userns is capability-restricted ...)`; file
+tools stay in the workspace and nothing falls back to an unsandboxed shell.
+Granting bwrap's children capability-bearing user namespaces is exactly what
+this distro policy prevents, so it is a host security decision outside Node.
+The native-isolation CI job runs on Ubuntu 24.04, not 26.04.
+
+Do not load a second AppArmor profile that attaches `/usr/bin/bwrap` alongside
+the distro one: the kernel then applies neither (`conflicting profile
+attachments` in the audit log), bwrap fails with `loopback: Failed
+RTM_NEWADDR`, and Node's startup probe rejects native isolation for both
+clients.
+
 ```sh
 export OPENLINKER_AGENT_NODE_ADAPTER=codex # or claude; native isolation is the default
 export OPENLINKER_AGENT_NODE_CAPACITY=1 # recommended with default serial admission
