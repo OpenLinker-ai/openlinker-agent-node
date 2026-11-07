@@ -53,6 +53,8 @@ type Node struct {
 	drainTimeout time.Duration
 	// drainWorker replaces the SDK Worker Drain call in tests; nil in production.
 	drainWorker func(context.Context, *openlinker.RuntimeWorker, openlinker.RuntimeWorkerDrainOptions) error
+	// stopHook observes every Stop call in tests; nil in production.
+	stopHook func()
 }
 
 func (node *Node) Start(parent context.Context) (retErr error) {
@@ -192,6 +194,9 @@ func (node *Node) newPublicA2AProxy(ctx context.Context) (publicA2AProxy, error)
 func (node *Node) Stop(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if node.stopHook != nil {
+		node.stopHook()
 	}
 	node.mu.Lock()
 	if !node.started {

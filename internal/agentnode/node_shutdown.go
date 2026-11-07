@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
@@ -32,6 +33,14 @@ func (err *ShutdownTimeoutError) Unwrap() error { return err.Err }
 // inside the SDK, and Stop always follows, so in-flight work still receives
 // the SDK Worker's own shutdown grace when the drain cannot complete.
 func (node *Node) Shutdown(ctx context.Context) error {
+	return node.shutdown(ctx, func() {})
+}
+
+// shutdown is Shutdown that reports, through drainReturned, the moment the SDK
+// Drain has returned (or was skipped). Only after that point may anything stop
+// or cancel the Worker: the pinned SDK Worker must not tear down its store
+// while Drain still reads it.
+func (node *Node) shutdown(ctx context.Context, drainReturned func()) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -39,6 +48,7 @@ func (node *Node) Shutdown(ctx context.Context) error {
 	started, ready, worker := node.started, node.ready, node.worker
 	node.mu.Unlock()
 	if !started {
+		drainReturned()
 		return node.Stop(ctx)
 	}
 
@@ -63,6 +73,7 @@ func (node *Node) Shutdown(ctx context.Context) error {
 			node.Logger.Printf("openlinker agent node drain did not complete; stopping: %v", err)
 		}
 	}
+	drainReturned()
 	stopErr := node.Stop(ctx)
 	if publicStopped != nil {
 		select {
@@ -91,11 +102,18 @@ func (node *Node) Serve(signals <-chan os.Signal) error {
 	return node.serve(signals, ProcessShutdownTimeout)
 }
 
+// drainReturnBound is how long a second signal waits for a cancelled Drain to
+// return before Serve gives up without stopping the Worker.
+const drainReturnBound = 2 * time.Second
+
+// errDrainDidNotReturn is the forced-stop outcome when the drain does not
+// return after a second signal; the Worker is deliberately left running.
+var errDrainDidNotReturn = errors.New("drain did not return after the second signal")
+
 func (node *Node) serve(signals <-chan os.Signal, budget time.Duration) error {
 	// The signal must not cancel the Start parent directly: that would stop the
 	// Worker immediately and leave nothing to drain.
 	startCtx, cancelStart := context.WithCancel(context.Background())
-	defer cancelStart()
 	stopped := make(chan error, 1)
 	go func() {
 		stopped <- node.Start(startCtx)
@@ -103,18 +121,39 @@ func (node *Node) serve(signals <-chan os.Signal, budget time.Duration) error {
 
 	select {
 	case err := <-stopped:
+		cancelStart()
 		return unexpectedStop(err)
 	case <-signals:
 	}
 
+	// The pinned SDK Worker must not be stopped or cancelled while its Drain is
+	// still running. Only the shutdown goroutine stops the Worker, and only
+	// after Drain has returned. Every other path cancels the drain context and
+	// waits for drainReturned; if the drain does not return in time, Serve
+	// gives up through the timeout path and leaves the Worker untouched.
+	drainReturned := make(chan struct{})
+	var drainOnce sync.Once
+	markDrainReturned := func() { drainOnce.Do(func() { close(drainReturned) }) }
+	defer func() {
+		select {
+		case <-drainReturned:
+			cancelStart()
+		default:
+			// The shutdown goroutine cancels Start once its drain returns.
+		}
+	}()
+
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), budget)
 	defer cancelShutdown()
-	drainCtx, cancelDrain := context.WithCancel(shutdownCtx)
+	// The drain context ends a little before the budget, so a cancelled Drain
+	// can still return and the Worker stop cleanly inside the budget.
+	reserve := drainReturnBound
+	if reserve > budget/4 {
+		reserve = budget / 4
+	}
+	drainCtx, cancelDrain := context.WithTimeout(shutdownCtx, budget-reserve)
 	defer cancelDrain()
 
-	// The shutdown sequence can block in SDK store I/O (for example a stalled
-	// fsync under a store mutex), so it runs on its own goroutine; this one
-	// enforces the process budget and reacts to a second signal regardless.
 	forced := make(chan struct{})
 	go func() {
 		select {
@@ -124,19 +163,18 @@ func (node *Node) serve(signals <-chan os.Signal, budget time.Duration) error {
 			}
 			close(forced)
 			cancelDrain()
-			cancelStart()
-			// Request the stop directly too: the drain may be blocked and never
-			// reach the Stop that follows it inside Shutdown.
-			go func() { _ = node.Stop(shutdownCtx) }()
 		case <-drainCtx.Done():
 		}
 	}()
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		if err := node.Shutdown(drainCtx); err != nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
+		// The shutdown sequence can block in SDK store I/O (for example a
+		// stalled fsync under a store mutex), so it runs on its own goroutine.
+		if err := node.shutdown(drainCtx, markDrainReturned); err != nil && !errors.Is(err, context.Canceled) && node.Logger != nil {
 			node.Logger.Printf("openlinker agent node shutdown: %v", err)
 		}
+		markDrainReturned()
 		// Covers a signal that arrived before Start marked the Node as started.
 		cancelStart()
 	}()
@@ -162,6 +200,16 @@ func (node *Node) serve(signals <-chan os.Signal, budget time.Duration) error {
 			shutdownOver, shutdownChannel = true, nil
 		case <-forcedChannel:
 			forcedStop, forcedChannel = true, nil
+			// The drain was cancelled; Shutdown stops the Worker once it returns.
+			timer := time.NewTimer(drainReturnBound)
+			select {
+			case <-drainReturned:
+				timer.Stop()
+			case <-timer.C:
+				return &ShutdownTimeoutError{Err: errDrainDidNotReturn}
+			case <-shutdownCtx.Done():
+				timer.Stop()
+			}
 		case <-shutdownCtx.Done():
 			// Prefer a completion that raced with the deadline.
 			select {

@@ -13,9 +13,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   in-flight budget) and the SDK's own 10s shutdown grace still follows if the
   drain cannot complete. The process-level bound is now 25s instead of an outer
   10s timer that raced the SDK's equal grace and exited non-zero before the store
-  closed. The bound holds even if the drain blocks in SDK store I/O, and a
-  second signal skips the drain and stops the Worker directly. No flags,
-  environment variables or defaults changed.
+  closed. The bound holds even if the drain blocks in SDK store I/O. A second
+  signal cancels the drain; the Worker is stopped once the drain has returned
+  (never while it runs), or, if it does not return within 2s, the process exits
+  through the timeout path. No flags, environment variables or defaults changed.
 - Startup logs, and `--check-config` reports as warnings, a selected HTTP,
   command or A2A adapter whose target variable is unset
   (`http_adapter_url_missing`, `command_adapter_command_missing`,

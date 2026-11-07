@@ -325,15 +325,46 @@ func waitForDrainTestNodeStopped(t *testing.T, node *Node) {
 	}, "background Node shutdown")
 }
 
+// stopRecorder counts Stop calls and fails any that overlaps a running Drain.
+type stopRecorder struct {
+	inDrain  atomic.Bool
+	stops    atomic.Int32
+	overlaps atomic.Int32
+}
+
+func (recorder *stopRecorder) observe() {
+	recorder.stops.Add(1)
+	if recorder.inDrain.Load() {
+		recorder.overlaps.Add(1)
+	}
+}
+
+func (drain *stuckDrain) tracked(recorder *stopRecorder) func(context.Context, *openlinker.RuntimeWorker, openlinker.RuntimeWorkerDrainOptions) error {
+	return func(ctx context.Context, worker *openlinker.RuntimeWorker, options openlinker.RuntimeWorkerDrainOptions) error {
+		recorder.inDrain.Store(true)
+		defer recorder.inDrain.Store(false)
+		return drain.run(ctx, worker, options)
+	}
+}
+
+func nodeStillStarted(node *Node) bool {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	return node.started
+}
+
 // With the drain blocked indefinitely, Serve still returns at the outer
-// budget through the existing timeout path.
+// budget through the existing timeout path, and nothing stops the Worker
+// while the drain runs.
 func TestServeReturnsWithinBudgetWhenDrainIsBlocked(t *testing.T) {
 	core := newDrainTestCore(t, drainTestRunA)
 	adapter := newDrainTestAdapter()
 	output := &drainTestLog{}
 	node := newDrainTestNode(t, core, adapter, output)
 	drain := newStuckDrain(t)
-	node.drainWorker = drain.run
+	recorder := &stopRecorder{}
+	node.drainWorker = drain.tracked(recorder)
+	node.stopHook = recorder.observe
 	budget := 500 * time.Millisecond
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
@@ -351,22 +382,31 @@ func TestServeReturnsWithinBudgetWhenDrainIsBlocked(t *testing.T) {
 	if elapsed := time.Since(signaled); elapsed > budget+time.Second {
 		t.Fatalf("Serve took %s with a %s budget while the drain was blocked", elapsed, budget)
 	}
-	// Let the stuck shutdown finish so the test leaves nothing running.
+	if recorder.stops.Load() != 0 || !nodeStillStarted(node) {
+		t.Fatalf("Worker was stopped while its drain was still running (stops=%d)", recorder.stops.Load())
+	}
+	// Once the drain returns, the shutdown sequence stops the Worker itself.
 	drain.unblock()
 	close(adapter.release)
 	waitForDrainTestNodeStopped(t, node)
+	if recorder.overlaps.Load() != 0 {
+		t.Fatalf("Stop overlapped Drain %d times", recorder.overlaps.Load())
+	}
 	assertDrainTestStoreClosed(t, node)
 }
 
-// A second signal stops the Worker even while the drain is blocked, and Serve
-// returns without waiting for the stuck drain or the outer budget.
-func TestServeSecondSignalStopsWhileDrainIsBlocked(t *testing.T) {
+// A second signal while the drain is blocked waits a short bound for it to
+// return; when it does not, Serve gives up through the timeout path and does
+// not stop the Worker underneath the still-running drain.
+func TestServeSecondSignalNeverStopsWorkerWhileDrainIsBlocked(t *testing.T) {
 	core := newDrainTestCore(t, drainTestRunA)
 	adapter := newDrainTestAdapter()
 	output := &drainTestLog{}
 	node := newDrainTestNode(t, core, adapter, output)
 	drain := newStuckDrain(t)
-	node.drainWorker = drain.run
+	recorder := &stopRecorder{}
+	node.drainWorker = drain.tracked(recorder)
+	node.stopHook = recorder.observe
 	budget := 20 * time.Second
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
@@ -377,20 +417,64 @@ func TestServeSecondSignalStopsWhileDrainIsBlocked(t *testing.T) {
 	waitForStuckDrain(t, drain)
 	signaled := time.Now()
 	signals <- os.Interrupt
-	eventuallyForTest(t, 5*time.Second, func() bool {
-		return strings.Contains(output.String(), "second signal")
-	}, "second signal handling")
+	err := waitForServe(t, served, budget)
+	var timeout *ShutdownTimeoutError
+	if !errors.As(err, &timeout) || !errors.Is(err, errDrainDidNotReturn) {
+		t.Fatalf("second signal with a blocked drain returned %v, want the forced timeout", err)
+	}
+	if elapsed := time.Since(signaled); elapsed < drainReturnBound || elapsed > drainReturnBound+2*time.Second {
+		t.Fatalf("second signal returned after %s, want about %s", elapsed, drainReturnBound)
+	}
+	if recorder.stops.Load() != 0 || !nodeStillStarted(node) {
+		t.Fatalf("Worker was stopped while its drain was still running (stops=%d)", recorder.stops.Load())
+	}
+	drain.unblock()
 	close(adapter.release)
-	if err := waitForServe(t, served, budget); err != nil {
-		t.Fatalf("forced stop with a blocked drain returned %v; logs:\n%s", err, output.String())
+	waitForDrainTestNodeStopped(t, node)
+	if recorder.overlaps.Load() != 0 {
+		t.Fatalf("Stop overlapped Drain %d times", recorder.overlaps.Load())
 	}
-	if elapsed := time.Since(signaled); elapsed > 5*time.Second {
-		t.Fatalf("second signal took %s to stop while the drain was blocked", elapsed)
+	assertDrainTestStoreClosed(t, node)
+}
+
+// The real SDK Drain and Stop with a second signal arriving mid-drain: Stop
+// runs only after Drain has returned (checked directly and by -race), and the
+// Node stops cleanly.
+func TestServeSecondSignalMidRealDrainStopsOnlyAfterDrainReturns(t *testing.T) {
+	core := newDrainTestCore(t, drainTestRunA)
+	core.stickyInflight = true // Core keeps the drain waiting.
+	adapter := newDrainTestAdapter()
+	output := &drainTestLog{}
+	node := newDrainTestNode(t, core, adapter, output)
+	recorder := &stopRecorder{}
+	node.drainWorker = func(ctx context.Context, worker *openlinker.RuntimeWorker, options openlinker.RuntimeWorkerDrainOptions) error {
+		recorder.inDrain.Store(true)
+		defer recorder.inDrain.Store(false)
+		return worker.Drain(ctx, options)
 	}
+	node.stopHook = recorder.observe
+	signals := make(chan os.Signal, 2)
+	served := make(chan error, 1)
+	go func() { served <- node.Serve(signals) }()
+
+	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
+	signals <- os.Interrupt
 	select {
-	case <-drain.release:
-		t.Fatal("Serve waited for the stuck drain")
-	default:
+	case <-core.drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("signal did not start the real drain")
+	}
+	if !recorder.inDrain.Load() {
+		t.Fatal("drain finished before the second signal could arrive mid-drain")
+	}
+	signals <- os.Interrupt
+	eventuallyForTest(t, 5*time.Second, func() bool { return recorder.stops.Load() > 0 }, "Stop after the drain returned")
+	close(adapter.release)
+	if err := waitForServe(t, served, ProcessShutdownTimeout); err != nil {
+		t.Fatalf("second signal mid-drain returned %v; logs:\n%s", err, output.String())
+	}
+	if recorder.overlaps.Load() != 0 {
+		t.Fatalf("Stop overlapped the running SDK Drain %d times", recorder.overlaps.Load())
 	}
 	assertDrainTestStoreClosed(t, node)
 }
