@@ -2,6 +2,7 @@ package agentnode
 
 import (
 	"encoding/json"
+	"strings"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
 )
@@ -29,6 +30,9 @@ type NativePolicyReport struct {
 
 func (node *Node) ConfigurationReport() ConfigurationReport {
 	report := ConfigurationReport{Version: AgentNodeVersion, Scope: "configured_policy", ProviderPreflight: "not_run", Capacity: node.Capacity}
+	for _, warning := range adapterConfigurationWarnings(node.Adapter) {
+		report.Warnings = append(report.Warnings, warning.code)
+	}
 	var config agentexec.ProviderConfig
 	mock := false
 	switch adapter := node.Adapter.(type) {
@@ -71,5 +75,62 @@ func (node *Node) logConfigurationReport() {
 	raw, err := json.Marshal(report)
 	if err == nil {
 		node.Logger.Printf("native configuration: %s", raw)
+	}
+}
+
+// adapterConfigurationWarning names an adapter setting that loads successfully
+// but makes every Run fail. Codes are stable and allowlisted; messages name
+// only the environment variable, never its value.
+type adapterConfigurationWarning struct {
+	code     string
+	variable string
+}
+
+// adapterConfigurationWarnings mirrors the exact "is required" checks that each
+// adapter's Run performs, so a warning never disagrees with execution.
+func adapterConfigurationWarnings(adapter Adapter) []adapterConfigurationWarning {
+	missingHTTP := adapterConfigurationWarning{code: "http_adapter_url_missing", variable: "OPENLINKER_AGENT_NODE_HTTP_URL"}
+	missingCommand := adapterConfigurationWarning{code: "command_adapter_command_missing", variable: "OPENLINKER_AGENT_NODE_COMMAND"}
+	missingA2A := adapterConfigurationWarning{code: "a2a_adapter_base_url_missing", variable: "OPENLINKER_AGENT_NODE_A2A_BASE_URL"}
+	switch value := adapter.(type) {
+	case HTTPAdapter:
+		if value.URL == "" {
+			return []adapterConfigurationWarning{missingHTTP}
+		}
+	case *HTTPAdapter:
+		if value != nil && value.URL == "" {
+			return []adapterConfigurationWarning{missingHTTP}
+		}
+	case CommandAdapter:
+		if value.Command == "" {
+			return []adapterConfigurationWarning{missingCommand}
+		}
+	case *CommandAdapter:
+		if value != nil && value.Command == "" {
+			return []adapterConfigurationWarning{missingCommand}
+		}
+	case A2AAdapter:
+		if strings.TrimSpace(value.BaseURL) == "" {
+			return []adapterConfigurationWarning{missingA2A}
+		}
+	case *A2AAdapter:
+		if value != nil && strings.TrimSpace(value.BaseURL) == "" {
+			return []adapterConfigurationWarning{missingA2A}
+		}
+	}
+	return nil
+}
+
+// logAdapterConfigurationWarnings reports a missing required adapter setting at
+// startup. It is diagnostic only: startup continues exactly as before.
+func (node *Node) logAdapterConfigurationWarnings() {
+	if node.Logger == nil {
+		return
+	}
+	for _, warning := range adapterConfigurationWarnings(node.Adapter) {
+		node.Logger.Printf(
+			"openlinker agent node configuration warning (%s): %s is not set; every Run will fail until it is configured",
+			warning.code, warning.variable,
+		)
 	}
 }

@@ -187,6 +187,37 @@ func (s *PublicA2AServer) Stop(ctx context.Context) error {
 	return s.stopGeneration(ctx, nil)
 }
 
+// beginStop starts the same graceful Stop in the background and returns once
+// the listener no longer accepts connections (or Stop or ctx ended first).
+// In-flight requests keep running until they finish or ctx expires; the
+// returned channel then reports Stop's result. A later Stop is a no-op.
+func (s *PublicA2AServer) beginStop(ctx context.Context) <-chan error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.RLock()
+	server := s.server
+	s.mu.RUnlock()
+	listenerClosed := make(chan struct{})
+	if server != nil {
+		// http.Server runs shutdown hooks only after it has closed its listeners.
+		var once sync.Once
+		server.RegisterOnShutdown(func() { once.Do(func() { close(listenerClosed) }) })
+	}
+	result := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() {
+		result <- s.Stop(ctx)
+		close(stopped)
+	}()
+	select {
+	case <-listenerClosed:
+	case <-stopped:
+	case <-ctx.Done():
+	}
+	return result
+}
+
 func (s *PublicA2AServer) stopGeneration(ctx context.Context, expectedServer *http.Server) error {
 	if ctx == nil {
 		ctx = context.Background()

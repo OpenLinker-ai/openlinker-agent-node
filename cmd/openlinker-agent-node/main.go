@@ -52,38 +52,17 @@ func main() {
 	}
 	node.Logger = logger
 
-	runCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
+	// A buffered channel keeps both the first (drain) and a second (stop without
+	// draining) signal while the Node is shutting down.
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- node.Start(runCtx)
-	}()
-
-	select {
-	case err := <-errCh:
-		exitOnUnexpectedError(logger, err)
-	case <-runCtx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), agentnode.DefaultShutdownTimeout)
-		defer cancel()
-		if err := node.Stop(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Printf("openlinker agent node shutdown: %v", err)
+	if err := node.Serve(signals); err != nil {
+		var timeout *agentnode.ShutdownTimeoutError
+		if errors.As(err, &timeout) {
+			logger.Fatalf("openlinker agent node shutdown timed out: %v", timeout.Err)
 		}
-		waitForStop(logger, errCh, shutdownCtx)
-	}
-}
-
-func waitForStop(logger *log.Logger, errCh <-chan error, shutdownCtx context.Context) {
-	select {
-	case err := <-errCh:
-		exitOnUnexpectedError(logger, err)
-	case <-shutdownCtx.Done():
-		logger.Fatalf("openlinker agent node shutdown timed out: %v", shutdownCtx.Err())
-	}
-}
-
-func exitOnUnexpectedError(logger *log.Logger, err error) {
-	if err != nil && !errors.Is(err, context.Canceled) {
 		logger.Fatalf("openlinker agent node stopped: %v", err)
 	}
 }

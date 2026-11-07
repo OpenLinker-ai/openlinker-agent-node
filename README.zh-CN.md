@@ -431,6 +431,10 @@ OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 - command 与 Codex workspace 应隔离，并只授予必要权限。
 - Stop 不等于已确认 drain；运维切换前须围栏接单、核实 Core 结算及 SDK spool 为空。
   停进程可能取消正在执行的 adapter，关闭失败须保留状态。
+- 收到 SIGTERM 或 SIGINT 时，Node 通过 SDK drain：停止接收新 Run，关闭公开 A2A 监听的新请求（在途请求可完成，本地 Run helper 继续服务），在途 Run 最多再执行 10s，
+  然后停止并关闭 SDK store。drain 未完成时，SDK Worker 仍有自身 10s 宽限后才取消 adapter。
+  整个关闭过程上限为 25s；再收到一次信号会跳过 drain。服务管理器应至少留出这段时间
+  （例如 `docker stop -t 30`）以便正常退出。
 - 请在 SDK spool 达到 80% 前告警并释放容量或完成上传；不要手工删除 `.record`、journal、identity 或 key 文件。
 - 提 Issue 前删除凭证、私有 URL、客户 payload 和 adapter 日志。
 
@@ -462,6 +466,8 @@ JSON 会显示构建版本、搜索/隔离/会话策略和容量，不输出凭�
 `native_isolation_disabled` 表示已用 `SESSION_ISOLATION=off` 关闭 Node 的 native 隔离；普通 Codex 的
 `read-only` 不能替代该边界。`serial_host_auth_capacity_gt_one` 提示把容量设为 1，
 避免已领取的 Run 排队等待主机认证锁并消耗超时。诊断不修改任何配置。
+`http_adapter_url_missing`、`command_adapter_command_missing`、`a2a_adapter_base_url_missing`
+表示所选 adapter 的目标变量未设置，每个 Run 都会失败；正常启动也会记录该警告，但仍照常启动。
 Codex/Claude 默认 `SESSION_ISOLATION=native`，会话目录默认
 `$HOME/.local/state/openlinker-agent-node-sessions` 且不能在 git 工作树内；
 需要在既有工作区无隔离桥接客户端时，显式设置 `off`。

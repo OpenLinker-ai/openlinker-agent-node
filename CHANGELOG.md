@@ -7,6 +7,19 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- SIGTERM/SIGINT now drains through the existing SDK Worker `Drain` before
+  stopping: new admission is fenced, the public A2A listener stops accepting
+  new requests (in-flight requests finish), in-flight Runs get up to 10s (the previous
+  in-flight budget) and the SDK's own 10s shutdown grace still follows if the
+  drain cannot complete. The process-level bound is now 25s instead of an outer
+  10s timer that raced the SDK's equal grace and exited non-zero before the store
+  closed. A second signal skips the drain. No flags, environment variables or
+  defaults changed.
+- Startup logs, and `--check-config` reports as warnings, a selected HTTP,
+  command or A2A adapter whose target variable is unset
+  (`http_adapter_url_missing`, `command_adapter_command_missing`,
+  `a2a_adapter_base_url_missing`). Startup success or failure is unchanged.
+
 ## 0.2.0 - 2026-10-05
 
 - Formal six-platform packaging with a required Linux amd64 packaged-binary
