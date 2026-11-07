@@ -17,7 +17,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-latest now resolves to Ubuntu 26.04, where the bubblewrap
+        # smoke step fails configuring the sandbox loopback (RTM_NEWADDR:
+        # Operation not permitted) before any Node code runs. Pin the image
+        # this job was validated on until 26.04 support is investigated.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       GOWORK: "off"
