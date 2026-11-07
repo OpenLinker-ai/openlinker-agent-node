@@ -8,25 +8,18 @@ import (
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
-// DefaultShutdownTimeout bounds stopping the local helper and public A2A
-// listeners after the Runtime Worker has returned.
 const DefaultShutdownTimeout = 10 * time.Second
 
-// DefaultDrainTimeout bounds how long a signal-initiated shutdown lets
-// in-flight Attempts finish while admission is fenced. It equals the in-flight
-// budget the previous hard stop granted. If the SDK drain does not complete, the
-// SDK Worker still applies its own shutdown grace before canceling handlers.
-const DefaultDrainTimeout = 10 * time.Second
-
-// processShutdownMargin covers the SDK's bounded force-cancel wait after its
-// grace (2s), the Runtime session close, store close and local listener stop.
+// processShutdownMargin covers what follows the SDK Worker's shutdown grace:
+// its bounded force-cancel wait (2s), the Runtime session close, the store
+// close and the local listener stop.
 const processShutdownMargin = 5 * time.Second
 
-// ProcessShutdownTimeout is the whole-process bound for a signal-initiated
-// shutdown. It is strictly larger than the drain budget plus the SDK Worker's
-// internal shutdown grace so that a normal shutdown always finishes closing the
-// store and exits successfully instead of racing an equal outer timer.
-const ProcessShutdownTimeout = DefaultDrainTimeout + openlinker.RuntimeWorkerDefaultShutdownTimeout + processShutdownMargin
+// ProcessShutdownTimeout bounds a signal-initiated shutdown. It is strictly
+// larger than the SDK Worker's own shutdown grace, so a normal Stop finishes
+// closing the store and the process exits successfully instead of racing an
+// equal outer timer and exiting non-zero first.
+const ProcessShutdownTimeout = openlinker.RuntimeWorkerDefaultShutdownTimeout + processShutdownMargin
 
 type JSONMap map[string]any
 

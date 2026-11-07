@@ -87,29 +87,27 @@ func TestAdapterConfigurationWarningsMatchRunChecks(t *testing.T) {
 }
 
 func TestStartupLogsAdapterWarningAndStillStarts(t *testing.T) {
-	core := newDrainTestCore(t)
-	output := &drainTestLog{}
-	node := newDrainTestNode(t, core, HTTPAdapter{}, output)
+	core := newShutdownTestCore(t)
+	output := &shutdownTestLog{}
+	node := newShutdownTestNode(t, core, HTTPAdapter{}, output)
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
 	go func() { served <- node.Serve(signals) }()
 
 	eventuallyForTest(t, 10*time.Second, func() bool {
-		node.mu.Lock()
-		defer node.mu.Unlock()
-		return node.ready
-	}, "Worker ready despite the adapter warning")
+		return core.snapshot().hello.RuntimeSessionID != ""
+	}, "Worker attached despite the adapter warning")
 	logs := output.String()
 	if !strings.Contains(logs, "configuration warning (http_adapter_url_missing)") ||
 		!strings.Contains(logs, "OPENLINKER_AGENT_NODE_HTTP_URL is not set") {
 		t.Fatalf("startup did not log the adapter warning:\n%s", logs)
 	}
-	if strings.Contains(logs, "synthetic-drain-test-token") {
+	if strings.Contains(logs, "synthetic-shutdown-test-token") {
 		t.Fatal("startup warning leaked a credential")
 	}
 	signals <- os.Interrupt
-	if err := waitForServe(t, served, DefaultDrainTimeout); err != nil {
+	if err := waitForServe(t, served, ProcessShutdownTimeout); err != nil {
 		t.Fatalf("Node with a warning did not stop cleanly: %v", err)
 	}
-	assertDrainTestStoreClosed(t, node)
+	assertShutdownTestStoreClosed(t, node)
 }

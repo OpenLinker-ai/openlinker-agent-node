@@ -43,16 +43,11 @@ type Node struct {
 
 	mu       sync.Mutex
 	started  bool
-	ready    bool
 	done     chan struct{}
 	worker   *openlinker.RuntimeWorker
 	lifetime context.Context
 	cancel   context.CancelFunc
 
-	// drainTimeout overrides DefaultDrainTimeout in tests; zero means default.
-	drainTimeout time.Duration
-	// drainWorker replaces the SDK Worker Drain call in tests; nil in production.
-	drainWorker func(context.Context, *openlinker.RuntimeWorker, openlinker.RuntimeWorkerDrainOptions) error
 	// stopHook observes every Stop call in tests; nil in production.
 	stopHook func()
 }
@@ -87,7 +82,6 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 			close(node.done)
 		}
 		node.worker = nil
-		node.ready = false
 		node.cancel = nil
 		node.mu.Unlock()
 	}()
@@ -127,13 +121,6 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 		RetryMaximum:      node.RetryMaximum,
 		Handler:           runtimeAdapterHandler{node: node},
 		Logger:            node.Logger,
-		// Only a Worker that reported ready has opened admission and can be
-		// drained; Shutdown stops a Worker that is still starting directly.
-		OnReady: func(openlinker.RuntimeReadyPayload) {
-			node.mu.Lock()
-			node.ready = true
-			node.mu.Unlock()
-		},
 	})
 	if err != nil {
 		return err

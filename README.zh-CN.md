@@ -431,10 +431,9 @@ OPENLINKER_PUBLIC_A2A_TOKEN=optional-bearer-token
 - command 与 Codex workspace 应隔离，并只授予必要权限。
 - Stop 不等于已确认 drain；运维切换前须围栏接单、核实 Core 结算及 SDK spool 为空。
   停进程可能取消正在执行的 adapter，关闭失败须保留状态。
-- 收到 SIGTERM 或 SIGINT 时，Node 通过 SDK drain：停止接收新 Run，关闭公开 A2A 监听的新请求（在途请求可完成，本地 Run helper 继续服务），在途 Run 最多再执行 10s，
-  然后停止并关闭 SDK store。drain 未完成时，SDK Worker 仍有自身 10s 宽限后才取消 adapter。
-  整个关闭过程上限为 25s；再收到一次信号会跳过 drain。服务管理器应至少留出这段时间
-  （例如 `docker stop -t 30`）以便正常退出。
+- 收到 SIGTERM 或 SIGINT 时，Node 通过 SDK Worker 的 Stop 停止：在途 Run 享有 SDK 自身 10s
+  宽限后才取消 adapter，随后关闭 SDK store。整个关闭过程上限为 15s；关闭仍在进行时再收到一次信号，
+  会立即按同一超时路径退出。服务管理器应留出超过 15s 的时间（例如 `docker stop -t 20`）以便正常退出。
 - 请在 SDK spool 达到 80% 前告警并释放容量或完成上传；不要手工删除 `.record`、journal、identity 或 key 文件。
 - 提 Issue 前删除凭证、私有 URL、客户 payload 和 adapter 日志。
 

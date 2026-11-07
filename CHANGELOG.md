@@ -7,16 +7,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
-- SIGTERM/SIGINT now drains through the existing SDK Worker `Drain` before
-  stopping: new admission is fenced, the public A2A listener stops accepting
-  new requests (in-flight requests finish), in-flight Runs get up to 10s (the previous
-  in-flight budget) and the SDK's own 10s shutdown grace still follows if the
-  drain cannot complete. The process-level bound is now 25s instead of an outer
-  10s timer that raced the SDK's equal grace and exited non-zero before the store
-  closed. The bound holds even if the drain blocks in SDK store I/O. A second
-  signal cancels the drain; the Worker is stopped once the drain has returned
-  (never while it runs), or, if it does not return within 2s, the process exits
-  through the timeout path. No flags, environment variables or defaults changed.
+- SIGTERM/SIGINT still stops the Node through the SDK Worker's `Stop`, but the
+  process-level bound is now 15s (the SDK's 10s shutdown grace plus a margin)
+  instead of a 10s timer that raced the equal SDK grace and exited non-zero
+  before the store closed. `Stop` runs once, on its own goroutine; if the bound
+  expires, or a second signal arrives while it is still running, the process
+  exits through the same timeout path as before. Listener shutdown on the first
+  signal is unchanged. No flags, environment variables or defaults changed.
 - Startup logs, and `--check-config` reports as warnings, a selected HTTP,
   command or A2A adapter whose target variable is unset
   (`http_adapter_url_missing`, `command_adapter_command_missing`,

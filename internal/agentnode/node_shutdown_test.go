@@ -23,35 +23,35 @@ import (
 // the exported SDK payload types. It exists only in tests: Agent Node itself
 // never implements Runtime wire paths.
 const (
-	drainTestAgentID      = "22222222-2222-4222-8222-222222222222"
-	drainTestCoreID       = "33333333-3333-4333-8333-333333333333"
-	drainTestAttachmentID = "99999999-9999-4999-8999-999999999998"
-	drainTestRuntimePath  = "/api/v1/agent-runtime"
+	shutdownTestAgentID      = "22222222-2222-4222-8222-222222222222"
+	shutdownTestCoreID       = "33333333-3333-4333-8333-333333333333"
+	shutdownTestAttachmentID = "99999999-9999-4999-8999-999999999998"
+	shutdownTestRuntimePath  = "/api/v1/agent-runtime"
 )
 
-type drainTestRun struct {
+type shutdownTestRun struct {
 	RunID, AttemptID, LeaseID string
 }
 
 var (
-	drainTestRunA = drainTestRun{
+	shutdownTestRunA = shutdownTestRun{
 		RunID:     "44444444-4444-4444-8444-444444444441",
 		AttemptID: "55555555-5555-4555-8555-555555555551",
 		LeaseID:   "66666666-6666-4666-8666-666666666661",
 	}
-	drainTestRunB = drainTestRun{
+	shutdownTestRunB = shutdownTestRun{
 		RunID:     "44444444-4444-4444-8444-444444444442",
 		AttemptID: "55555555-5555-4555-8555-555555555552",
 		LeaseID:   "66666666-6666-4666-8666-666666666662",
 	}
 )
 
-type drainTestCore struct {
+type shutdownTestCore struct {
 	server *httptest.Server
 
 	mu              sync.Mutex
 	hello           openlinker.RuntimeHelloPayload
-	queue           []drainTestRun
+	queue           []shutdownTestRun
 	claimed         []string
 	inflight        int64
 	stickyInflight  bool
@@ -61,44 +61,32 @@ type drainTestCore struct {
 	results         []openlinker.RuntimeRunResultPayload
 	closes          []openlinker.RuntimeSessionCloseRequest
 	unexpected      []string
-	// ingress records public A2A requests the SDK proxy forwarded to Core;
-	// a request whose body contains "slow" waits for releaseSlow.
-	ingress     []string
-	releaseSlow chan struct{}
-	releaseOnce sync.Once
 
 	drained     chan struct{}
 	drainedOnce sync.Once
 }
 
-func newDrainTestCore(t *testing.T, runs ...drainTestRun) *drainTestCore {
+func newShutdownTestCore(t *testing.T, runs ...shutdownTestRun) *shutdownTestCore {
 	t.Helper()
-	core := &drainTestCore{
-		queue: append([]drainTestRun(nil), runs...), drained: make(chan struct{}), releaseSlow: make(chan struct{}),
-	}
+	core := &shutdownTestCore{queue: append([]shutdownTestRun(nil), runs...), drained: make(chan struct{})}
 	core.server = httptest.NewServer(core)
 	t.Cleanup(core.server.Close)
-	// Cleanups run last-in first-out: blocked handlers are released before the
-	// server Close waits for them, even when a test fails early.
-	t.Cleanup(core.releaseSlowRequests)
 	return core
 }
 
-func (core *drainTestCore) ready() openlinker.RuntimeReadyPayload {
+func (core *shutdownTestCore) ready() openlinker.RuntimeReadyPayload {
 	return openlinker.RuntimeReadyPayload{
-		CoreInstanceID: drainTestCoreID, AttachmentID: drainTestAttachmentID,
+		CoreInstanceID: shutdownTestCoreID, AttachmentID: shutdownTestAttachmentID,
 		Features: openlinker.RuntimeRequiredFeatures(), OfferTTLSeconds: 30, LeaseTTLSeconds: 60,
 		DatabaseTime: time.Now().UTC(),
 	}
 }
 
-func (core *drainTestCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (core *shutdownTestCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	runtimePath := strings.TrimPrefix(path, drainTestRuntimePath)
+	runtimePath := strings.TrimPrefix(path, shutdownTestRuntimePath)
 	post := r.Method == http.MethodPost
 	switch {
-	case post && strings.HasPrefix(runtimePath, "/a2a-proxy/agents/"):
-		core.serveA2AIngress(w, r)
 	case r.Method == http.MethodGet && path == "/.well-known/openlinker.json":
 		writeJSON(w, http.StatusOK, map[string]any{
 			"base_urls": map[string]any{"runtime": "http://" + r.Host},
@@ -107,7 +95,7 @@ func (core *drainTestCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"transports": []string{"pull"}, "default_transport": "pull",
 			},
 		})
-	case post && path == drainTestRuntimePath+"/sessions":
+	case post && path == shutdownTestRuntimePath+"/sessions":
 		var hello openlinker.RuntimeHelloPayload
 		if !core.decode(w, r, &hello) {
 			return
@@ -234,37 +222,7 @@ func (core *drainTestCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (core *drainTestCore) serveA2AIngress(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		ID string `json:"id"`
-	}
-	if !core.decode(w, r, &request) {
-		return
-	}
-	core.mu.Lock()
-	core.ingress = append(core.ingress, request.ID)
-	core.mu.Unlock()
-	if strings.Contains(request.ID, "slow") {
-		select {
-		case <-core.releaseSlow:
-		case <-r.Context().Done():
-			return
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]any{"kind": "message"}})
-}
-
-func (core *drainTestCore) releaseSlowRequests() {
-	core.releaseOnce.Do(func() { close(core.releaseSlow) })
-}
-
-func (core *drainTestCore) ingressIDs() []string {
-	core.mu.Lock()
-	defer core.mu.Unlock()
-	return append([]string(nil), core.ingress...)
-}
-
-func (core *drainTestCore) decode(w http.ResponseWriter, r *http.Request, out any) bool {
+func (core *shutdownTestCore) decode(w http.ResponseWriter, r *http.Request, out any) bool {
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
 		core.mu.Lock()
 		core.unexpected = append(core.unexpected, "undecodable "+r.URL.Path)
@@ -275,14 +233,14 @@ func (core *drainTestCore) decode(w http.ResponseWriter, r *http.Request, out an
 	return true
 }
 
-func (core *drainTestCore) idle(r *http.Request) {
+func (core *shutdownTestCore) idle(r *http.Request) {
 	select {
 	case <-r.Context().Done():
 	case <-time.After(50 * time.Millisecond):
 	}
 }
 
-func (core *drainTestCore) serveClaim(w http.ResponseWriter, r *http.Request) {
+func (core *shutdownTestCore) serveClaim(w http.ResponseWriter, r *http.Request) {
 	core.mu.Lock()
 	if len(core.queue) == 0 || core.hello.RuntimeSessionID == "" {
 		core.mu.Unlock()
@@ -304,12 +262,12 @@ func (core *drainTestCore) serveClaim(w http.ResponseWriter, r *http.Request) {
 		},
 		OfferNo: 1, OfferExpiresAt: now.Add(time.Minute), AttemptDeadlineAt: now.Add(2 * time.Minute),
 		RunDeadlineAt: now.Add(3 * time.Minute),
-		Input:         map[string]any{"text": "drain test"}, Metadata: map[string]any{"source": "drain-test"},
+		Input:         map[string]any{"text": "shutdown test"}, Metadata: map[string]any{"source": "shutdown-test"},
 		NodeEnvelope: "ol_ctx_v2.header.payload.signature", AgentInvocationToken: "ol_inv_v2.header.payload.signature",
 	})
 }
 
-type drainTestSnapshot struct {
+type shutdownTestSnapshot struct {
 	hello           openlinker.RuntimeHelloPayload
 	claimed         []string
 	queued          int
@@ -320,10 +278,10 @@ type drainTestSnapshot struct {
 	unexpected      []string
 }
 
-func (core *drainTestCore) snapshot() drainTestSnapshot {
+func (core *shutdownTestCore) snapshot() shutdownTestSnapshot {
 	core.mu.Lock()
 	defer core.mu.Unlock()
-	return drainTestSnapshot{
+	return shutdownTestSnapshot{
 		hello:           core.hello,
 		claimed:         append([]string(nil), core.claimed...),
 		queued:          len(core.queue),
@@ -335,7 +293,7 @@ func (core *drainTestCore) snapshot() drainTestSnapshot {
 	}
 }
 
-type drainTestAdapter struct {
+type shutdownTestAdapter struct {
 	mu       sync.Mutex
 	runs     []string
 	started  chan string
@@ -343,11 +301,11 @@ type drainTestAdapter struct {
 	canceled atomic.Bool
 }
 
-func newDrainTestAdapter() *drainTestAdapter {
-	return &drainTestAdapter{started: make(chan string, 4), release: make(chan struct{})}
+func newShutdownTestAdapter() *shutdownTestAdapter {
+	return &shutdownTestAdapter{started: make(chan string, 4), release: make(chan struct{})}
 }
 
-func (adapter *drainTestAdapter) Run(ctx context.Context, _ any, runCtx RunContext) (any, error) {
+func (adapter *shutdownTestAdapter) Run(ctx context.Context, _ any, runCtx RunContext) (any, error) {
 	adapter.mu.Lock()
 	adapter.runs = append(adapter.runs, runCtx.RunID)
 	adapter.mu.Unlock()
@@ -364,36 +322,36 @@ func (adapter *drainTestAdapter) Run(ctx context.Context, _ any, runCtx RunConte
 	}
 }
 
-func (adapter *drainTestAdapter) executed() []string {
+func (adapter *shutdownTestAdapter) executed() []string {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	return append([]string(nil), adapter.runs...)
 }
 
-type drainTestLog struct {
+type shutdownTestLog struct {
 	mu     sync.Mutex
 	buffer bytes.Buffer
 }
 
-func (output *drainTestLog) Write(data []byte) (int, error) {
+func (output *shutdownTestLog) Write(data []byte) (int, error) {
 	output.mu.Lock()
 	defer output.mu.Unlock()
 	return output.buffer.Write(data)
 }
 
-func (output *drainTestLog) String() string {
+func (output *shutdownTestLog) String() string {
 	output.mu.Lock()
 	defer output.mu.Unlock()
 	return output.buffer.String()
 }
 
-func newDrainTestNode(t *testing.T, core *drainTestCore, adapter Adapter, output *drainTestLog) *Node {
+func newShutdownTestNode(t *testing.T, core *shutdownTestCore, adapter Adapter, output *shutdownTestLog) *Node {
 	t.Helper()
 	return &Node{
 		OpenLinkerURL: core.server.URL,
 		Transport:     string(openlinker.RuntimeTransportPull),
-		AgentID:       drainTestAgentID,
-		AgentToken:    "synthetic-drain-test-token",
+		AgentID:       shutdownTestAgentID,
+		AgentToken:    "synthetic-shutdown-test-token",
 		DataDir:       filepath.Join(t.TempDir(), "runtime"),
 		Capacity:      1,
 		ClaimWait:     time.Second,
@@ -405,7 +363,7 @@ func newDrainTestNode(t *testing.T, core *drainTestCore, adapter Adapter, output
 	}
 }
 
-func waitForDrainTestRun(t *testing.T, adapter *drainTestAdapter, runID string) {
+func waitForShutdownTestRun(t *testing.T, adapter *shutdownTestAdapter, runID string) {
 	t.Helper()
 	select {
 	case started := <-adapter.started:
@@ -428,7 +386,7 @@ func waitForServe(t *testing.T, served <-chan error, timeout time.Duration) erro
 	}
 }
 
-func assertDrainTestStoreClosed(t *testing.T, node *Node) {
+func assertShutdownTestStoreClosed(t *testing.T, node *Node) {
 	t.Helper()
 	node.mu.Lock()
 	started, worker := node.started, node.worker
@@ -445,66 +403,52 @@ func assertDrainTestStoreClosed(t *testing.T, node *Node) {
 	}
 }
 
-func TestProcessShutdownBudgetExceedsDrainAndSDKGrace(t *testing.T) {
-	// The SDK waits up to 2s after its grace for canceled handlers to return.
-	minimum := DefaultDrainTimeout + openlinker.RuntimeWorkerDefaultShutdownTimeout + 2*time.Second
+func TestProcessShutdownBudgetExceedsSDKGrace(t *testing.T) {
+	// After its grace the SDK waits up to 2s for canceled handlers to return.
+	minimum := openlinker.RuntimeWorkerDefaultShutdownTimeout + 2*time.Second
 	if ProcessShutdownTimeout <= minimum {
-		t.Fatalf("process shutdown budget %s must exceed drain + SDK grace + force wait (%s)", ProcessShutdownTimeout, minimum)
-	}
-	if DefaultDrainTimeout < 10*time.Second {
-		t.Fatalf("drain timeout %s grants in-flight work less than the previous 10s", DefaultDrainTimeout)
+		t.Fatalf("process shutdown budget %s must exceed the SDK grace and force wait (%s)", ProcessShutdownTimeout, minimum)
 	}
 }
 
-func TestServeDrainsInFlightRunBeforeStopping(t *testing.T) {
-	core := newDrainTestCore(t, drainTestRunA, drainTestRunB)
-	adapter := newDrainTestAdapter()
-	output := &drainTestLog{}
-	node := newDrainTestNode(t, core, adapter, output)
+func countStops(node *Node) *atomic.Int32 {
+	var stops atomic.Int32
+	node.stopHook = func() { stops.Add(1) }
+	return &stops
+}
+
+func waitForShutdownTestNodeStopped(t *testing.T, node *Node) {
+	t.Helper()
+	eventuallyForTest(t, 20*time.Second, func() bool {
+		node.mu.Lock()
+		defer node.mu.Unlock()
+		return !node.started
+	}, "background Node shutdown")
+}
+
+// A signal stops the Node once through the SDK Worker's Stop; the run in
+// flight finishes inside the SDK grace, the store is closed and Serve returns
+// nil (exit 0) instead of racing an equal outer timer. There is no drain.
+func TestServeStopsOnSignalAndClosesStore(t *testing.T) {
+	core := newShutdownTestCore(t, shutdownTestRunA)
+	adapter := newShutdownTestAdapter()
+	output := &shutdownTestLog{}
+	node := newShutdownTestNode(t, core, adapter, output)
+	stops := countStops(node)
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
 	go func() { served <- node.Serve(signals) }()
 
-	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
+	waitForShutdownTestRun(t, adapter, shutdownTestRunA.RunID)
 	signals <- os.Interrupt
-	select {
-	case <-core.drained:
-	case <-time.After(5 * time.Second):
-		t.Fatal("signal did not drain the Runtime Session")
-	}
-	// A non-draining Worker would keep the old hard-stop behaviour or claim the
-	// queued run; give either a chance to happen before releasing the handler.
-	time.Sleep(300 * time.Millisecond)
-	select {
-	case err := <-served:
-		t.Fatalf("Serve returned before the in-flight run finished: %v", err)
-	default:
-	}
-	if adapter.canceled.Load() {
-		t.Fatal("drain canceled the in-flight adapter")
-	}
-	released := time.Now()
+	eventuallyForTest(t, 5*time.Second, func() bool { return stops.Load() == 1 }, "Stop after the signal")
 	close(adapter.release)
-	if err := waitForServe(t, served, DefaultDrainTimeout); err != nil {
-		t.Fatalf("graceful shutdown returned %v; logs:\n%s", err, output.String())
+	if err := waitForServe(t, served, ProcessShutdownTimeout); err != nil {
+		t.Fatalf("shutdown returned %v; logs:\n%s", err, output.String())
 	}
-	if elapsed := time.Since(released); elapsed >= DefaultDrainTimeout {
-		t.Fatalf("drain waited %s after the run finished", elapsed)
-	}
-
 	snapshot := core.snapshot()
-	if len(snapshot.drains) == 0 || snapshot.drains[0].Capacity != 0 {
-		t.Fatalf("Core drain requests = %#v", snapshot.drains)
-	}
-	if len(snapshot.results) != 1 || snapshot.results[0].AttemptIdentity.RunID != drainTestRunA.RunID ||
-		snapshot.results[0].Status != "success" {
-		t.Fatalf("in-flight result did not reach Core: %#v", snapshot.results)
-	}
-	if len(snapshot.claimed) != 1 || snapshot.queued != 1 {
-		t.Fatalf("Worker claimed new work during drain: claimed=%v queued=%d", snapshot.claimed, snapshot.queued)
-	}
-	if executed := adapter.executed(); len(executed) != 1 || executed[0] != drainTestRunA.RunID || adapter.canceled.Load() {
-		t.Fatalf("adapter executions = %v canceled=%v", executed, adapter.canceled.Load())
+	if stops.Load() != 1 || len(snapshot.drains) != 0 || adapter.canceled.Load() {
+		t.Fatalf("stops=%d drains=%d canceled=%v", stops.Load(), len(snapshot.drains), adapter.canceled.Load())
 	}
 	if len(snapshot.closes) == 0 || snapshot.closes[len(snapshot.closes)-1].Status != "closed" {
 		t.Fatalf("Runtime Session was not closed: %#v", snapshot.closes)
@@ -512,18 +456,16 @@ func TestServeDrainsInFlightRunBeforeStopping(t *testing.T) {
 	if len(snapshot.unexpected) != 0 {
 		t.Fatalf("unexpected fake Core requests: %v", snapshot.unexpected)
 	}
-	if logs := output.String(); strings.Contains(logs, "timed out") || strings.Contains(logs, "drain did not complete") {
-		t.Fatalf("graceful shutdown logged a failure:\n%s", logs)
-	}
-	assertDrainTestStoreClosed(t, node)
+	assertShutdownTestStoreClosed(t, node)
 }
 
-func TestServeStopsWorkerThatIsNotReadyWithoutDrain(t *testing.T) {
-	core := newDrainTestCore(t, drainTestRunA)
+func TestServeStopsWorkerThatIsNotReady(t *testing.T) {
+	core := newShutdownTestCore(t, shutdownTestRunA)
 	core.failSessions = true
-	adapter := newDrainTestAdapter()
-	output := &drainTestLog{}
-	node := newDrainTestNode(t, core, adapter, output)
+	adapter := newShutdownTestAdapter()
+	output := &shutdownTestLog{}
+	node := newShutdownTestNode(t, core, adapter, output)
+	stops := countStops(node)
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
 	go func() { served <- node.Serve(signals) }()
@@ -533,87 +475,88 @@ func TestServeStopsWorkerThatIsNotReadyWithoutDrain(t *testing.T) {
 	}, "Worker retrying session creation")
 	signaled := time.Now()
 	signals <- os.Interrupt
-	if err := waitForServe(t, served, DefaultDrainTimeout); err != nil {
+	if err := waitForServe(t, served, ProcessShutdownTimeout); err != nil {
 		t.Fatalf("stopping a starting Worker returned %v", err)
 	}
 	if elapsed := time.Since(signaled); elapsed > 3*time.Second {
 		t.Fatalf("stopping a Worker that was not ready took %s", elapsed)
 	}
-	snapshot := core.snapshot()
-	if len(snapshot.drains) != 0 || len(snapshot.claimed) != 0 || len(adapter.executed()) != 0 {
-		t.Fatalf("not-ready Worker drained or executed: drains=%d claimed=%v", len(snapshot.drains), snapshot.claimed)
+	if snapshot := core.snapshot(); stops.Load() != 1 || len(snapshot.drains) != 0 || len(snapshot.claimed) != 0 {
+		t.Fatalf("stops=%d drains=%d claimed=%v", stops.Load(), len(snapshot.drains), snapshot.claimed)
 	}
-	assertDrainTestStoreClosed(t, node)
+	assertShutdownTestStoreClosed(t, node)
 }
 
-func TestServeSecondSignalAbandonsDrain(t *testing.T) {
-	core := newDrainTestCore(t, drainTestRunA)
-	// Core never reports the Session as empty, so only the second signal can
-	// end the drain before its own timeout.
-	core.stickyInflight = true
-	adapter := newDrainTestAdapter()
-	output := &drainTestLog{}
-	node := newDrainTestNode(t, core, adapter, output)
+// Stop blocked past the budget (a run that outlives it keeps the SDK grace
+// busy) returns the timeout error within the budget.
+func TestServeReportsTimeoutWhenStopExceedsBudget(t *testing.T) {
+	core := newShutdownTestCore(t, shutdownTestRunA)
+	adapter := newShutdownTestAdapter()
+	output := &shutdownTestLog{}
+	node := newShutdownTestNode(t, core, adapter, output)
+	stops := countStops(node)
+	budget := 500 * time.Millisecond
 	signals := make(chan os.Signal, 2)
 	served := make(chan error, 1)
-	go func() { served <- node.Serve(signals) }()
+	go func() { served <- node.serve(signals, budget) }()
 
-	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
+	waitForShutdownTestRun(t, adapter, shutdownTestRunA.RunID)
 	signaled := time.Now()
-	signals <- os.Interrupt
-	select {
-	case <-core.drained:
-	case <-time.After(5 * time.Second):
-		t.Fatal("first signal did not drain the Runtime Session")
-	}
-	signals <- os.Interrupt
-	eventuallyForTest(t, 5*time.Second, func() bool {
-		return strings.Contains(output.String(), "second signal")
-	}, "second signal handling")
-	close(adapter.release)
-	if err := waitForServe(t, served, DefaultDrainTimeout); err != nil {
-		t.Fatalf("second-signal stop returned %v; logs:\n%s", err, output.String())
-	}
-	if elapsed := time.Since(signaled); elapsed >= DefaultDrainTimeout {
-		t.Fatalf("second signal still waited for the drain timeout (%s)", elapsed)
-	}
-	if logs := output.String(); strings.Contains(logs, "drain did not complete") {
-		t.Fatalf("an operator-abandoned drain was reported as a failure:\n%s", logs)
-	}
-	assertDrainTestStoreClosed(t, node)
-}
-
-func TestServeReportsTimeoutWhenShutdownExceedsBudget(t *testing.T) {
-	core := newDrainTestCore(t, drainTestRunA)
-	core.stickyInflight = true
-	adapter := newDrainTestAdapter()
-	output := &drainTestLog{}
-	node := newDrainTestNode(t, core, adapter, output)
-	signals := make(chan os.Signal, 2)
-	served := make(chan error, 1)
-	go func() { served <- node.serve(signals, 300*time.Millisecond) }()
-
-	waitForDrainTestRun(t, adapter, drainTestRunA.RunID)
 	signals <- os.Interrupt
 	err := waitForServe(t, served, 5*time.Second)
 	var timeout *ShutdownTimeoutError
 	if !errors.As(err, &timeout) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("exceeded shutdown budget returned %v", err)
 	}
-	// The SDK Worker keeps its own grace; let the handler finish so the
-	// background shutdown completes before the temporary directory is removed.
+	if elapsed := time.Since(signaled); elapsed > budget+time.Second {
+		t.Fatalf("Serve took %s with a %s budget", elapsed, budget)
+	}
+	if stops.Load() != 1 {
+		t.Fatalf("Stop calls = %d, want 1", stops.Load())
+	}
+	// The SDK Worker keeps its own grace; let the run finish so the background
+	// shutdown completes before the temporary directory is removed.
 	close(adapter.release)
-	eventuallyForTest(t, 15*time.Second, func() bool {
-		node.mu.Lock()
-		defer node.mu.Unlock()
-		return !node.started
-	}, "background Worker shutdown")
-	assertDrainTestStoreClosed(t, node)
+	waitForShutdownTestNodeStopped(t, node)
+	if stops.Load() != 1 {
+		t.Fatalf("Stop calls = %d, want 1", stops.Load())
+	}
+	assertShutdownTestStoreClosed(t, node)
 }
 
-func TestShutdownWithoutStartIsNoop(t *testing.T) {
-	node := &Node{}
-	if err := node.Shutdown(context.Background()); err != nil {
-		t.Fatal(err)
+// A second signal while Stop is still blocked returns promptly through the
+// timeout path and never starts a second Stop.
+func TestServeSecondSignalDuringBlockedStopReturnsPromptly(t *testing.T) {
+	core := newShutdownTestCore(t, shutdownTestRunA)
+	adapter := newShutdownTestAdapter()
+	output := &shutdownTestLog{}
+	node := newShutdownTestNode(t, core, adapter, output)
+	stops := countStops(node)
+	signals := make(chan os.Signal, 2)
+	served := make(chan error, 1)
+	go func() { served <- node.Serve(signals) }()
+
+	waitForShutdownTestRun(t, adapter, shutdownTestRunA.RunID)
+	signals <- os.Interrupt
+	eventuallyForTest(t, 5*time.Second, func() bool { return stops.Load() == 1 }, "Stop after the first signal")
+	signaled := time.Now()
+	signals <- os.Interrupt
+	err := waitForServe(t, served, 5*time.Second)
+	var timeout *ShutdownTimeoutError
+	if !errors.As(err, &timeout) || !errors.Is(err, errSecondSignal) {
+		t.Fatalf("second signal returned %v, want the timeout path", err)
 	}
+	if elapsed := time.Since(signaled); elapsed > time.Second {
+		t.Fatalf("second signal took %s to return", elapsed)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if stops.Load() != 1 {
+		t.Fatalf("Stop calls = %d, want exactly 1", stops.Load())
+	}
+	close(adapter.release)
+	waitForShutdownTestNodeStopped(t, node)
+	if stops.Load() != 1 {
+		t.Fatalf("Stop calls = %d, want exactly 1", stops.Load())
+	}
+	assertShutdownTestStoreClosed(t, node)
 }

@@ -546,13 +546,12 @@ their lifetime follows client cancellation and the Core stream.
 - Stop is not a substitute for a confirmed drain. Fence admissions and verify
   Core settlement and empty SDK spool before an operational switch; stopping a
   process can cancel active adapters. Preserve state when shutdown cannot finish.
-- On SIGTERM or SIGINT the Node drains through the SDK: it stops accepting new
-  Runs and closes the public A2A listener to new requests (in-flight requests
-  finish; the localhost Run helper keeps serving), lets in-flight Runs finish for up to 10s, then stops and closes the SDK
-  store. If the drain cannot complete, the SDK Worker still applies its own 10s
-  grace before canceling adapters. The whole shutdown is bounded at 25s; a second
-  signal skips the drain. Give the service manager at least that long (for
-  example `docker stop -t 30`) for a clean exit.
+- On SIGTERM or SIGINT the Node stops through the SDK Worker's Stop, which
+  gives in-flight Runs the SDK's 10s grace before canceling adapters, then
+  closes the SDK store. The whole shutdown is bounded at 15s; a second signal
+  while it is still running exits immediately through the same timeout path.
+  Give the service manager more than 15s (for example `docker stop -t 20`) for
+  a clean exit.
 - Redact credentials, private URLs, customer payloads, and adapter logs before
   filing an issue.
 - Alert before the SDK spool reaches 80%. Free space or complete existing uploads;

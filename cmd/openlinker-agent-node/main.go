@@ -52,8 +52,8 @@ func main() {
 	}
 	node.Logger = logger
 
-	// A buffered channel keeps both the first (drain) and a second (stop without
-	// draining) signal while the Node is shutting down.
+	// A buffered channel keeps both the first signal (stop) and a second one
+	// (give up while the stop is still running) during shutdown.
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
