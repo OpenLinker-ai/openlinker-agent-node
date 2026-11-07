@@ -1,6 +1,10 @@
 # Provision only on the disposable Ubuntu CI runner. This authorizes the
 # distro-owned namespace launcher, not arbitrary Node/client executables.
 # See Ubuntu 24.04 release notes, "Unprivileged user namespace restrictions".
+# scripts/ci-authorize-bwrap-userns.sh loads it only when the installed policy
+# does not already authorize bwrap. Ubuntu 26.04 enforces its own
+# bwrap-userns-restrict profile for the same path; loading both makes the
+# kernel apply neither ("conflicting profile attachments").
 abi <abi/4.0>,
 include <tunables/global>
 
