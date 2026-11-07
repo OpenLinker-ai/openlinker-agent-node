@@ -47,6 +47,9 @@ type Node struct {
 	worker   *openlinker.RuntimeWorker
 	lifetime context.Context
 	cancel   context.CancelFunc
+
+	// stopHook observes every Stop call in tests; nil in production.
+	stopHook func()
 }
 
 func (node *Node) Start(parent context.Context) (retErr error) {
@@ -84,6 +87,7 @@ func (node *Node) Start(parent context.Context) (retErr error) {
 	}()
 
 	node.logConfigurationReport()
+	node.logAdapterConfigurationWarnings()
 	if adapter, ok := node.Adapter.(interface{ Preflight(context.Context) error }); ok {
 		if err := adapter.Preflight(node.lifetime); err != nil {
 			return err
@@ -177,6 +181,9 @@ func (node *Node) newPublicA2AProxy(ctx context.Context) (publicA2AProxy, error)
 func (node *Node) Stop(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if node.stopHook != nil {
+		node.stopHook()
 	}
 	node.mu.Lock()
 	if !node.started {

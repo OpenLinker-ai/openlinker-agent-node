@@ -10,6 +10,17 @@ import (
 
 const DefaultShutdownTimeout = 10 * time.Second
 
+// processShutdownMargin covers what follows the SDK Worker's shutdown grace:
+// its bounded force-cancel wait (2s), the Runtime session close, the store
+// close and the local listener stop.
+const processShutdownMargin = 5 * time.Second
+
+// ProcessShutdownTimeout bounds a signal-initiated shutdown. It is strictly
+// larger than the SDK Worker's own shutdown grace, so a normal Stop finishes
+// closing the store and the process exits successfully instead of racing an
+// equal outer timer and exiting non-zero first.
+const ProcessShutdownTimeout = openlinker.RuntimeWorkerDefaultShutdownTimeout + processShutdownMargin
+
 type JSONMap map[string]any
 
 type RunEvent struct {

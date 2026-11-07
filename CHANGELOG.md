@@ -7,6 +7,17 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- SIGTERM/SIGINT still stops the Node through the SDK Worker's `Stop`, but the
+  process-level bound is now 15s (the SDK's 10s shutdown grace plus a margin)
+  instead of a 10s timer that raced the equal SDK grace and exited non-zero
+  before the store closed. `Stop` runs once, on its own goroutine; if the bound
+  expires, or a second signal arrives while it is still running, the process
+  exits through the same timeout path as before. Listener shutdown on the first
+  signal is unchanged. No flags, environment variables or defaults changed.
+- Startup logs, and `--check-config` reports as warnings, a selected HTTP,
+  command or A2A adapter whose target variable is unset
+  (`http_adapter_url_missing`, `command_adapter_command_missing`,
+  `a2a_adapter_base_url_missing`). Startup success or failure is unchanged.
 - CI no longer loads its bubblewrap AppArmor profile when the installed policy
   already authorizes `/usr/bin/bwrap`. Next to Ubuntu 26.04's
   `bwrap-userns-restrict` the two profiles conflicted and the kernel applied

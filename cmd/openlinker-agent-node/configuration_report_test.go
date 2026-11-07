@@ -107,6 +107,26 @@ func TestCompiledConfigurationCheckDoesNotStartProviderOrWorker(t *testing.T) {
 			})
 		}
 	}
+	// A missing adapter target still loads (startup is unchanged), so the check
+	// reports it as a warning with a zero exit status and never starts anything.
+	for adapter, warning := range map[string]string{"http": "http_adapter_url_missing", "command": "command_adapter_command_missing"} {
+		workspace := t.TempDir()
+		command := exec.Command(binary, "--check-config")
+		command.Env = append(transportEnv(t), "OPENLINKER_URL="+server.URL, "OPENLINKER_AGENT_NODE_ADAPTER="+adapter,
+			"OPENLINKER_AGENT_NODE_DATA_DIR="+filepath.Join(workspace, "sdk-state"), "OPENLINKER_AGENT_TOKEN=synthetic-private-platform-token")
+		command.Dir = workspace
+		var stderr strings.Builder
+		command.Stderr = &stderr
+		raw, err := command.Output()
+		var report struct{ Warnings []string }
+		if err != nil || stderr.Len() != 0 || json.Unmarshal(raw, &report) != nil ||
+			strings.Join(report.Warnings, ",") != warning || strings.Contains(string(raw), "synthetic-private-platform-token") {
+			t.Fatalf("%s adapter check: %v %s %s", adapter, err, raw, stderr.String())
+		}
+		if entries, err := os.ReadDir(workspace); err != nil || len(entries) != 0 || requests.Load() != 0 {
+			t.Fatal("configuration check started the Worker or created state", err)
+		}
+	}
 	for _, args := range [][]string{{"--check-config"}, {"--check-config", "extra"}} {
 		command := exec.Command(binary, args...)
 		command.Env = append(transportEnv(t), "OPENLINKER_AGENT_NODE_ADAPTER=codex", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION=typo-private-do-not-echo")

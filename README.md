@@ -546,6 +546,12 @@ their lifetime follows client cancellation and the Core stream.
 - Stop is not a substitute for a confirmed drain. Fence admissions and verify
   Core settlement and empty SDK spool before an operational switch; stopping a
   process can cancel active adapters. Preserve state when shutdown cannot finish.
+- On SIGTERM or SIGINT the Node stops through the SDK Worker's Stop, which
+  gives in-flight Runs the SDK's 10s grace before canceling adapters, then
+  closes the SDK store. The whole shutdown is bounded at 15s; a second signal
+  while it is still running exits immediately through the same timeout path.
+  Give the service manager more than 15s (for example `docker stop -t 20`) for
+  a clean exit.
 - Redact credentials, private URLs, customer payloads, and adapter logs before
   filing an issue.
 - Alert before the SDK spool reaches 80%. Free space or complete existing uploads;
@@ -586,7 +592,10 @@ off with `SESSION_ISOLATION=off`; ordinary Codex `read-only` is not a substitute
 for that boundary.
 `serial_host_auth_capacity_gt_one` recommends capacity 1 so assigned Runs do not
 spend their timeout waiting for the host-auth lock. These diagnostics do not
-change any setting. Codex and Claude default to `SESSION_ISOLATION=native` with a
+change any setting. `http_adapter_url_missing`,
+`command_adapter_command_missing` and `a2a_adapter_base_url_missing` mean the
+selected adapter's target variable is unset, so every Run will fail; startup also
+logs this warning but still proceeds as before. Codex and Claude default to `SESSION_ISOLATION=native` with a
 private session root outside any git worktree (default
 `$HOME/.local/state/openlinker-agent-node-sessions`); set `off` explicitly to
 bridge a client in an existing workspace without isolation. Releases through
