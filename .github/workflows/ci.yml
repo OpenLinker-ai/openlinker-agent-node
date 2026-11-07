@@ -17,7 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-26.04, macos-latest]
+        # Ubuntu 26.04's default bwrap policy blocks Claude's sandbox helper;
+        # see docs/native-session-isolation.md before adding it here.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       GOWORK: "off"

@@ -7,11 +7,14 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
-- CI runs native session isolation on Ubuntu 24.04 and 26.04. On runners whose
-  installed AppArmor policy already authorizes `/usr/bin/bwrap` (Ubuntu 26.04's
-  `bwrap-userns-restrict`), CI no longer loads its own profile for the same
-  path, which made the kernel apply neither. Node runtime behavior is unchanged;
-  the setup guide notes the same conflict for hosts with a custom bwrap profile.
+- CI no longer loads its bubblewrap AppArmor profile when the installed policy
+  already authorizes `/usr/bin/bwrap`. Next to Ubuntu 26.04's
+  `bwrap-userns-restrict` the two profiles conflicted and the kernel applied
+  neither. The native-isolation job runs on Ubuntu 24.04 and macOS. Node
+  runtime behavior is unchanged.
+- Documented Ubuntu 26.04: under the default bwrap policy, Codex native
+  isolation works, but Claude Bash calls fail closed because Claude's sandbox
+  needs capability-bearing nested user namespaces.
 
 ## 0.2.0 - 2026-10-05
 

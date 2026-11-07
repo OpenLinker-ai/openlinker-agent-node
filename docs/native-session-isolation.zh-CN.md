@@ -73,15 +73,23 @@ HOME 下的新锁文件；保留文件是刻意设计，锁由 OS 释放。从�
 已验证的客户端基线为 Codex 0.153.0、Claude Code 2.1.259。Linux 需要可用的非特权
 user/network/PID namespaces，Claude 另需 `bwrap`、`socat`、`rg`。macOS 使用客户端
 内建 Seatbelt 沙箱。Node 的此模式不再要求另装 npm SRT 包。
-Ubuntu 26.04 的 `apparmor` 包已为 `/usr/bin/bwrap` 强制启用
-`bwrap-userns-restrict` profile，无需额外 AppArmor 配置（沙箱子进程不保留 capability）。
-不要再加载另一个挂载到 `/usr/bin/bwrap` 的自定义 profile（例如为 Ubuntu 24.04 编写的）：
-内核会因 `conflicting profile attachments` 两者都不应用，bwrap 报
-`loopback: Failed RTM_NEWADDR`，Node 启动探测随之拒绝原生隔离。可用
-`sudo apparmor_parser -R <文件>` 卸载并从 `/etc/apparmor.d` 删除该 profile。
 认证与会话目录必须放在系统/代码只读授权之外。Linux Codex 还需读取当前进程的
 辅助程序别名目录和可执行文件；Node 先确认目录只有已知别名及空锁文件，再只读
 开放这些代码路径，不开放认证目录或整个 tmp 树。
+
+Ubuntu 26.04 的 `apparmor` 包为 `/usr/bin/bwrap` 强制启用 `bwrap-userns-restrict`
+profile：bwrap 可以创建 namespace，但它启动的所有进程（包括再嵌套的 user namespace
+内）都没有 capability。在该默认策略下，Codex 原生隔离可用，Node 启动探测也能通过；
+Claude 沙箱的 seccomp 辅助程序需要带 capability 的嵌套 user namespace，无法启动。
+此时每次 Claude Bash 调用都会以 `apply-seccomp: write /proc/self/setgroups (nested
+userns is capability-restricted ...)` 失败关闭；文件工具仍限制在工作区内，不会退回
+无沙箱 shell。给 bwrap 子进程授予带 capability 的 user namespace 正是该发行版策略要
+阻止的行为，属于 Node 之外的宿主安全决策。原生隔离 CI 作业运行在 Ubuntu 24.04，
+不覆盖 26.04。
+
+不要在发行版 profile 之外再加载另一个挂载到 `/usr/bin/bwrap` 的 AppArmor profile：
+内核会因 `conflicting profile attachments` 两者都不应用，bwrap 报
+`loopback: Failed RTM_NEWADDR`，Node 启动探测随之对两种客户端都拒绝原生隔离。
 
 ```sh
 export OPENLINKER_AGENT_NODE_ADAPTER=codex # 或 claude；默认即 native 隔离
