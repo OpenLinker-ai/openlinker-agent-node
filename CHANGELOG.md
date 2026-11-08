@@ -7,6 +7,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Pin Go SDK `v0.2.1-0.20261108071305-2c5fa0b19319` (openlinker-go main `2c5fa0b1`).
+  It brings the SDK's registration-journal durability and replay fixes (#53, #55) and
+  the Runtime Worker capacity, retry-log and shutdown hardening (#54) into the Node's
+  embedded Worker. No Node flags, environment variables or defaults change.
 - SIGTERM/SIGINT still stops the Node through the SDK Worker's `Stop`, but the
   process-level bound is now 15s (the SDK's 10s shutdown grace plus a margin)
   instead of a 10s timer that raced the equal SDK grace and exited non-zero
