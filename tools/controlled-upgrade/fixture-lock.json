@@ -1,6 +1,6 @@
 {
-  "root_commit": "aa8ce7bceab9ff42063bbb4cff2d2177699a3945",
-  "sha256": "e803666ef3111e69c9248f357d0985e1f013611be23488d7f9954a7beffed1a9",
+  "root_commit": "5b8a96ee1db28b4ffebe502ac408d9f5a06d8ad3",
+  "sha256": "759ba07893452ab1300803552cca5289e2b686b223103dfc433e109658a0d346",
   "files": [
     {
       "path": "scripts/verify-node-controlled-upgrade.mjs",
@@ -35,8 +35,8 @@
     {
       "path": "scripts/fixtures/node-upgrade-old-binaries.json",
       "mode": "100644",
-      "git_blob": "ba3e16a5302004a24a6e21a9011a16a5e3b34303",
-      "sha256": "8abf5b077305e097e7fa4ebd43d1f93d1e67a6e24266ff185325e812a221fce0"
+      "git_blob": "22514e7b591b112ab93bf4ac4b0660a11a9ce8dd",
+      "sha256": "2c6c0683d7f2e5d395b06c9b5aa8cbc1597128bb2a169453f369a3d903736460"
     }
   ],
   "core_commit": "06b4514f37c65b6c74baeddbf30babc13712f13f"
