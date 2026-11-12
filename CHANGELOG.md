@@ -7,6 +7,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Add opt-in Codex image input (`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`, default
+  off). Top-level `image_url` / `*_image_url` input links are downloaded by Node
+  outside the sandbox (public HTTPS 443 only, per-hop address checks against
+  DNS rebinding, 20 MiB, 30s, JPEG/PNG/WebP/GIF by signature, no credentials or
+  proxies), sent as `localImage` inputs with that turn and deleted afterwards.
+  New public leaf `pkg/adapters/imageinput`; `codexturn.Config.LocalImages` is an
+  additive field. With the switch off, prompts and turns are unchanged.
 - Pin Go SDK `v0.2.1-0.20261108071305-2c5fa0b19319` (openlinker-go main `2c5fa0b1`).
   It brings the SDK's registration-journal durability and replay fixes (#53, #55) and
   the Runtime Worker capacity, retry-log and shutdown hardening (#54) into the Node's

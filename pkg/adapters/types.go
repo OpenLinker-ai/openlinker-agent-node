@@ -27,18 +27,21 @@ type ProviderConfig struct {
 	DelegationBrokerRoot string
 	DelegationSocket     string
 	// Version is supplied by the embedding executable for provider metadata.
-	Version          string
-	Provider         string
-	Bin              string
-	Workspace        string
-	Model            string
-	Sandbox          string
-	Permission       string
-	AllowedTools     []string
-	Timeout          time.Duration
-	SessionReuse     bool
-	SessionStore     string
-	WebSearch        bool
+	Version      string
+	Provider     string
+	Bin          string
+	Workspace    string
+	Model        string
+	Sandbox      string
+	Permission   string
+	AllowedTools []string
+	Timeout      time.Duration
+	SessionReuse bool
+	SessionStore string
+	WebSearch    bool
+	// CodexImageInput downloads top-level image_url/*_image_url input links
+	// and sends them as Codex localImage inputs. Off by default.
+	CodexImageInput  bool
 	CodexApproval    string
 	CodexBaseURL     string
 	ClaudeBaseURL    string

@@ -274,6 +274,16 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 截至 `v0.1.58-rc.3` 的旧发布尚未接通此参数，修改主机 Codex 配置或增加环境变量
 不能修复旧二进制。须使用包含本修复的发布物，并遵循上方版本变更的新身份登记流程。
 
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`（默认 **false**，取值规则同上）让模型看到任务输入中
+链接的图片。只识别顶层名为 `image_url` 或以 `_image_url` 结尾的字符串字段（最多 4 个）。Node 在
+启动 Codex 之前于沙箱外下载，不带凭据、不走代理：仅 HTTPS 443；每个解析地址和每一跳跳转
+（最多 3 次）都必须是公网地址；单张不超过 20 MiB、30 秒；按文件头只接受 JPEG/PNG/WebP/GIF。
+文件写入工作区私有目录 `.openlinker-inputs/<随机名>/`，作为本轮的 `localImage` 输入发送，
+沙箱内工具可读，本轮结束即删除。失败时在启动 Codex 前以 `IMAGE_INPUT_INVALID`、
+`IMAGE_INPUT_BLOCKED`、`IMAGE_INPUT_FETCH_FAILED`、`IMAGE_INPUT_TOO_LARGE` 或
+`IMAGE_INPUT_UNSUPPORTED_TYPE` 结束 Run。Claude 暂不支持。详见
+[docs/codex-image-input.md](docs/codex-image-input.md)。
+
 ### `claude`
 
 与 Codex 相同，默认启用原生会话隔离：

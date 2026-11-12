@@ -51,6 +51,9 @@ type Config struct {
 	Prepare                                     func(context.Context) (PreparedCommand, error)
 	SessionID, Prompt, Sandbox, Model, Approval string
 	Persistent                                  bool
+	// LocalImages are host paths sent as localImage inputs after the prompt
+	// text in this turn only. Empty keeps the text-only turn unchanged.
+	LocalImages []string
 	// UseConfiguredPermissions omits the legacy sandbox override on both start
 	// and resume. The product must supply an enforced named permission profile.
 	UseConfiguredPermissions bool
@@ -214,7 +217,12 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 	}
 	turnRequested = true
 	var turn codexrpc.TurnStartResponse
-	if err := client.Call(ctx, "turn/start", codexrpc.TurnStartParams{ThreadID: threadID, Input: []codexrpc.UserInput{{Type: "text", Text: &prompt}}}, &turn); err != nil {
+	input := []codexrpc.UserInput{{Type: "text", Text: &prompt}}
+	for _, path := range config.LocalImages {
+		path := path
+		input = append(input, codexrpc.UserInput{Type: "localImage", Path: &path})
+	}
+	if err := client.Call(ctx, "turn/start", codexrpc.TurnStartParams{ThreadID: threadID, Input: input}, &turn); err != nil {
 		return threadID, "", err
 	}
 	turnID = turn.Turn.ID

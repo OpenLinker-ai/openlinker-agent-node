@@ -13,7 +13,7 @@ import (
 var errCodexSessionMissing = codexturn.ErrSessionMissing
 
 // Node supplies its launch/tool policy; the shared leaf owns the entire turn.
-func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
+func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, images []string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
 	overrides := map[string]json.RawMessage{}
 	var before func(context.Context, *codexrpc.Client) error
 	if config.toolPolicy != nil && runtime.GOOS == "linux" {
@@ -34,7 +34,7 @@ func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt
 			})
 		},
 		UseConfiguredPermissions: config.toolPolicy != nil,
-		Sandbox:                  sandbox, SessionID: sessionID, Prompt: prompt, Persistent: persistent,
+		Sandbox:                  sandbox, SessionID: sessionID, Prompt: prompt, Persistent: persistent, LocalImages: images,
 		Model: config.Model, Approval: config.CodexApproval,
 		Observer: providerstream.NewCodexObserver(emit, nil), Emit: emit,
 	})

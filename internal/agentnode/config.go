@@ -198,6 +198,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		imageInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT", false)
+		if err != nil {
+			return nil, err
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -224,6 +228,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Approval:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
 			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
 			WebSearch:            webSearch,
+			ImageInput:           imageInput,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),
@@ -247,6 +252,20 @@ func nativeWebSearchFromEnv(get EnvLookup, provider string) (bool, error) {
 	case "0", "false", "no", "off":
 		return false, nil
 	case "", "1", "true", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+}
+
+// strictBoolOption rejects typos without echoing the raw value.
+func strictBoolOption(get EnvLookup, name string, fallback bool) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(get(name))) {
+	case "":
+		return fallback, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
 		return true, nil
 	default:
 		return false, fmt.Errorf("%s must be a boolean", name)

@@ -352,6 +352,19 @@ search on; set `false` first to keep it off. Releases through
 the variable cannot repair those binaries. Use a release containing this fix and
 follow the fresh-enrollment version-change procedure above.
 
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **false**, same boolean values)
+lets the model see images linked from the task input. Only top-level string fields
+named `image_url` or ending in `_image_url` are used (at most 4). Node downloads each
+link before starting Codex, outside the sandbox and without credentials or proxies:
+HTTPS on port 443 only, every resolved address and redirect hop (at most 3) must be
+public, at most 20 MiB and 30 seconds, and only JPEG/PNG/WebP/GIF by file signature.
+Files are written to a private `.openlinker-inputs/<random>/` directory in the
+workspace, sent as `localImage` inputs with this turn, readable by sandboxed tools,
+and deleted when the turn ends. Failures stop the Run before Codex starts with
+`IMAGE_INPUT_INVALID`, `IMAGE_INPUT_BLOCKED`, `IMAGE_INPUT_FETCH_FAILED`,
+`IMAGE_INPUT_TOO_LARGE` or `IMAGE_INPUT_UNSUPPORTED_TYPE`. Claude does not support
+this yet. See [docs/codex-image-input.md](docs/codex-image-input.md).
+
 ### `claude`
 
 Native session isolation is the default, as for Codex:
