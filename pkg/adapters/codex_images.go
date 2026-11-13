@@ -28,6 +28,10 @@ func materializeCodexImages(ctx context.Context, run RunContext, workspace strin
 	if err == nil {
 		return set, nil, nil
 	}
+	// A provider timeout or Run cancellation is not an image failure.
+	if ctx.Err() != nil {
+		return nil, nil, errors.Join(ctx.Err(), err)
+	}
 	var classified *imageinput.Error
 	if errors.As(err, &classified) {
 		result := failedResult(classified.Code, boundedText(classified.Error(), 500, "image input failed"))

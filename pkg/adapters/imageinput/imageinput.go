@@ -154,8 +154,9 @@ func (s *Set) Cleanup() error {
 	if s == nil || s.root == nil {
 		return nil
 	}
+	// Keep the shared parent: removing it could race another run that has
+	// checked it but not yet created its own child directory.
 	err := s.root.RemoveAll(filepath.Join(DirectoryName, s.dirName))
-	_ = s.root.Remove(DirectoryName) // only succeeds once no other run uses it
 	closeErr := s.root.Close()
 	s.root = nil
 	return errors.Join(err, closeErr)
@@ -219,6 +220,9 @@ func (f Fetcher) Materialize(ctx context.Context, workspace string, fields []Fie
 		root.Close()
 		return nil, errors.New("image input directory must be a real directory")
 	}
+	if afterParentReady != nil {
+		afterParentReady()
+	}
 	random := make([]byte, 12)
 	if _, err := rand.Read(random); err != nil {
 		root.Close()
@@ -254,6 +258,10 @@ func (f Fetcher) Materialize(ctx context.Context, workspace string, fields []Fie
 	}
 	return set, nil
 }
+
+// afterParentReady lets tests interleave another run between the shared
+// parent check and this run's child directory creation.
+var afterParentReady func()
 
 var extensions = map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 
@@ -432,7 +440,7 @@ var deniedPrefixes = func() []netip.Prefix {
 		"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "::/128", "::1/128", "fe80::/10",
 		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7",
 		"224.0.0.0/4", "ff00::/8",
-		"240.0.0.0/4", "255.255.255.255/32", "198.18.0.0/15", "64:ff9b::/96", "2002::/16",
+		"240.0.0.0/4", "255.255.255.255/32", "198.18.0.0/15", "64:ff9b::/96", "64:ff9b:1::/48", "2002::/16",
 	}
 	prefixes := make([]netip.Prefix, len(values))
 	for i, value := range values {

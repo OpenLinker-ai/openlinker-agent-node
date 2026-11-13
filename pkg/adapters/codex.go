@@ -42,10 +42,20 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	if packageErr != nil {
 		return openlinker.RuntimeResult{}, packageErr
 	}
-	// Images are fetched outside the provider sandbox before the host-auth
-	// permit is held. Cleanup is deferred after the sandbox close, so it runs first.
-	images, imageFailure, imageErr := materializeCodexImages(ctx, run, workspace, config)
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// Images are fetched outside the provider sandbox, within the provider
+	// timeout, before the host-auth permit is held. Cleanup is deferred after
+	// the sandbox close, so it runs first.
+	images, imageFailure, imageErr := materializeCodexImages(requestCtx, run, workspace, config)
 	if imageErr != nil {
+		if requestCtx.Err() != nil {
+			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), imageErr, timeout)
+		}
 		return openlinker.RuntimeResult{}, imageErr
 	}
 	if imageFailure != nil {
@@ -56,12 +66,6 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	if sandbox == "" {
 		sandbox = "read-only"
 	}
-	timeout := config.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Minute
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	releaseAuth, err := acquireHostAuthPermit(requestCtx, config, run.Emit)
 	if err != nil {
 		return openlinker.RuntimeResult{}, err

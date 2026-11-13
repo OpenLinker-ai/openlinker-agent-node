@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 )
@@ -25,6 +26,9 @@ var codexTestPNG = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{7}, 1
 func useCodexImageServer(t *testing.T) *atomic.Int32 {
 	t.Helper()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow.png" {
+			time.Sleep(2 * time.Second)
+		}
 		if r.URL.Path == "/fake.png" {
 			w.Write([]byte("<html>not an image</html>"))
 			return
@@ -104,8 +108,8 @@ func TestCodexSendsInputImagesWithTheTurn(t *testing.T) {
 		!strings.Contains(string(prompt), "is this AI generated?") {
 		t.Fatalf("prompt does not describe the image: %s", prompt)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, imageinput.DirectoryName)); !os.IsNotExist(err) {
-		t.Fatal("input images were not cleaned up after the turn")
+	if entries, err := os.ReadDir(filepath.Join(workspace, imageinput.DirectoryName)); err != nil || len(entries) != 0 {
+		t.Fatalf("input images were not cleaned up after the turn: %v %v", entries, err)
 	}
 }
 
@@ -161,5 +165,27 @@ func TestCodexImageFailuresStopBeforeCodexStarts(t *testing.T) {
 		if entries, _ := os.ReadDir(filepath.Join(workspace, imageinput.DirectoryName)); len(entries) != 0 {
 			t.Fatalf("%s: leftover files %v", link, entries)
 		}
+	}
+}
+
+func TestCodexImageDownloadCountsAgainstProviderTimeout(t *testing.T) {
+	useCodexImageServer(t)
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	writeCodexRPCFixture(t, bin, "ephemeral")
+	t.Setenv("TEST_LOG", filepath.Join(dir, "calls"))
+	started := time.Now()
+	result, err := (CodexProvider{Config: ProviderConfig{
+		Bin: bin, Workspace: dir, EnvAllowlist: []string{"TEST_LOG"}, CodexImageInput: true,
+		Timeout: 300 * time.Millisecond,
+	}}).Run(context.Background(), RunContext{RunID: "run-image", Input: map[string]any{"image_url": "https://example.com/slow.png"}})
+	if err == nil || !strings.Contains(err.Error(), "timed out after 300ms") || result.Status == "failed" {
+		t.Fatalf("result %+v err %v", result, err)
+	}
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Fatalf("download outlived the provider timeout: %s", elapsed)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "calls.requests")); !os.IsNotExist(err) {
+		t.Fatal("Codex started after the provider timeout")
 	}
 }

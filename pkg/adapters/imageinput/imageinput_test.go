@@ -123,7 +123,7 @@ func TestDeniedAddresses(t *testing.T) {
 		"127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1",
 		"0.0.0.0", "224.0.0.1", "240.0.0.1", "255.255.255.255", "198.18.0.1",
 		"::1", "::", "fe80::1", "fc00::1", "fd00::1", "ff02::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
-		"64:ff9b::a00:1", "2002:a00:1::1",
+		"64:ff9b::a00:1", "64:ff9b:1::a00:5", "2002:a00:1::1",
 	} {
 		if !Denied(netip.MustParseAddr(value)) {
 			t.Errorf("%s must be denied", value)
@@ -215,8 +215,8 @@ func TestDownloadDialsOnlyValidatedAddressWithoutCredentials(t *testing.T) {
 	if err := set.Cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, DirectoryName)); !os.IsNotExist(err) {
-		t.Fatal("input directory not removed")
+	if entries, err := os.ReadDir(filepath.Join(workspace, DirectoryName)); err != nil || len(entries) != 0 {
+		t.Fatalf("run directory not removed (shared parent kept): %v %v", entries, err)
 	}
 	if err := set.Cleanup(); err != nil {
 		t.Fatal("second cleanup failed")
@@ -337,5 +337,64 @@ func TestSymlinkedInputDirectoryIsRejected(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
 		t.Fatalf("wrote outside the workspace: %v", entries)
+	}
+}
+
+func TestConcurrentRunsShareTheParentDirectory(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(pngBytes) }))
+	defer server.Close()
+	workspace := t.TempDir()
+	const runs = 16
+	errs := make(chan error, runs)
+	for i := 0; i < runs; i++ {
+		go func() {
+			fetcher, _ := testFetcher(t, server, nil)
+			for j := 0; j < 5; j++ {
+				set, err := fetcher.Materialize(context.Background(), workspace, []Field{{Name: "image_url", URL: "https://example.com/a.png"}})
+				if err != nil {
+					errs <- err
+					return
+				}
+				if err := set.Cleanup(); err != nil {
+					errs <- err
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+	for i := 0; i < runs; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent setup/cleanup failed: %v", err)
+		}
+	}
+	assertNoInputFiles(t, workspace)
+}
+
+func TestCleanupDoesNotRemoveAnotherRunsParent(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(pngBytes) }))
+	defer server.Close()
+	workspace := t.TempDir()
+	fetcher, _ := testFetcher(t, server, nil)
+	fields := []Field{{Name: "image_url", URL: "https://example.com/a.png"}}
+	other, err := fetcher.Materialize(context.Background(), workspace, fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another run finishes after this run checked the parent but before it
+	// created its own directory.
+	afterParentReady = func() {
+		afterParentReady = nil
+		if err := other.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	}
+	defer func() { afterParentReady = nil }()
+	set, err := fetcher.Materialize(context.Background(), workspace, fields)
+	if err != nil {
+		t.Fatalf("interleaved cleanup broke setup: %v", err)
+	}
+	if err := set.Cleanup(); err != nil {
+		t.Fatal(err)
 	}
 }
