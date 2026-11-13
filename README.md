@@ -343,6 +343,18 @@ This changes only the native search tool: approvals, sandbox, session reuse,
 delegation, and shell network access retain their configured policies. It does
 not enable Plugin Browser. The selected model/provider must also support search.
 
+`OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES` defaults to **false**. When
+`true`, a turn that the upstream stops with `max_messages` (incomplete response) gets
+exactly one follow-up turn on the same thread and app-server process, asking the model
+to stop calling tools and answer from the results it already has. The task is not
+re-run on a new thread and completed tool calls are not replayed. The follow-up is a
+prompt, not a tool switch: if the model still calls a tool, it runs under the same
+policy and the same Run timeout. The follow-up emits a `provider_continuing` status;
+if it succeeds the Run output includes `codex_max_messages_continued: true`, otherwise
+the Run fails with the original `max_messages` error. Cancellation interrupts the
+follow-up turn. It works with or without session reuse; with reuse the same thread is
+saved. Values follow the boolean rules below; other values fail before startup.
+
 Values are case-insensitive and whitespace-trimmed: true/false, 1/0, yes/no,
 on/off; unset or empty is true. Other values fail before startup without echoing their
 contents. Configuration is fixed for the Node process lifetime. Releases before this

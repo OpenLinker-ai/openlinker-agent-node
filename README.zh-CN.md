@@ -268,6 +268,14 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 即使主机客户端配置已开启搜索也会关闭。它只控制客户端内置搜索，不改变批准策略、
 沙箱、会话复用、委派或 Shell 网络权限，也不启用 Plugin Browser；模型/网关仍须支持搜索。
 
+`OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES` 默认 **false**。设为 `true` 时，
+上游以 `max_messages`（不完整响应）结束的轮次，会在同一线程、同一 app-server 进程中
+补发且仅补发一轮，要求模型不再调用工具、直接基于已有结果给出最终答复。不在新线程中重跑任务，
+也不重放已完成的工具调用。这是提示约束而非工具开关：模型若仍调用工具，按同一策略执行并受
+同一 Run 超时约束。续接时发出 `provider_continuing` 状态；成功则 Run 输出带
+`codex_max_messages_continued: true`，否则 Run 照常以原 `max_messages` 错误失败。取消会
+中断续接轮。会话复用开关均适用；复用时保存同一线程。取值规则同下文布尔变量，其他值在启动前报错。
+
 取值忽略大小写与两端空白，接受 true/false、1/0、yes/no、on/off；未设置或空值为 true。
 其他值在启动前报错且不回显原值。配置在 Node 进程生命周期内固定。此前的发布默认 false，
 未设置该变量的 Node 升级后会开始联网搜索；如需保持关闭，请先显式设为 `false`。

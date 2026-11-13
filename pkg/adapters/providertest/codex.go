@@ -164,6 +164,44 @@ func (f *RPCFixture) Finish(answer string) {
 	os.Exit(0)
 }
 
+// FixtureContinuationTurn is the second turn a max_messages continuation starts.
+const FixtureContinuationTurn = "turn-2"
+
+// continueAfterMessageLimit serves the one follow-up turn on the same thread.
+// Scenarios: -success completes it, -limit stops it at the message limit
+// again, -cancel leaves it running until interrupted.
+func (f *RPCFixture) continueAfterMessageLimit(request codexrpc.Message) {
+	var params codexrpc.TurnStartParams
+	if json.Unmarshal(request.Params, &params) != nil || params.ThreadID != FixtureThread || len(params.Input) != 1 || params.Input[0].Text == nil {
+		os.Exit(2)
+	}
+	f.logFile(".continuation.prompt", *params.Input[0].Text, false)
+	turn := map[string]any{"id": FixtureContinuationTurn, "status": "inProgress", "items": []any{}}
+	f.event("turn/started", map[string]any{"threadId": FixtureThread, "turn": turn})
+	f.reply(request, map[string]any{"turn": turn})
+	item := func(value map[string]any) {
+		f.event("item/completed", map[string]any{"threadId": FixtureThread, "turnId": FixtureContinuationTurn, "item": value})
+	}
+	// A late item from the stopped turn must not become this Run's answer.
+	f.item("item/completed", map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "stale first-turn answer"})
+	switch f.scenario {
+	case "message-limit-continue-success":
+		item(map[string]any{"type": "agentMessage", "phase": "commentary", "text": "commentary"})
+		item(map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "continued answer"})
+		f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureContinuationTurn, "status": "completed", "items": []any{}}})
+	case "message-limit-continue-limit":
+		item(map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "partial must not be returned as success"})
+		f.event("error", map[string]any{"threadId": FixtureThread, "turnId": FixtureContinuationTurn, "willRetry": false,
+			"error": map[string]any{"message": "private continuation Incomplete response returned, reason: max_messages"}})
+	case "message-limit-continue-failed":
+		f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureContinuationTurn, "status": "failed", "items": []any{}}})
+	case "message-limit-continue-cancel":
+		f.logFile(".continuation.started", "yes", false)
+	default:
+		os.Exit(3)
+	}
+}
+
 func CodexRPCDrainsShutdownBeforeWaiting(t *testing.T, runRPC func(context.Context, string, string) (string, error)) {
 	t.Helper()
 	for _, scenario := range []string{"shutdown-drain", "shutdown-malformed", "shutdown-hang"} {
@@ -270,8 +308,14 @@ func CodexRPCFixtureProcess() {
 			}
 			if message.Method == "turn/interrupt" {
 				f.logFile(".interrupt", string(message.Params), false)
+				f.logFile(".interrupts", string(message.Params)+"\n", true)
+				var params codexrpc.TurnInterruptParams
+				_ = json.Unmarshal(message.Params, &params)
 				f.reply(message, map[string]any{})
-				f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureTurn, "status": "interrupted", "items": []any{}}})
+				f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": params.TurnID, "status": "interrupted", "items": []any{}}})
+			}
+			if message.Method == "turn/start" && strings.HasPrefix(scenario, "message-limit-continue") {
+				f.continueAfterMessageLimit(message)
 			}
 		}
 	}
