@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"image"
+	"image/color"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +22,18 @@ import (
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 )
 
-var codexTestPNG = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{7}, 100)...)
+// codexTestPNG is a real decodable image: real clients may decode or resize it.
+var codexTestPNG = func() []byte {
+	canvas := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for x := 0; x < 16; x++ {
+		for y := 0; y < 16; y++ {
+			canvas.Set(x, y, color.RGBA{R: uint8(x * 16), G: uint8(y * 16), B: 128, A: 255})
+		}
+	}
+	var buffer bytes.Buffer
+	_ = png.Encode(&buffer, canvas)
+	return buffer.Bytes()
+}()
 
 // useCodexImageServer routes example.com (a public address) to a local TLS
 // server and private.example to a denied address. It records resolver use.
