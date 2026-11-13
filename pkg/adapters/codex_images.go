@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"os"
@@ -118,4 +119,43 @@ func codexImageFetcherFor(config ProviderConfig, connect bool) (imageinput.Fetch
 		}
 	}
 	return fetcher, nil
+}
+
+// redactCodexInlineImages keeps inline image data out of the prompt text,
+// including Core history that may repeat an earlier order input. The images
+// themselves reach the model only as localImage inputs. Off: unchanged.
+func redactCodexInlineImages(run RunContext, config ProviderConfig) RunContext {
+	if !config.CodexImageInput {
+		return run
+	}
+	generic := func(value any) any {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return value
+		}
+		var decoded any
+		if json.Unmarshal(raw, &decoded) != nil {
+			return value
+		}
+		return imageinput.Redact(decoded)
+	}
+	run.Input = generic(run.Input)
+	if run.Metadata != nil {
+		if redacted, ok := generic(run.Metadata).(map[string]any); ok {
+			run.Metadata = redacted
+		}
+	}
+	if run.A2A != nil {
+		if redacted, ok := generic(run.A2A).(map[string]any); ok {
+			run.A2A = redacted
+		}
+	}
+	if run.Conversation != nil {
+		raw, _ := json.Marshal(generic(run.Conversation))
+		var conversation ConversationContext
+		if json.Unmarshal(raw, &conversation) == nil {
+			run.Conversation = &conversation
+		}
+	}
+	return run
 }

@@ -96,7 +96,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	for attempt := 0; attempt < 2; attempt++ {
 		var err error
 		observed, summary, err = runCodexRPC(requestCtx, bin, workspace, sandbox, sessionID,
-			buildCodexPrompt(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config.WebSearch)+images.Instructions(),
+			buildCodexPrompt(redactCodexInlineImages(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config), config.WebSearch)+images.Instructions(),
 			images.Paths(), config.SessionReuse && sessionKey != "", config, run.Emit)
 		if requestCtx.Err() != nil {
 			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), err, timeout)

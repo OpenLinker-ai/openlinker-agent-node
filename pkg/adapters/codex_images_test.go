@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"image"
 	"image/color"
@@ -340,5 +341,36 @@ func TestCodexImageInputTrustedPrivateSourceWithCAFile(t *testing.T) {
 		if _, err := NewProvider(config); err == nil {
 			t.Fatalf("accepted %+v", config)
 		}
+	}
+}
+
+func TestCodexSendsInlineImagesWithoutBase64InPrompt(t *testing.T) {
+	lookups := useCodexImageServer(t)
+	inline := "data:image/png;base64," + base64.StdEncoding.EncodeToString(codexTestPNG)
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	writeCodexRPCFixture(t, bin, "ephemeral")
+	t.Setenv("TEST_LOG", filepath.Join(dir, "calls"))
+	history := &ConversationContext{Source: "core", SessionKey: "s", CurrentRunID: "run-inline", HistoryBeforeCurrent: []ConversationMessage{
+		{RunID: "earlier", Role: "user", Content: "first order", Payload: map[string]any{"input": map[string]any{"image_url": inline}}},
+	}}
+	result, err := (CodexProvider{Config: ProviderConfig{Bin: bin, Workspace: dir, EnvAllowlist: []string{"TEST_LOG"}, CodexImageInput: true}}).Run(
+		context.Background(), RunContext{RunID: "run-inline", Input: map[string]any{"image_url": inline, "question": "real or AI?"}, Conversation: history})
+	if err != nil || result.Output.(map[string]any)["summary"] != "final answer" {
+		t.Fatalf("result %+v %v", result, err)
+	}
+	if lookups.Load() != 0 {
+		t.Fatal("inline image used the network")
+	}
+	images, _ := os.ReadFile(filepath.Join(dir, "calls.images"))
+	if fields := strings.Fields(string(images)); len(fields) != 3 || fields[1] != strconv.Itoa(len(codexTestPNG)) || fields[2] != "true" {
+		t.Fatalf("inline image not sent: %q", images)
+	}
+	prompt, _ := os.ReadFile(filepath.Join(dir, "calls.prompt"))
+	if strings.Contains(string(prompt), base64.StdEncoding.EncodeToString(codexTestPNG)[:40]) || strings.Contains(string(prompt), "data:image/") {
+		t.Fatal("base64 image data reached the prompt text")
+	}
+	if strings.Count(string(prompt), "inline image omitted") != 2 || !strings.Contains(string(prompt), "real or AI?") {
+		t.Fatalf("prompt: %s", prompt)
 	}
 }

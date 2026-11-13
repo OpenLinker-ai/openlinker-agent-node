@@ -354,7 +354,10 @@ follow the fresh-enrollment version-change procedure above.
 
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **false**, same boolean values)
 lets the model see images linked from the task input. Only top-level string fields
-named `image_url` or ending in `_image_url` are used (at most 4). Node downloads each
+named `image_url` or ending in `_image_url` are used (at most 4). A value may also be an
+inline `data:image/(jpeg|png|webp|gif);base64,...` image (for example a local upload): it is
+decoded without any network access, its signature must match the declared type, and inline
+image data is replaced by a placeholder in the prompt text and conversation history. Node downloads each
 link before starting Codex, outside the sandbox and without credentials or proxies:
 HTTPS on port 443 only, every resolved address and redirect hop (at most 3) must be
 public, at most 20 MiB and 30 seconds, and only JPEG/PNG/WebP/GIF by file signature.

@@ -275,7 +275,9 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 不能修复旧二进制。须使用包含本修复的发布物，并遵循上方版本变更的新身份登记流程。
 
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`（默认 **false**，取值规则同上）让模型看到任务输入中
-链接的图片。只识别顶层名为 `image_url` 或以 `_image_url` 结尾的字符串字段（最多 4 个）。Node 在
+链接的图片。只识别顶层名为 `image_url` 或以 `_image_url` 结尾的字符串字段（最多 4 个）。字段值也可以是
+内联的 `data:image/(jpeg|png|webp|gif);base64,...`（如本地上传）：本地解码、不访问网络，文件头须与声明类型一致；
+prompt 文本与会话历史中的内联图片数据替换为占位说明。Node 在
 启动 Codex 之前于沙箱外下载，不带凭据、不走代理：仅 HTTPS 443；每个解析地址和每一跳跳转
 （最多 3 次）都必须是公网地址；单张不超过 20 MiB、30 秒；按文件头只接受 JPEG/PNG/WebP/GIF。
 文件写入工作区私有目录 `.openlinker-inputs/<随机名>/`，作为本轮的 `localImage` 输入发送，

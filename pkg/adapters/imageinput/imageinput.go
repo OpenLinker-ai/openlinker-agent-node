@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -167,7 +168,7 @@ func (s *Set) Instructions() string {
 	if s == nil || len(s.Images) == 0 {
 		return ""
 	}
-	lines := []string{"", "", "Input images attached to this turn (downloaded by OpenLinker from the links in input; view them as attached images):"}
+	lines := []string{"", "", "Input images attached to this turn (provided in input as links or inline images; view them as attached images):"}
 	for _, image := range s.Images {
 		lines = append(lines, fmt.Sprintf("- %s: %s (%s, %d bytes)", image.Field, image.Relative, image.MediaType, image.Size))
 	}
@@ -212,9 +213,18 @@ func (f Fetcher) Materialize(ctx context.Context, workspace string, fields []Fie
 	if err != nil {
 		return nil, fmt.Errorf("image input workspace: %w", err)
 	}
-	// Validate every link before any network or file access.
+	// Validate every link and decode every inline image before any network
+	// or file access. Inline images never touch the network.
 	targets := make([]*url.URL, len(fields))
+	inline := make([][]byte, len(fields))
+	inlineTypes := make([]string, len(fields))
 	for i, field := range fields {
+		if IsDataURL(field.URL) {
+			if inline[i], inlineTypes[i], err = decodeDataURL(field.Name, field.URL, f.limit()); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		if targets[i], err = f.validateURL(field.Name, field.URL); err != nil {
 			return nil, err
 		}
@@ -246,7 +256,11 @@ func (f Fetcher) Materialize(ctx context.Context, workspace string, fields []Fie
 		return nil, fmt.Errorf("image input directory: %w", err)
 	}
 	for i, field := range fields {
-		data, mediaType, err := f.download(ctx, field.Name, targets[i])
+		data, mediaType := inline[i], inlineTypes[i]
+		var err error
+		if targets[i] != nil {
+			data, mediaType, err = f.download(ctx, field.Name, targets[i])
+		}
 		if err != nil {
 			set.Cleanup()
 			return nil, err
@@ -408,10 +422,7 @@ func (f Fetcher) download(ctx context.Context, field string, target *url.URL) ([
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	limit := f.MaxBytes
-	if limit <= 0 {
-		limit = MaxBytes
-	}
+	limit := f.limit()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	tlsConfig := verifiedTLS(f.TLS)
@@ -619,4 +630,70 @@ func Sniff(data []byte) string {
 		return "image/webp"
 	}
 	return ""
+}
+
+func (f Fetcher) limit() int64 {
+	if f.MaxBytes <= 0 {
+		return MaxBytes
+	}
+	return f.MaxBytes
+}
+
+const inlinePlaceholder = "[inline image omitted from text; attached to this turn as an image]"
+
+// IsDataURL reports whether a value is an inline data: URL.
+func IsDataURL(value string) bool {
+	return len(value) >= 5 && strings.EqualFold(value[:5], "data:")
+}
+
+var inlineMediaTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true, "image/gif": true}
+
+// decodeDataURL accepts only data:image/(jpeg|png|webp|gif);base64,<payload>.
+// The declared type must match the file signature.
+func decodeDataURL(field, raw string, limit int64) ([]byte, string, error) {
+	header, payload, ok := strings.Cut(raw[5:], ",")
+	mediaType, encoding, hasEncoding := strings.Cut(strings.ToLower(header), ";")
+	if !ok || !hasEncoding || encoding != "base64" || !inlineMediaTypes[mediaType] {
+		return nil, "", failure(CodeInvalid, field, "inline image must be data:image/(jpeg|png|webp|gif);base64,...")
+	}
+	if int64(len(payload)) > int64(base64.StdEncoding.EncodedLen(int(limit))) {
+		return nil, "", failure(CodeTooLarge, field, "image is larger than %d bytes", limit)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil || len(data) == 0 {
+		return nil, "", failure(CodeInvalid, field, "inline image is not valid base64")
+	}
+	if int64(len(data)) > limit {
+		return nil, "", failure(CodeTooLarge, field, "image is larger than %d bytes", limit)
+	}
+	if sniffed := Sniff(data); sniffed == "" || sniffed != mediaType {
+		return nil, "", failure(CodeUnsupportedType, field, "content is not the declared JPEG, PNG, WebP or GIF image")
+	}
+	return data, mediaType, nil
+}
+
+// Redact replaces inline image data URLs anywhere in a decoded JSON value so
+// multi-megabyte base64 never enters model text. Other values are unchanged.
+func Redact(value any) any {
+	switch typed := value.(type) {
+	case string:
+		if IsDataURL(typed) && strings.HasPrefix(strings.ToLower(typed[5:]), "image/") {
+			return inlinePlaceholder
+		}
+		return typed
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = Redact(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = Redact(item)
+		}
+		return out
+	default:
+		return value
+	}
 }

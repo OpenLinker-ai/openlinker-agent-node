@@ -109,6 +109,17 @@ Run 被取消时仍按现有 `PROVIDER_CANCELED` 处理。
 - 本机实测：`https://223.5.5.5/dns-query` 与 `https://1.1.1.1/dns-query` 均返回真实地址并完成下载，
   不配置 DoH 时同一链接被拦截。
 
+## 内联图片（本地上传，2026-11-13 批准方案 A）
+
+- 同一字段约定下，值也可以是 `data:image/(jpeg|png|webp|gif);base64,<数据>`（不允许其他参数）。
+- 先校验再落盘：base64 合法、解码后不超过上限（编码长度超限时不解码直接拒绝）、文件头须与声明类型一致；
+  失败码同上（`IMAGE_INPUT_INVALID` / `_TOO_LARGE` / `_UNSUPPORTED_TYPE`）。不访问网络，可信来源限定模式下也可用。
+- 开启开关时，prompt 中的 `input`、`metadata`、`a2a` 与会话历史里任何内联图片 data URL 都替换为占位说明，
+  图片只以 `localImage` 发送；关闭开关时行为不变（内联数据会作为文本进入 prompt，故使用图片字段的
+  服务必须开启开关）。
+- 订单字段类型、Web 选择器与大小上限由 Cloud/Web 负责，见主仓
+  `docs/superpowers/specs/2026-11-13-local-image-upload-design.md`。
+
 ## 私有部署：可信图片来源（2026-11-13 用户批准）
 
 图片多来自部署方自有存储时，不放宽默认规则，而是由部署方列出可信来源：
