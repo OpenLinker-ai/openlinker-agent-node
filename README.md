@@ -375,6 +375,16 @@ address checks and connection pinning, there is no fallback to host DNS, and ima
 names are sent to that resolver. Certificates are always verified against the image host
 and no client certificate is presented.
 
+For private deployments whose images live on their own storage, list exact origins in
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES` (JSON array of
+`http(s)://host[:port]`, for example `["https://files.corp","http://10.20.0.5:9000"]`).
+Only those origins may use http, another port or private addresses, and they resolve through
+host DNS even when DoH is set; link-local/metadata, multicast and unspecified addresses stay
+blocked. Other links keep the public rules, or are rejected when
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY=true`.
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE` adds PEM roots (for example an internal CA)
+to image TLS verification. All three require image input.
+
 ### `claude`
 
 Native session isolation is the default, as for Codex:

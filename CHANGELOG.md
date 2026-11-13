@@ -17,7 +17,9 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   Optional `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` resolves image hosts via
   DNS-over-HTTPS at a public IP (for fake-IP DNS hosts), keeping all address checks and
   without falling back to host DNS. TLS overrides cannot disable verification or present
-  a client certificate.
+  a client certificate. Private deployments can list exact trusted image origins
+  (`..._TRUSTED_SOURCES`, optional `..._TRUSTED_ONLY`, `..._CA_FILE`) that may use http,
+  other ports and private addresses, never link-local/metadata.
 - Pin Go SDK `v0.2.1-0.20261108071305-2c5fa0b19319` (openlinker-go main `2c5fa0b1`).
   It brings the SDK's registration-journal durability and replay fixes (#53, #55) and
   the Runtime Worker capacity, retry-log and shutdown hardening (#54) into the Node's

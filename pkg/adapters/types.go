@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/agentdelegation"
-	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 	"strings"
 	"time"
 
@@ -46,12 +45,18 @@ type ProviderConfig struct {
 	// CodexImageInputDoH optionally resolves image hosts through
 	// https://<public IP>/<path> DNS-over-HTTPS instead of host DNS.
 	CodexImageInputDoH string
-	CodexApproval      string
-	CodexBaseURL       string
-	ClaudeBaseURL      string
-	Env                []string
-	EnvAllowlist       []string
-	ExecutionProfile   string
+	// CodexImageInputTrustedSources lists exact http(s)://host[:port] image
+	// origins (for example private storage) exempt from the public-address
+	// rule; TrustedOnly rejects all other links. CAFile adds PEM roots.
+	CodexImageInputTrustedSources []string
+	CodexImageInputTrustedOnly    bool
+	CodexImageInputCAFile         string
+	CodexApproval                 string
+	CodexBaseURL                  string
+	ClaudeBaseURL                 string
+	Env                           []string
+	EnvAllowlist                  []string
+	ExecutionProfile              string
 }
 
 type ConversationContext struct {
@@ -109,13 +114,8 @@ func NewProvider(config ProviderConfig) (Provider, error) {
 	if err := validateSessionIsolation(config); err != nil {
 		return nil, err
 	}
-	if config.CodexImageInputDoH != "" {
-		if !config.CodexImageInput {
-			return nil, fmt.Errorf("image input DoH requires Codex image input")
-		}
-		if _, _, err := imageinput.ValidateDoHURL(config.CodexImageInputDoH); err != nil {
-			return nil, err
-		}
+	if _, err := codexImageFetcherFor(config, false); err != nil {
+		return nil, err
 	}
 	var provider Provider
 	switch strings.ToLower(strings.TrimSpace(config.Provider)) {

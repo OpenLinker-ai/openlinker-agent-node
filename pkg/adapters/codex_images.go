@@ -2,8 +2,11 @@ package adapters
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"net/netip"
+	"os"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
@@ -33,12 +36,9 @@ func materializeCodexImages(ctx context.Context, run RunContext, workspace strin
 		if err != nil || len(fields) == 0 {
 			return nil, err
 		}
-		fetcher := codexImageFetcher
-		if config.CodexImageInputDoH != "" && fetcher.Resolve == nil {
-			// No fallback to host DNS: a fake-IP or filtered answer must not be used.
-			if fetcher.Resolve, err = codexDoHResolver(config.CodexImageInputDoH); err != nil {
-				return nil, err
-			}
+		fetcher, err := codexImageFetcherFor(config, true)
+		if err != nil {
+			return nil, err
 		}
 		return fetcher.Materialize(ctx, workspace, fields)
 	}()
@@ -55,4 +55,67 @@ func materializeCodexImages(ctx context.Context, run RunContext, workspace strin
 		return nil, &result, nil
 	}
 	return nil, nil, err
+}
+
+// codexImageFetcherFor validates and applies the image-input options. Every
+// option requires image input, so a stray setting cannot go unnoticed.
+// connect=false only validates (provider construction).
+func codexImageFetcherFor(config ProviderConfig, connect bool) (imageinput.Fetcher, error) {
+	fetcher := codexImageFetcher
+	configured := config.CodexImageInputDoH != "" || len(config.CodexImageInputTrustedSources) != 0 ||
+		config.CodexImageInputTrustedOnly || config.CodexImageInputCAFile != ""
+	if !configured {
+		return fetcher, nil
+	}
+	if !config.CodexImageInput {
+		return fetcher, errors.New("image input DoH, trusted sources and CA file require Codex image input")
+	}
+	if config.CodexImageInputTrustedOnly && len(config.CodexImageInputTrustedSources) == 0 {
+		return fetcher, errors.New("image input trusted-only mode requires trusted sources")
+	}
+	for _, raw := range config.CodexImageInputTrustedSources {
+		origin, err := imageinput.ParseOrigin(raw)
+		if err != nil {
+			return fetcher, err
+		}
+		fetcher.Trusted = append(fetcher.Trusted, origin)
+	}
+	fetcher.TrustedOnly = config.CodexImageInputTrustedOnly
+	if config.CodexImageInputCAFile != "" {
+		pem, err := os.ReadFile(config.CodexImageInputCAFile)
+		if err != nil {
+			return fetcher, errors.New("image input CA file is not readable")
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if fetcher.TLS != nil && fetcher.TLS.RootCAs != nil {
+			pool = fetcher.TLS.RootCAs.Clone()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return fetcher, errors.New("image input CA file contains no PEM certificate")
+		}
+		tlsConfig := &tls.Config{}
+		if fetcher.TLS != nil {
+			tlsConfig = fetcher.TLS.Clone()
+		}
+		tlsConfig.RootCAs = pool
+		fetcher.TLS = tlsConfig
+	}
+	if config.CodexImageInputDoH != "" {
+		if _, _, err := imageinput.ValidateDoHURL(config.CodexImageInputDoH); err != nil {
+			return fetcher, err
+		}
+		if connect && fetcher.Resolve == nil {
+			// Public hosts never fall back to host DNS; trusted hosts keep
+			// using host DNS (TrustedResolve) so internal names resolve.
+			resolve, err := codexDoHResolver(config.CodexImageInputDoH)
+			if err != nil {
+				return fetcher, err
+			}
+			fetcher.Resolve = resolve
+		}
+	}
+	return fetcher, nil
 }

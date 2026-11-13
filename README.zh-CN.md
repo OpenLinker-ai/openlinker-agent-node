@@ -290,6 +290,14 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 `https://<公网 IP>/<路径>`，避免解析器本身再走主机 DNS。每个解析结果仍经过相同的地址校验与连接固定，
 不回退到主机 DNS；图片主机名会发送给该解析器。证书始终按图片主机名校验，且不出示任何客户端证书。
 
+私有部署的图片在自有存储时，可在 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES`
+列出精确来源（JSON 数组，元素为 `http(s)://主机[:端口]`，例如
+`["https://files.corp","http://10.20.0.5:9000"]`）。只有这些来源可用 http、其他端口和私网地址，
+并且即使配置了 DoH 也走主机 DNS；链路本地/元数据、组播与未指定地址仍拒绝。其他链接仍按公网规则，
+设置 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY=true` 时则一律拒绝。
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE` 为图片 TLS 校验追加 PEM 根证书（如企业内部 CA）。
+三者都须开启图片输入。
+
 ### `claude`
 
 与 Codex 相同，默认启用原生会话隔离：

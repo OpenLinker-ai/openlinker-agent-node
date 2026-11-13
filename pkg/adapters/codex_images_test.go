@@ -3,10 +3,17 @@ package adapters
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"image"
 	"image/color"
 	"image/png"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -255,6 +262,80 @@ func TestCodexImageInputUsesConfiguredDoHWithoutHostDNS(t *testing.T) {
 	for _, config := range []ProviderConfig{
 		{Provider: "codex", CodexImageInputDoH: "https://223.5.5.5/dns-query"},
 		{Provider: "codex", CodexImageInput: true, CodexImageInputDoH: "https://10.0.0.1/dns-query"},
+	} {
+		if _, err := NewProvider(config); err == nil {
+			t.Fatalf("accepted %+v", config)
+		}
+	}
+}
+
+func TestCodexImageInputTrustedPrivateSourceWithCAFile(t *testing.T) {
+	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "corp CA"}, NotBefore: time.Now().Add(-time.Hour),
+		NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, _ := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	ca, _ := x509.ParseCertificate(caDER)
+	leafKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	leafDER, _ := x509.CreateCertificate(rand.Reader, &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: time.Now().Add(-time.Hour),
+		NotAfter: time.Now().Add(time.Hour), IPAddresses: []net.IP{net.ParseIP("10.20.0.5")}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}, ca, &leafKey.PublicKey, caKey)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(codexTestPNG) }))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{leafDER}, PrivateKey: leafKey}}}
+	server.StartTLS()
+	defer server.Close()
+	caFile := filepath.Join(t.TempDir(), "corp-ca.pem")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := codexImageFetcher
+	var dialed []string
+	codexImageFetcher = imageinput.Fetcher{Dial: func(ctx context.Context, network string, address netip.AddrPort) (net.Conn, error) {
+		dialed = append(dialed, address.String())
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}}
+	t.Cleanup(func() { codexImageFetcher = previous })
+	run := func(config ProviderConfig, link string) map[string]any {
+		dir := t.TempDir()
+		bin := filepath.Join(dir, "codex")
+		writeCodexRPCFixture(t, bin, "ephemeral")
+		t.Setenv("TEST_LOG", filepath.Join(dir, "calls"))
+		config.Provider, config.Bin, config.Workspace, config.EnvAllowlist, config.CodexImageInput = "codex", bin, dir, []string{"TEST_LOG"}, true
+		provider, err := NewProvider(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := provider.Run(context.Background(), RunContext{RunID: "run-trusted", Input: map[string]any{"image_url": link}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status == "failed" {
+			return map[string]any{"code": result.Error.Code}
+		}
+		return result.Output.(map[string]any)
+	}
+	trusted := ProviderConfig{CodexImageInputTrustedSources: []string{"https://10.20.0.5"}, CodexImageInputTrustedOnly: true, CodexImageInputCAFile: caFile}
+	if output := run(trusted, "https://10.20.0.5/photo"); output["summary"] != "final answer" {
+		t.Fatalf("trusted private source failed: %v", output)
+	}
+	if len(dialed) != 1 || dialed[0] != "10.20.0.5:443" {
+		t.Fatalf("dialed %v", dialed)
+	}
+	if output := run(trusted, "https://example.com/photo"); output["code"] != imageinput.CodeBlocked {
+		t.Fatalf("trusted-only mode accepted another source: %v", output)
+	}
+	withoutCA := trusted
+	withoutCA.CodexImageInputCAFile = ""
+	if output := run(withoutCA, "https://10.20.0.5/photo"); output["code"] != imageinput.CodeFetchFailed {
+		t.Fatalf("private CA trusted without CA file: %v", output)
+	}
+	notTrusted := ProviderConfig{CodexImageInputCAFile: caFile}
+	if output := run(notTrusted, "https://10.20.0.5/photo"); output["code"] != imageinput.CodeBlocked {
+		t.Fatalf("private address accepted without trusted source: %v", output)
+	}
+	for _, config := range []ProviderConfig{
+		{Provider: "codex", CodexImageInputTrustedSources: []string{"https://10.20.0.5"}},
+		{Provider: "codex", CodexImageInput: true, CodexImageInputTrustedOnly: true},
+		{Provider: "codex", CodexImageInput: true, CodexImageInputTrustedSources: []string{"https://*.corp"}},
+		{Provider: "codex", CodexImageInput: true, CodexImageInputCAFile: filepath.Join(t.TempDir(), "missing.pem")},
 	} {
 		if _, err := NewProvider(config); err == nil {
 			t.Fatalf("accepted %+v", config)

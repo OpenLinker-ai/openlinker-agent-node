@@ -212,6 +212,26 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL must be https://<public IP>/<path> on port 443")
 			}
 		}
+		imageTrustedSources, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES"), "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES")
+		if err != nil {
+			return nil, err
+		}
+		imageTrustedOnly, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY", false)
+		if err != nil {
+			return nil, err
+		}
+		imageCAFile := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE"))
+		if !imageInput && (len(imageTrustedSources) != 0 || imageTrustedOnly || imageCAFile != "") {
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES, _TRUSTED_ONLY and _CA_FILE require OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+		}
+		if imageTrustedOnly && len(imageTrustedSources) == 0 {
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES")
+		}
+		for _, source := range imageTrustedSources {
+			if _, err := imageinput.ParseOrigin(source); err != nil {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES entries must be http(s)://host[:port]")
+			}
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -240,6 +260,9 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			WebSearch:            webSearch,
 			ImageInput:           imageInput,
 			ImageInputDoH:        imageInputDoH,
+			ImageTrustedSources:  imageTrustedSources,
+			ImageTrustedOnly:     imageTrustedOnly,
+			ImageCAFile:          imageCAFile,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),

@@ -182,6 +182,16 @@ type Fetcher struct {
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 	// Dial connects to an already validated address. Default: net.Dialer.
 	Dial func(ctx context.Context, network string, address netip.AddrPort) (net.Conn, error)
+	// Trusted origins are deployer-configured image sources (for example a
+	// private deployment's own storage). They may use http, another port and
+	// private addresses, resolve through TrustedResolve (default host DNS),
+	// but never link-local/metadata, multicast or unspecified addresses.
+	Trusted []Origin
+	// TrustedOnly rejects every link whose origin is not trusted.
+	TrustedOnly bool
+	// TrustedResolve resolves trusted hosts. Default: net.DefaultResolver,
+	// so internal names never go to a public DoH resolver.
+	TrustedResolve func(ctx context.Context, host string) ([]netip.Addr, error)
 	// TLS may only add trust roots (tests). Verification settings, server
 	// name and client certificates are always reset by verifiedTLS.
 	TLS      *tls.Config
@@ -205,7 +215,7 @@ func (f Fetcher) Materialize(ctx context.Context, workspace string, fields []Fie
 	// Validate every link before any network or file access.
 	targets := make([]*url.URL, len(fields))
 	for i, field := range fields {
-		if targets[i], err = validateURL(field.Name, field.URL); err != nil {
+		if targets[i], err = f.validateURL(field.Name, field.URL); err != nil {
 			return nil, err
 		}
 	}
@@ -266,7 +276,7 @@ var afterParentReady func()
 
 var extensions = map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 
-func validateURL(field, raw string) (*url.URL, error) {
+func (f Fetcher) validateURL(field, raw string) (*url.URL, error) {
 	if len(raw) > maxURLLength {
 		return nil, failure(CodeInvalid, field, "link is longer than %d characters", maxURLLength)
 	}
@@ -274,26 +284,123 @@ func validateURL(field, raw string) (*url.URL, error) {
 	if err != nil || !parsed.IsAbs() || parsed.Host == "" || parsed.Opaque != "" {
 		return nil, failure(CodeInvalid, field, "link must be an absolute https URL")
 	}
-	if err := checkURL(field, parsed); err != nil {
+	if err := f.checkURL(field, parsed); err != nil {
 		return nil, err
 	}
 	return parsed, nil
 }
 
-func checkURL(field string, target *url.URL) error {
-	if !strings.EqualFold(target.Scheme, "https") {
-		return failure(CodeInvalid, field, "link must use https")
-	}
+func (f Fetcher) checkURL(field string, target *url.URL) error {
 	if target.User != nil {
 		return failure(CodeInvalid, field, "link must not contain credentials")
-	}
-	if port := target.Port(); port != "" && port != "443" {
-		return failure(CodeInvalid, field, "link must use port 443")
 	}
 	if target.Hostname() == "" {
 		return failure(CodeInvalid, field, "link must name a host")
 	}
+	if f.trustedURL(target) {
+		return nil
+	}
+	if f.TrustedOnly {
+		return failure(CodeBlocked, field, "link is not a trusted image source")
+	}
+	if !strings.EqualFold(target.Scheme, "https") {
+		return failure(CodeInvalid, field, "link must use https")
+	}
+	if port := target.Port(); port != "" && port != "443" {
+		return failure(CodeInvalid, field, "link must use port 443")
+	}
 	return nil
+}
+
+// Origin is one exact trusted image source.
+type Origin struct {
+	Scheme string
+	Host   string
+	Port   uint16
+}
+
+// ParseOrigin accepts http(s)://host[:port] with an optional "/" path and
+// no credentials, query or fragment. Host names and IPs match exactly.
+func ParseOrigin(raw string) (Origin, error) {
+	invalid := fmt.Errorf("trusted image source must be http(s)://host[:port]")
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return Origin{}, invalid
+	}
+	origin, ok := originOf(parsed.Scheme, parsed.Hostname(), parsed.Port())
+	if !ok || strings.ContainsAny(origin.Host, "*") {
+		return Origin{}, invalid
+	}
+	return origin, nil
+}
+
+func originOf(scheme, host, portText string) (Origin, bool) {
+	scheme = strings.ToLower(scheme)
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return Origin{}, false
+	}
+	if literal, err := netip.ParseAddr(host); err == nil {
+		if literal.Zone() != "" {
+			return Origin{}, false
+		}
+		host = literal.Unmap().String()
+	}
+	port := uint64(443)
+	if scheme == "http" {
+		port = 80
+	}
+	if portText != "" {
+		parsed, err := strconv.ParseUint(portText, 10, 16)
+		if err != nil || parsed == 0 {
+			return Origin{}, false
+		}
+		port = parsed
+	}
+	return Origin{Scheme: scheme, Host: host, Port: uint16(port)}, true
+}
+
+func (f Fetcher) trustedURL(target *url.URL) bool {
+	origin, ok := originOf(target.Scheme, target.Hostname(), target.Port())
+	if !ok {
+		return false
+	}
+	for _, trusted := range f.Trusted {
+		if trusted == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// trustedEndpoint matches a dialed host:port. The scheme of every hop was
+// already checked by checkURL before the transport dials it.
+func (f Fetcher) trustedEndpoint(host string, port uint16) bool {
+	for _, scheme := range []string{"http", "https"} {
+		origin, ok := originOf(scheme, host, strconv.Itoa(int(port)))
+		if !ok {
+			return false
+		}
+		for _, trusted := range f.Trusted {
+			if trusted == origin {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deniedForTrusted keeps link-local (cloud metadata), multicast and
+// unspecified addresses out of reach even for trusted origins.
+func deniedForTrusted(address netip.Addr) bool {
+	if !address.IsValid() || address.Zone() != "" {
+		return true
+	}
+	address = address.Unmap()
+	return address.IsUnspecified() || address.IsMulticast() || address.IsLinkLocalUnicast() ||
+		address.IsLinkLocalMulticast() || address.IsInterfaceLocalMulticast() ||
+		address == netip.MustParseAddr("255.255.255.255")
 }
 
 func (f Fetcher) download(ctx context.Context, field string, target *url.URL) ([]byte, string, error) {
@@ -323,8 +430,8 @@ func (f Fetcher) download(ctx context.Context, field string, target *url.URL) ([
 			if len(via) > MaxRedirects {
 				return failure(CodeFetchFailed, field, "too many redirects")
 			}
-			if err := checkURL(field, request.URL); err != nil {
-				if strings.EqualFold(request.URL.Scheme, "http") {
+			if err := f.checkURL(field, request.URL); err != nil {
+				if strings.EqualFold(request.URL.Scheme, "http") && !f.TrustedOnly {
 					return failure(CodeFetchFailed, field, "redirect left https")
 				}
 				return err
@@ -404,11 +511,16 @@ func verifiedTLS(base *tls.Config) *tls.Config {
 // dialer resolves, validates every address and connects only to a validated
 // address, so a second DNS answer cannot redirect the connection.
 func (f Fetcher) dialer(field string) func(context.Context, string, string) (net.Conn, error) {
+	systemResolve := func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	}
 	resolve := f.Resolve
 	if resolve == nil {
-		resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
-			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-		}
+		resolve = systemResolve
+	}
+	trustedResolve := f.TrustedResolve
+	if trustedResolve == nil {
+		trustedResolve = systemResolve
 	}
 	dial := f.Dial
 	if dial == nil {
@@ -423,20 +535,28 @@ func (f Fetcher) dialer(field string) func(context.Context, string, string) (net
 			return nil, failure(CodeInvalid, field, "invalid host")
 		}
 		port, err := strconv.ParseUint(portText, 10, 16)
-		if err != nil || port != 443 {
+		if err != nil {
+			return nil, failure(CodeInvalid, field, "invalid port")
+		}
+		trusted := f.trustedEndpoint(host, uint16(port))
+		if !trusted && port != 443 {
 			return nil, failure(CodeInvalid, field, "link must use port 443")
+		}
+		lookup, denied := resolve, Denied
+		if trusted {
+			lookup, denied = trustedResolve, deniedForTrusted
 		}
 		var addresses []netip.Addr
 		if literal, err := netip.ParseAddr(host); err == nil {
 			addresses = []netip.Addr{literal}
 		} else {
-			addresses, err = resolve(ctx, host)
+			addresses, err = lookup(ctx, host)
 			if err != nil || len(addresses) == 0 {
 				return nil, failure(CodeFetchFailed, field, "host could not be resolved")
 			}
 		}
 		for _, candidate := range addresses {
-			if Denied(candidate) {
+			if denied(candidate) {
 				return nil, failure(CodeBlocked, field, "host resolves to a non-public address")
 			}
 		}
