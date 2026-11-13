@@ -26,6 +26,9 @@ type NativePolicyReport struct {
 	SessionReuse        bool   `json:"session_reuse"`
 	HostAuthConcurrency string `json:"host_auth_concurrency,omitempty"`
 	Mock                bool   `json:"mock"`
+
+	// Reported only when enabled, so existing reports keep their shape.
+	CodexContinueOnMaxMessages bool `json:"codex_continue_on_max_messages,omitempty"`
 }
 
 func (node *Node) ConfigurationReport() ConfigurationReport {
@@ -47,6 +50,7 @@ func (node *Node) ConfigurationReport() ConfigurationReport {
 		return report
 	}
 	policy := &NativePolicyReport{Provider: config.Provider, WebSearch: config.WebSearch, SessionIsolation: "off", SessionReuse: config.SessionReuse, Mock: mock}
+	policy.CodexContinueOnMaxMessages = config.Provider == "codex" && config.CodexContinueOnMaxMessages
 	if config.SessionIsolation.Enabled() {
 		policy.SessionIsolation = "native"
 		policy.HostAuthConcurrency = defaultString(config.HostAuthConcurrency, "serial")

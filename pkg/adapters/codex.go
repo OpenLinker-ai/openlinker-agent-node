@@ -79,9 +79,10 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	resumed := sessionID != ""
 	recovered := false
 	var observed, summary string
+	continued := false
 	for attempt := 0; attempt < 2; attempt++ {
 		var err error
-		observed, summary, err = runCodexRPC(requestCtx, bin, workspace, sandbox, sessionID,
+		observed, summary, continued, err = runCodexRPCTurn(requestCtx, bin, workspace, sandbox, sessionID,
 			buildCodexPrompt(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config.WebSearch),
 			config.SessionReuse && sessionKey != "", config, run.Emit)
 		if requestCtx.Err() != nil {
@@ -118,6 +119,9 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	}
 	if config.sandbox != nil {
 		result["session_isolation"] = "native"
+	}
+	if continued {
+		result["codex_max_messages_continued"] = true
 	}
 
 	if config.SessionReuse && sessionKey != "" {

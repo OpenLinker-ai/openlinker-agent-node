@@ -45,6 +45,10 @@ type ProviderConfig struct {
 	Env              []string
 	EnvAllowlist     []string
 	ExecutionProfile string
+
+	// CodexContinueOnMaxMessages sends one fixed follow-up turn on the same
+	// native thread when a turn stops at the upstream max_messages limit.
+	CodexContinueOnMaxMessages bool
 }
 
 type ConversationContext struct {

@@ -198,6 +198,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		continueOnMaxMessages, err := strictBoolFromEnv(get, "OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES", false)
+		if err != nil {
+			return nil, err
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -228,7 +232,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),
 			SessionStore:         get("OPENLINKER_AGENT_NODE_CODEX_SESSION_STORE"),
-			EnvAllowlist:         envAllowlist,
+			EnvAllowlist:         envAllowlist, ContinueOnMaxMessages: continueOnMaxMessages,
 		}, nil
 	case "module":
 		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude")
@@ -247,6 +251,20 @@ func nativeWebSearchFromEnv(get EnvLookup, provider string) (bool, error) {
 	case "0", "false", "no", "off":
 		return false, nil
 	case "", "1", "true", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+}
+
+// strictBoolFromEnv rejects typos without echoing the raw value.
+func strictBoolFromEnv(get EnvLookup, name string, fallback bool) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(get(name))) {
+	case "":
+		return fallback, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	case "1", "true", "yes", "on":
 		return true, nil
 	default:
 		return false, fmt.Errorf("%s must be a boolean", name)

@@ -61,7 +61,21 @@ type Config struct {
 	BeforeThread func(context.Context, *codexrpc.Client) error
 	Observer     Observer
 	Emit         func(string, any) error
+	// MessageLimitContinuation, when nonempty, is sent once as a new turn on the
+	// same thread and app-server process after the active turn stopped at the
+	// upstream message limit and its end was confirmed. The original prompt is
+	// never replayed and no thread is started or resumed for it. If the
+	// continuation turn also fails, Run still returns ErrResponseMessageLimit.
+	// Empty keeps the single-turn behavior. Products choose the text.
+	MessageLimitContinuation string
+	// OnMessageLimitContinuation runs once, right before the continuation turn
+	// is requested. It must not block.
+	OnMessageLimitContinuation func()
 }
+
+// messageLimitSettle bounds the wait for the stopped turn to end before a
+// continuation turn may start on the same thread.
+const messageLimitSettle = 2 * time.Second
 
 func Run(ctx context.Context, config Config) (threadID, final string, resultErr error) {
 	if err := ctx.Err(); err != nil {
@@ -121,9 +135,12 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 	client := codexrpc.New(stdin, stdout, func() { stop(); _ = stdin.Close(); _ = stdout.Close() })
 	turnID := ""
 	turnRequested := false
+	// turnSettled records that the current turn already ended or was already
+	// interrupted, so shutdown does not wait for a completion that was consumed.
+	turnSettled := false
 	defer func() {
 		interrupted := ctx.Err() != nil || errors.Is(resultErr, ErrResponseMessageLimit)
-		if interrupted && turnRequested {
+		if interrupted && turnRequested && !turnSettled {
 			interruptCodexRPC(client, threadID, turnID)
 		}
 		if resultErr == nil || interrupted {
@@ -267,12 +284,6 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 			const incomplete = "Incomplete response returned, reason: max_messages"
 			if strings.HasSuffix(strings.TrimSpace(failure.Error.Message), incomplete) ||
 				(failure.Error.AdditionalDetails != nil && strings.HasSuffix(strings.TrimSpace(*failure.Error.AdditionalDetails), incomplete)) {
-				if emit != nil {
-					_ = emit("run.status.changed", map[string]any{
-						"provider": "codex", "status": "provider_failed", "phase": "failed",
-						"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages",
-					})
-				}
 				final = ""
 				return true, ErrResponseMessageLimit
 			}
@@ -287,6 +298,7 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 			if completed.ThreadID != threadID || completed.Turn.ID != turnID {
 				return false, nil
 			}
+			turnSettled = true
 			switch completed.Turn.Status {
 			case "completed":
 				for _, item := range completed.Turn.Items {
@@ -308,37 +320,103 @@ func Run(ctx context.Context, config Config) (threadID, final string, resultErr 
 		}
 		return false, nil
 	}
-	for {
-		// Consume already received terminal events before acting on a trailing EOF.
-		select {
-		case event := <-client.Events():
-			done, err := handle(event)
-			if done || err != nil {
-				return threadID, final, err
-			}
-			continue
-		default:
-		}
-		select {
-		case <-ctx.Done():
-			return threadID, "", ctx.Err()
-		case event := <-client.Events():
-			done, err := handle(event)
-			if done || err != nil {
-				return threadID, final, err
-			}
-		case <-client.Done():
+	wait := func() (string, error) {
+		for {
+			// Consume already received terminal events before acting on a trailing EOF.
 			select {
 			case event := <-client.Events():
 				done, err := handle(event)
 				if done || err != nil {
-					return threadID, final, err
+					return final, err
 				}
+				continue
 			default:
-				return threadID, "", client.Err()
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case event := <-client.Events():
+				done, err := handle(event)
+				if done || err != nil {
+					return final, err
+				}
+			case <-client.Done():
+				select {
+				case event := <-client.Events():
+					done, err := handle(event)
+					if done || err != nil {
+						return final, err
+					}
+				default:
+					return "", client.Err()
+				}
 			}
 		}
 	}
+	messageLimitFailed := func() {
+		if emit != nil {
+			_ = emit("run.status.changed", map[string]any{
+				"provider": "codex", "status": "provider_failed", "phase": "failed",
+				"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages",
+			})
+		}
+	}
+	answer, err := wait()
+	if !errors.Is(err, ErrResponseMessageLimit) {
+		return threadID, answer, err
+	}
+	continuation := config.MessageLimitContinuation
+	if strings.TrimSpace(continuation) == "" || ctx.Err() != nil {
+		messageLimitFailed()
+		return threadID, "", ErrResponseMessageLimit
+	}
+	// Only start a second turn once the stopped one has ended: an active turn
+	// would otherwise receive the text as steering input or reject the start.
+	settled := settleCodexTurn(ctx, client, threadID, turnID)
+	// The bounded interrupt was already attempted; repeat it at shutdown only
+	// when cancellation may have cut that attempt short.
+	turnSettled = settled || ctx.Err() == nil
+	if !settled {
+		if ctx.Err() != nil {
+			return threadID, "", ctx.Err()
+		}
+		messageLimitFailed()
+		return threadID, "", ErrResponseMessageLimit
+	}
+	if emit != nil {
+		_ = emit("run.status.changed", map[string]any{
+			"provider": "codex", "status": "provider_continuing", "phase": "continuing",
+			"provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages",
+		})
+	}
+	if config.OnMessageLimitContinuation != nil {
+		config.OnMessageLimitContinuation()
+	}
+	final, turnID, turnSettled = "", "", false
+	var next codexrpc.TurnStartResponse
+	if err := client.Call(ctx, "turn/start", codexrpc.TurnStartParams{ThreadID: threadID, Input: []codexrpc.UserInput{{Type: "text", Text: &continuation}}}, &next); err != nil {
+		if ctx.Err() != nil {
+			return threadID, "", ctx.Err()
+		}
+		messageLimitFailed()
+		return threadID, "", ErrResponseMessageLimit
+	}
+	turnID = next.Turn.ID
+	if strings.TrimSpace(turnID) == "" || len(turnID) > 256 {
+		messageLimitFailed()
+		return threadID, "", ErrResponseMessageLimit
+	}
+	answer, err = wait()
+	if err == nil {
+		return threadID, answer, nil
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return threadID, "", err
+	}
+	// Report the original stop; the continuation's own diagnostics may carry
+	// raw upstream text and are never returned.
+	messageLimitFailed()
+	return threadID, "", ErrResponseMessageLimit
 }
 
 func boolPtr(value bool) *bool { return &value }
@@ -391,6 +469,40 @@ func interruptCodexRPC(client *codexrpc.Client, threadID, turnID string) {
 				if json.Unmarshal(event.Params, &completed) == nil && completed.ThreadID == threadID && completed.Turn.ID == turnID {
 					return
 				}
+			}
+		}
+	}
+}
+
+// settleCodexTurn asks the stopped turn to end and waits for its scoped
+// completion. A completion queued before the interrupt also counts. It reports
+// false when the end cannot be confirmed within the bound or ctx ends.
+func settleCodexTurn(ctx context.Context, client *codexrpc.Client, threadID, turnID string) bool {
+	if threadID == "" || turnID == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, messageLimitSettle)
+	defer cancel()
+	interrupted := make(chan struct{})
+	go func() {
+		defer close(interrupted)
+		var response codexrpc.TurnInterruptResponse
+		_ = client.Call(ctx, "turn/interrupt", codexrpc.TurnInterruptParams{ThreadID: threadID, TurnID: turnID}, &response)
+	}()
+	defer func() { cancel(); <-interrupted }()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-client.Done():
+			return false
+		case event := <-client.Events():
+			if event.Method != "turn/completed" {
+				continue
+			}
+			var completed codexrpc.TurnCompletedNotification
+			if json.Unmarshal(event.Params, &completed) == nil && completed.ThreadID == threadID && completed.Turn.ID == turnID {
+				return true
 			}
 		}
 	}
