@@ -199,6 +199,10 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		continueOnMaxMessages, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES", false)
+		if err != nil {
+			return nil, err
+		}
 		imageInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT", false)
 		if err != nil {
 			return nil, err
@@ -267,7 +271,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),
 			SessionStore:         get("OPENLINKER_AGENT_NODE_CODEX_SESSION_STORE"),
-			EnvAllowlist:         envAllowlist,
+			EnvAllowlist:         envAllowlist, ContinueOnMaxMessages: continueOnMaxMessages,
 		}, nil
 	case "module":
 		return nil, fmt.Errorf("module adapter is not supported by the Go agent node; use http, command, openclaw, a2a, codex, or claude")

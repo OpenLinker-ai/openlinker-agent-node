@@ -38,6 +38,10 @@ type CodexAdapter struct {
 	DelegationBrokerRoot string
 	once                 sync.Once
 	adapter              *NativeAdapter
+
+	// ContinueOnMaxMessages opts into one same-thread follow-up turn after an
+	// upstream max_messages stop. Off by default.
+	ContinueOnMaxMessages bool
 }
 
 func (a *CodexAdapter) native() *NativeAdapter {
@@ -54,7 +58,7 @@ func (a *CodexAdapter) native() *NativeAdapter {
 			Timeout:               a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,
-			DelegationBrokerRoot: a.DelegationBrokerRoot,
+			DelegationBrokerRoot: a.DelegationBrokerRoot, CodexContinueOnMaxMessages: a.ContinueOnMaxMessages,
 		}}
 	})
 	return a.adapter

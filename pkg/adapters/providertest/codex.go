@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,44 @@ func (f *RPCFixture) Finish(answer string) {
 	os.Exit(0)
 }
 
+// FixtureContinuationTurn is the second turn a max_messages continuation starts.
+const FixtureContinuationTurn = "turn-2"
+
+// continueAfterMessageLimit serves the one follow-up turn on the same thread.
+// Scenarios: -success completes it, -limit stops it at the message limit
+// again, -cancel leaves it running until interrupted.
+func (f *RPCFixture) continueAfterMessageLimit(request codexrpc.Message) {
+	var params codexrpc.TurnStartParams
+	if json.Unmarshal(request.Params, &params) != nil || params.ThreadID != FixtureThread || len(params.Input) != 1 || params.Input[0].Text == nil {
+		os.Exit(2)
+	}
+	f.logFile(".continuation.prompt", *params.Input[0].Text, false)
+	turn := map[string]any{"id": FixtureContinuationTurn, "status": "inProgress", "items": []any{}}
+	f.event("turn/started", map[string]any{"threadId": FixtureThread, "turn": turn})
+	f.reply(request, map[string]any{"turn": turn})
+	item := func(value map[string]any) {
+		f.event("item/completed", map[string]any{"threadId": FixtureThread, "turnId": FixtureContinuationTurn, "item": value})
+	}
+	// A late item from the stopped turn must not become this Run's answer.
+	f.item("item/completed", map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "stale first-turn answer"})
+	switch f.scenario {
+	case "message-limit-continue-success":
+		item(map[string]any{"type": "agentMessage", "phase": "commentary", "text": "commentary"})
+		item(map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "continued answer"})
+		f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureContinuationTurn, "status": "completed", "items": []any{}}})
+	case "message-limit-continue-limit":
+		item(map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "partial must not be returned as success"})
+		f.event("error", map[string]any{"threadId": FixtureThread, "turnId": FixtureContinuationTurn, "willRetry": false,
+			"error": map[string]any{"message": "private continuation Incomplete response returned, reason: max_messages"}})
+	case "message-limit-continue-failed":
+		f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureContinuationTurn, "status": "failed", "items": []any{}}})
+	case "message-limit-continue-cancel":
+		f.logFile(".continuation.started", "yes", false)
+	default:
+		os.Exit(3)
+	}
+}
+
 func CodexRPCDrainsShutdownBeforeWaiting(t *testing.T, runRPC func(context.Context, string, string) (string, error)) {
 	t.Helper()
 	for _, scenario := range []string{"shutdown-drain", "shutdown-malformed", "shutdown-hang"} {
@@ -255,6 +294,8 @@ func CodexRPCFixtureProcess() {
 		notify("other-thread", FixtureTurn)
 		notify(FixtureThread, "other-turn")
 		f.item("item/completed", map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "partial must not be returned as success"})
+		// Stop latency is measured from here, excluding fixture process launch.
+		f.logFile(".limit-sent", strconv.FormatInt(time.Now().UnixNano(), 10), false)
 		notify(FixtureThread, FixtureTurn)
 	}
 	if strings.HasPrefix(scenario, "cancel") || strings.HasPrefix(scenario, "message-limit") {
@@ -278,8 +319,14 @@ func CodexRPCFixtureProcess() {
 			}
 			if message.Method == "turn/interrupt" {
 				f.logFile(".interrupt", string(message.Params), false)
+				f.logFile(".interrupts", string(message.Params)+"\n", true)
+				var params codexrpc.TurnInterruptParams
+				_ = json.Unmarshal(message.Params, &params)
 				f.reply(message, map[string]any{})
-				f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureTurn, "status": "interrupted", "items": []any{}}})
+				f.event("turn/completed", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": params.TurnID, "status": "interrupted", "items": []any{}}})
+			}
+			if message.Method == "turn/start" && strings.HasPrefix(scenario, "message-limit-continue") {
+				f.continueAfterMessageLimit(message)
 			}
 		}
 	}
@@ -466,7 +513,10 @@ func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, s
 				dir := t.TempDir()
 				bin := filepath.Join(dir, "codex")
 				WriteCodexRPCFixture(t, bin, scenario)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				// Launching the fixture re-executes the test binary, which is slow
+				// and jittery on shared macOS runners. The request deadline only
+				// bounds the whole run; promptness is measured from the limit.
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				var events []map[string]any
 				var emit func(string, any) error
@@ -480,10 +530,20 @@ func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, s
 						return nil
 					}
 				}
-				start := time.Now()
 				answer, err := run(ctx, bin, dir, emit)
-				if !isLimit(err) || answer != "" || time.Since(start) > 3*time.Second {
-					t.Fatalf("message limit did not stop promptly: answer=%q err=%v", answer, err)
+				returned := time.Now()
+				if !isLimit(err) || answer != "" {
+					t.Fatalf("message limit did not stop: answer=%q err=%v", answer, err)
+				}
+				raw, readErr := os.ReadFile(bin + ".trace.limit-sent")
+				sent, parseErr := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+				if readErr != nil || parseErr != nil {
+					t.Fatal("fixture did not record when it sent the limit", readErr, parseErr)
+				}
+				// Bounded interrupt (1.5s) plus shutdown grace (0.5s) and kill; a
+				// regression waits for the fixture's 30s hang or the deadline.
+				if stop := returned.Sub(time.Unix(0, sent)); stop > 3*time.Second {
+					t.Fatalf("message limit did not stop promptly: %s after the limit", stop)
 				}
 				if eventsEnabled {
 					want := []map[string]any{{"provider": "codex", "status": "provider_failed", "phase": "failed", "provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages"}}

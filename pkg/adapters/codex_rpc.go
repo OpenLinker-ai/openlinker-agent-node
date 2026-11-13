@@ -12,8 +12,21 @@ import (
 
 var errCodexSessionMissing = codexturn.ErrSessionMissing
 
+// codexMessageLimitContinuation is sent once, on the same thread, after a turn
+// stopped at the upstream max_messages limit. It never repeats the task.
+const codexMessageLimitContinuation = "The previous response stopped because it reached the upstream message limit. " +
+	"Do not call any more tools or run any more searches. " +
+	"Using only the results already gathered in this conversation, write your final answer now."
+
 // Node supplies its launch/tool policy; the shared leaf owns the entire turn.
 func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, images []string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
+	threadID, final, _, err := runCodexRPCTurn(ctx, bin, workspace, sandbox, sessionID, prompt, images, persistent, config, emit)
+	return threadID, final, err
+}
+
+// runCodexRPCTurn also reports whether a max_messages continuation turn started.
+// The continuation turn sends text only; images stay in the thread history.
+func runCodexRPCTurn(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, images []string, persistent bool, config ProviderConfig, emit func(string, any) error) (threadID, final string, continued bool, err error) {
 	overrides := map[string]json.RawMessage{}
 	var before func(context.Context, *codexrpc.Client) error
 	if config.toolPolicy != nil && runtime.GOOS == "linux" {
@@ -21,7 +34,11 @@ func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt
 			return codexRuntimeFileGrants(config.Env, config.toolPolicy.codexFilesystem, overrides)
 		}
 	}
-	return codexturn.Run(ctx, codexturn.Config{
+	continuation := ""
+	if config.CodexContinueOnMaxMessages {
+		continuation = codexMessageLimitContinuation
+	}
+	threadID, final, err = codexturn.Run(ctx, codexturn.Config{
 		BeforeThread: before, ThreadConfig: overrides,
 		Prepare: func(processCtx context.Context) (codexturn.PreparedCommand, error) {
 			if config.sandbox != nil {
@@ -37,7 +54,10 @@ func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt
 		Sandbox:                  sandbox, SessionID: sessionID, Prompt: prompt, Persistent: persistent, LocalImages: images,
 		Model: config.Model, Approval: config.CodexApproval,
 		Observer: providerstream.NewCodexObserver(emit, nil), Emit: emit,
+		MessageLimitContinuation:   continuation,
+		OnMessageLimitContinuation: func() { continued = true },
 	})
+	return threadID, final, continued, err
 }
 
 func codexAppServerArguments(config ProviderConfig, workspace, sandbox string) []string {

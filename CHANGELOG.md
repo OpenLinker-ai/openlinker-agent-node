@@ -7,6 +7,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Codex: opt-in `OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES` (default off).
+  After a turn stops at the upstream `max_messages` limit and its end is confirmed,
+  one fixed follow-up turn runs on the same thread and app-server process asking for
+  a final answer without more tools. Success adds `codex_max_messages_continued: true`
+  to the Run output; otherwise the original error is returned. The shared `codexturn`
+  leaf gains optional `MessageLimitContinuation` / `OnMessageLimitContinuation` fields
+  (zero value keeps current behavior). Nothing changes when the variable is unset.
 - Add opt-in Codex image input (`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`, default
   off). Top-level `image_url` / `*_image_url` input links are downloaded by Node
   outside the sandbox (public HTTPS 443 only, per-hop address checks against
