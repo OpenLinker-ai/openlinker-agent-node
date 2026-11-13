@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
@@ -202,6 +203,15 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		imageInputDoH := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL"))
+		if imageInputDoH != "" {
+			if !imageInput {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+			}
+			if _, _, err := imageinput.ValidateDoHURL(imageInputDoH); err != nil {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL must be https://<public IP>/<path> on port 443")
+			}
+		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
 			if err := agentexec.ValidateModelEndpoint(baseURL); err != nil {
@@ -229,6 +239,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
 			WebSearch:            webSearch,
 			ImageInput:           imageInput,
+			ImageInputDoH:        imageInputDoH,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),

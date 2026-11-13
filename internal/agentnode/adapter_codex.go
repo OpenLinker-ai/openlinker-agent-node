@@ -23,6 +23,7 @@ type CodexAdapter struct {
 	Model                string
 	WebSearch            bool
 	ImageInput           bool
+	ImageInputDoH        string
 	Timeout              time.Duration
 	MockResponse         string
 	SessionReuse         bool
@@ -44,7 +45,7 @@ func (a *CodexAdapter) native() *NativeAdapter {
 			SessionIsolation:    a.SessionIsolation,
 			HostAuthConcurrency: a.HostAuthConcurrency,
 			Sandbox:             a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
-			WebSearch: a.WebSearch, CodexImageInput: a.ImageInput,
+			WebSearch: a.WebSearch, CodexImageInput: a.ImageInput, CodexImageInputDoH: a.ImageInputDoH,
 			Timeout: a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,

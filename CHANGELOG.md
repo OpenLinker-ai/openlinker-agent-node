@@ -14,6 +14,10 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
   proxies), sent as `localImage` inputs with that turn and deleted afterwards.
   New public leaf `pkg/adapters/imageinput`; `codexturn.Config.LocalImages` is an
   additive field. With the switch off, prompts and turns are unchanged.
+  Optional `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` resolves image hosts via
+  DNS-over-HTTPS at a public IP (for fake-IP DNS hosts), keeping all address checks and
+  without falling back to host DNS. TLS overrides cannot disable verification or present
+  a client certificate.
 - Pin Go SDK `v0.2.1-0.20261108071305-2c5fa0b19319` (openlinker-go main `2c5fa0b1`).
   It brings the SDK's registration-journal durability and replay fixes (#53, #55) and
   the Runtime Worker capacity, retry-log and shutdown hardening (#54) into the Node's

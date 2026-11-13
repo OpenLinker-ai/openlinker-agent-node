@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"errors"
+	"net/netip"
 
 	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
@@ -10,6 +11,15 @@ import (
 
 // codexImageFetcher is replaced only by tests that serve images locally.
 var codexImageFetcher = imageinput.Fetcher{}
+
+// codexDoHResolver is replaced only by tests.
+var codexDoHResolver = func(endpoint string) (func(context.Context, string) ([]netip.Addr, error), error) {
+	resolver, err := imageinput.NewDoHResolver(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return resolver.Resolve, nil
+}
 
 // materializeCodexImages returns a nil-safe set, a classified failure result,
 // or an unclassified error (for example cancellation). With the switch off it
@@ -23,7 +33,14 @@ func materializeCodexImages(ctx context.Context, run RunContext, workspace strin
 		if err != nil || len(fields) == 0 {
 			return nil, err
 		}
-		return codexImageFetcher.Materialize(ctx, workspace, fields)
+		fetcher := codexImageFetcher
+		if config.CodexImageInputDoH != "" && fetcher.Resolve == nil {
+			// No fallback to host DNS: a fake-IP or filtered answer must not be used.
+			if fetcher.Resolve, err = codexDoHResolver(config.CodexImageInputDoH); err != nil {
+				return nil, err
+			}
+		}
+		return fetcher.Materialize(ctx, workspace, fields)
 	}()
 	if err == nil {
 		return set, nil, nil

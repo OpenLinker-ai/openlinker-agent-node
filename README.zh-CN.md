@@ -284,6 +284,12 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 `IMAGE_INPUT_UNSUPPORTED_TYPE` 结束 Run。Claude 暂不支持。详见
 [docs/codex-image-input.md](docs/codex-image-input.md)。
 
+若主机 DNS 返回 fake-IP（例如 TUN 代理以 `198.18.0.0/15` 应答），所有链接都会被拦截。可设置
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL`（须同时开启图片输入），改用 DNS-over-HTTPS 解析
+图片主机，例如 `https://223.5.5.5/dns-query` 或 `https://1.1.1.1/dns-query`。只接受 443 端口的
+`https://<公网 IP>/<路径>`，避免解析器本身再走主机 DNS。每个解析结果仍经过相同的地址校验与连接固定，
+不回退到主机 DNS；图片主机名会发送给该解析器。证书始终按图片主机名校验，且不出示任何客户端证书。
+
 ### `claude`
 
 与 Codex 相同，默认启用原生会话隔离：

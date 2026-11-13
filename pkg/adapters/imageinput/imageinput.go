@@ -182,7 +182,8 @@ type Fetcher struct {
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 	// Dial connects to an already validated address. Default: net.Dialer.
 	Dial func(ctx context.Context, network string, address netip.AddrPort) (net.Conn, error)
-	// TLS overrides the client TLS configuration (tests only).
+	// TLS may only add trust roots (tests). Verification settings, server
+	// name and client certificates are always reset by verifiedTLS.
 	TLS      *tls.Config
 	Timeout  time.Duration
 	MaxBytes int64
@@ -306,10 +307,7 @@ func (f Fetcher) download(ctx context.Context, field string, target *url.URL) ([
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
-	if f.TLS != nil {
-		tlsConfig = f.TLS.Clone()
-	}
+	tlsConfig := verifiedTLS(f.TLS)
 	transport := &http.Transport{
 		Proxy:               nil, // a proxy would bypass the address checks
 		DialContext:         f.dialer(field),
@@ -380,6 +378,27 @@ func (f Fetcher) download(ctx context.Context, field string, target *url.URL) ([
 		return nil, "", failure(CodeUnsupportedType, field, "content is not a JPEG, PNG, WebP or GIF image")
 	}
 	return data, mediaType, nil
+}
+
+// verifiedTLS always verifies the certificate chain against the request host
+// (set by the transport on every hop) and never presents a client
+// certificate, so no Node identity can reach an image host.
+func verifiedTLS(base *tls.Config) *tls.Config {
+	config := &tls.Config{}
+	if base != nil {
+		config = base.Clone()
+	}
+	config.InsecureSkipVerify = false
+	config.ServerName = ""
+	config.Certificates = nil
+	config.GetClientCertificate = nil
+	config.GetCertificate = nil
+	config.KeyLogWriter = nil
+	config.Renegotiation = tls.RenegotiateNever
+	if config.MinVersion < tls.VersionTLS12 {
+		config.MinVersion = tls.VersionTLS12
+	}
+	return config
 }
 
 // dialer resolves, validates every address and connects only to a validated

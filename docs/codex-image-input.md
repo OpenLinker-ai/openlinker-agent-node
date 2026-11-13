@@ -50,7 +50,7 @@ Codex app-server 已有的 `localImage` 输入随本轮文本一起发送。不�
 6. **不携带凭据**：无 Cookie jar，不发送 `Authorization`、Referer 或任何 Node/Core 凭据，
    User-Agent 为固定的 `OpenLinker-Agent-Node-ImageInput/1`；只接受 HTTP 200。
 
-下载逻辑放在新的公开叶子包 `pkg/adapters/imageinput`（只依赖标准库，不导入 Node
+下载逻辑放在新的公开叶子包 `pkg/adapters/imageinput`（只依赖标准库与已在模块图中的 `golang.org/x/net`，不导入 Node
 host/internal、Cobra 或 Plugin，不启动 Worker），Plugin 以后可按需编译期复用。
 
 ## 失败与错误码
@@ -97,8 +97,27 @@ Run 被取消时仍按现有 `PROVIDER_CANCELED` 处理。
 若主机使用 TUN 代理的 fake-IP 模式（系统 DNS 把公网域名解析到 `198.18.0.0/15`），所有链接都会被
 正确判为 `IMAGE_INPUT_BLOCKED`，功能在该主机上不可用。2026-11-13 已在用户本机（运行 launchd Node
 的 Mac）确认此情况：系统 DNS 与直连 UDP 53 均返回 `198.18.x.x`，经代理的 DoH 返回真实地址，直连真实
-地址可达。本 PR 不放宽地址规则；可选方向（另行决定）：可配置的 DoH 解析器、代理的 fake-IP 绕过规则，
-或在 DNS 正常的主机上运行该 Node。
+地址可达。本 PR 不放宽地址规则，而是增加可选 DoH（2026-11-13 用户批准）：
+
+- `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL`，默认不设置（使用主机 DNS），须同时开启图片输入。
+- 只接受 443 端口的 `https://<公网 IP>/<路径>`，不含凭据、查询或片段；IP 本身须通过同一拒绝列表。
+- RFC 8484 POST `application/dns-message`，分别查询 A 与 AAAA；只连接配置的 IP，不走代理、不跟随跳转；
+  单次查询 5 秒、响应 64 KiB 上限；要求响应位、ID 为 0、问题与查询一致、未截断，SERVFAIL 等失败；
+  任一查询失败即整体失败，**不回退主机 DNS**。
+- DoH 只提供候选地址：仍逐个校验并固定连接，返回私网或 fake-IP 地址照样 `IMAGE_INPUT_BLOCKED`。
+- 代价：图片主机名会发送给该解析器；解析器不可达时下载失败（`IMAGE_INPUT_FETCH_FAILED`）。
+- 本机实测：`https://223.5.5.5/dns-query` 与 `https://1.1.1.1/dns-query` 均返回真实地址并完成下载，
+  不配置 DoH 时同一链接被拦截。
+
+## 证书与凭据校验（2026-11-13 审计与加固）
+
+- 图片与 DoH 请求都由 Go TLS 按请求主机（每一跳）校验证书链与主机名/IP SAN，使用系统根证书。
+- 加固：`Fetcher.TLS`/`DoHResolver.TLS` 只能追加信任根（测试用）；`InsecureSkipVerify`、`ServerName`
+  覆盖、客户端证书（防止把 Node 的 mTLS 身份发给图床）、`KeyLogWriter` 一律重置，最低 TLS 1.2，禁止重协商。
+- 测试覆盖：主机名不匹配、不受信任 CA、传入 `InsecureSkipVerify` 或 `ServerName` 均失败；服务器请求
+  客户端证书时不出示；DoH 证书来自不受信任 CA 或属于其他 IP 时失败。去掉加固后对应测试会失败。
+- 凭据：不使用 Cookie、不发送 Authorization/Referer、拒绝带用户信息的链接（含跳转）、不读取代理环境变量；
+  请求头只有固定 User-Agent 与 Accept。未做 OCSP/CRL 吊销检查（Go 默认行为）。
 
 ## 实机模型验收（2026-11-13）
 

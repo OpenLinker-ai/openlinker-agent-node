@@ -365,6 +365,16 @@ and deleted when the turn ends. Failures stop the Run before Codex starts with
 `IMAGE_INPUT_TOO_LARGE` or `IMAGE_INPUT_UNSUPPORTED_TYPE`. Claude does not support
 this yet. See [docs/codex-image-input.md](docs/codex-image-input.md).
 
+On hosts whose DNS returns fake-IP addresses (for example a TUN proxy answering with
+`198.18.0.0/15`), every link is blocked. Set
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` (requires image input) to resolve image
+hosts through DNS-over-HTTPS instead, for example `https://223.5.5.5/dns-query` or
+`https://1.1.1.1/dns-query`. Only `https://<public IP>/<path>` on port 443 is accepted, so
+the resolver itself is not looked up through host DNS. Every answer still passes the same
+address checks and connection pinning, there is no fallback to host DNS, and image host
+names are sent to that resolver. Certificates are always verified against the image host
+and no client certificate is presented.
+
 ### `claude`
 
 Native session isolation is the default, as for Codex:

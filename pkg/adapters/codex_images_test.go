@@ -203,3 +203,61 @@ func TestCodexImageDownloadCountsAgainstProviderTimeout(t *testing.T) {
 		t.Fatal("Codex started after the provider timeout")
 	}
 }
+
+func TestCodexImageInputUsesConfiguredDoHWithoutHostDNS(t *testing.T) {
+	useCodexImageServer(t)
+	codexImageFetcher.Resolve = nil // production resolution path
+	var endpoints, hosts []string
+	previous := codexDoHResolver
+	codexDoHResolver = func(endpoint string) (func(context.Context, string) ([]netip.Addr, error), error) {
+		endpoints = append(endpoints, endpoint)
+		return func(_ context.Context, host string) ([]netip.Addr, error) {
+			hosts = append(hosts, host)
+			if host == "fakeip.example" {
+				return []netip.Addr{netip.MustParseAddr("198.18.1.163")}, nil
+			}
+			return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+		}, nil
+	}
+	t.Cleanup(func() { codexDoHResolver = previous })
+	run := func(link string) (map[string]any, string) {
+		dir := t.TempDir()
+		bin := filepath.Join(dir, "codex")
+		writeCodexRPCFixture(t, bin, "ephemeral")
+		t.Setenv("TEST_LOG", filepath.Join(dir, "calls"))
+		provider, err := NewProvider(ProviderConfig{Provider: "codex", Bin: bin, Workspace: dir, EnvAllowlist: []string{"TEST_LOG"},
+			CodexImageInput: true, CodexImageInputDoH: "https://223.5.5.5/dns-query"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := provider.Run(context.Background(), RunContext{RunID: "run-doh", Input: map[string]any{"image_url": link}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status == "failed" {
+			return map[string]any{"code": result.Error.Code}, dir
+		}
+		return result.Output.(map[string]any), dir
+	}
+	output, dir := run("https://example.com/photo")
+	if output["summary"] != "final answer" {
+		t.Fatalf("output %v", output)
+	}
+	if images, _ := os.ReadFile(filepath.Join(dir, "calls.images")); len(images) == 0 {
+		t.Fatal("image not sent")
+	}
+	if output, _ := run("https://fakeip.example/photo"); output["code"] != imageinput.CodeBlocked {
+		t.Fatalf("fake-IP DoH answer not blocked: %v", output)
+	}
+	if strings.Join(endpoints, ",") != "https://223.5.5.5/dns-query,https://223.5.5.5/dns-query" || strings.Join(hosts, ",") != "example.com,fakeip.example" {
+		t.Fatalf("DoH endpoints %v hosts %v", endpoints, hosts)
+	}
+	for _, config := range []ProviderConfig{
+		{Provider: "codex", CodexImageInputDoH: "https://223.5.5.5/dns-query"},
+		{Provider: "codex", CodexImageInput: true, CodexImageInputDoH: "https://10.0.0.1/dns-query"},
+	} {
+		if _, err := NewProvider(config); err == nil {
+			t.Fatalf("accepted %+v", config)
+		}
+	}
+}
