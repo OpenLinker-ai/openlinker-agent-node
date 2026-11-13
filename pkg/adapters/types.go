@@ -27,24 +27,36 @@ type ProviderConfig struct {
 	DelegationBrokerRoot string
 	DelegationSocket     string
 	// Version is supplied by the embedding executable for provider metadata.
-	Version          string
-	Provider         string
-	Bin              string
-	Workspace        string
-	Model            string
-	Sandbox          string
-	Permission       string
-	AllowedTools     []string
-	Timeout          time.Duration
-	SessionReuse     bool
-	SessionStore     string
-	WebSearch        bool
-	CodexApproval    string
-	CodexBaseURL     string
-	ClaudeBaseURL    string
-	Env              []string
-	EnvAllowlist     []string
-	ExecutionProfile string
+	Version      string
+	Provider     string
+	Bin          string
+	Workspace    string
+	Model        string
+	Sandbox      string
+	Permission   string
+	AllowedTools []string
+	Timeout      time.Duration
+	SessionReuse bool
+	SessionStore string
+	WebSearch    bool
+	// CodexImageInput downloads top-level image_url/*_image_url input links
+	// and sends them as Codex localImage inputs. Off by default.
+	CodexImageInput bool
+	// CodexImageInputDoH optionally resolves image hosts through
+	// https://<public IP>/<path> DNS-over-HTTPS instead of host DNS.
+	CodexImageInputDoH string
+	// CodexImageInputTrustedSources lists exact http(s)://host[:port] image
+	// origins (for example private storage) exempt from the public-address
+	// rule; TrustedOnly rejects all other links. CAFile adds PEM roots.
+	CodexImageInputTrustedSources []string
+	CodexImageInputTrustedOnly    bool
+	CodexImageInputCAFile         string
+	CodexApproval                 string
+	CodexBaseURL                  string
+	ClaudeBaseURL                 string
+	Env                           []string
+	EnvAllowlist                  []string
+	ExecutionProfile              string
 
 	// CodexContinueOnMaxMessages sends one fixed follow-up turn on the same
 	// native thread when a turn stops at the upstream max_messages limit.
@@ -104,6 +116,9 @@ type Provider interface {
 func NewProvider(config ProviderConfig) (Provider, error) {
 	config.Provider = strings.ToLower(strings.TrimSpace(config.Provider))
 	if err := validateSessionIsolation(config); err != nil {
+		return nil, err
+	}
+	if _, err := codexImageFetcherFor(config, false); err != nil {
 		return nil, err
 	}
 	var provider Provider

@@ -282,6 +282,32 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 截至 `v0.1.58-rc.3` 的旧发布尚未接通此参数，修改主机 Codex 配置或增加环境变量
 不能修复旧二进制。须使用包含本修复的发布物，并遵循上方版本变更的新身份登记流程。
 
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`（默认 **false**，取值规则同上）让模型看到任务输入中
+链接的图片。只识别顶层名为 `image_url` 或以 `_image_url` 结尾的字符串字段（最多 4 个）。字段值也可以是
+内联的 `data:image/(jpeg|png|webp|gif);base64,...`（如本地上传）：本地解码、不访问网络，文件头须与声明类型一致；
+prompt 文本与会话历史中的内联图片数据替换为占位说明。Node 在
+启动 Codex 之前于沙箱外下载，不带凭据、不走代理：仅 HTTPS 443；每个解析地址和每一跳跳转
+（最多 3 次）都必须是公网地址；单张不超过 20 MiB、30 秒；按文件头只接受 JPEG/PNG/WebP/GIF。
+文件写入工作区私有目录 `.openlinker-inputs/<随机名>/`，作为本轮的 `localImage` 输入发送，
+沙箱内工具可读，本轮结束即删除。失败时在启动 Codex 前以 `IMAGE_INPUT_INVALID`、
+`IMAGE_INPUT_BLOCKED`、`IMAGE_INPUT_FETCH_FAILED`、`IMAGE_INPUT_TOO_LARGE` 或
+`IMAGE_INPUT_UNSUPPORTED_TYPE` 结束 Run。Claude 暂不支持。详见
+[docs/codex-image-input.md](docs/codex-image-input.md)。
+
+若主机 DNS 返回 fake-IP（例如 TUN 代理以 `198.18.0.0/15` 应答），所有链接都会被拦截。可设置
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL`（须同时开启图片输入），改用 DNS-over-HTTPS 解析
+图片主机，例如 `https://223.5.5.5/dns-query` 或 `https://1.1.1.1/dns-query`。只接受 443 端口的
+`https://<公网 IP>/<路径>`，避免解析器本身再走主机 DNS。每个解析结果仍经过相同的地址校验与连接固定，
+不回退到主机 DNS；图片主机名会发送给该解析器。证书始终按图片主机名校验，且不出示任何客户端证书。
+
+私有部署的图片在自有存储时，可在 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES`
+列出精确来源（JSON 数组，元素为 `http(s)://主机[:端口]`，例如
+`["https://files.corp","http://10.20.0.5:9000"]`）。只有这些来源可用 http、其他端口和私网地址，
+并且即使配置了 DoH 也走主机 DNS；链路本地/元数据、组播与未指定地址仍拒绝。其他链接仍按公网规则，
+设置 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY=true` 时则一律拒绝。
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE` 为图片 TLS 校验追加 PEM 根证书（如企业内部 CA）。
+三者都须开启图片输入。
+
 ### `claude`
 
 与 Codex 相同，默认启用原生会话隔离：

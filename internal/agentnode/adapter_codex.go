@@ -22,6 +22,11 @@ type CodexAdapter struct {
 	Approval             string
 	Model                string
 	WebSearch            bool
+	ImageInput           bool
+	ImageInputDoH        string
+	ImageTrustedSources  []string
+	ImageTrustedOnly     bool
+	ImageCAFile          string
 	Timeout              time.Duration
 	MockResponse         string
 	SessionReuse         bool
@@ -47,8 +52,10 @@ func (a *CodexAdapter) native() *NativeAdapter {
 			SessionIsolation:    a.SessionIsolation,
 			HostAuthConcurrency: a.HostAuthConcurrency,
 			Sandbox:             a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
-			WebSearch: a.WebSearch,
-			Timeout:   a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
+			WebSearch: a.WebSearch, CodexImageInput: a.ImageInput, CodexImageInputDoH: a.ImageInputDoH,
+			CodexImageInputTrustedSources: a.ImageTrustedSources, CodexImageInputTrustedOnly: a.ImageTrustedOnly,
+			CodexImageInputCAFile: a.ImageCAFile,
+			Timeout:               a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
 			Env: a.Env, EnvAllowlist: a.EnvAllowlist,
 			DelegationTargets: a.DelegationTargets, DelegationProxyBin: a.DelegationProxyBin,
 			DelegationBrokerRoot: a.DelegationBrokerRoot, CodexContinueOnMaxMessages: a.ContinueOnMaxMessages,

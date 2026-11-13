@@ -364,6 +364,42 @@ search on; set `false` first to keep it off. Releases through
 the variable cannot repair those binaries. Use a release containing this fix and
 follow the fresh-enrollment version-change procedure above.
 
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **false**, same boolean values)
+lets the model see images linked from the task input. Only top-level string fields
+named `image_url` or ending in `_image_url` are used (at most 4). A value may also be an
+inline `data:image/(jpeg|png|webp|gif);base64,...` image (for example a local upload): it is
+decoded without any network access, its signature must match the declared type, and inline
+image data is replaced by a placeholder in the prompt text and conversation history. Node downloads each
+link before starting Codex, outside the sandbox and without credentials or proxies:
+HTTPS on port 443 only, every resolved address and redirect hop (at most 3) must be
+public, at most 20 MiB and 30 seconds, and only JPEG/PNG/WebP/GIF by file signature.
+Files are written to a private `.openlinker-inputs/<random>/` directory in the
+workspace, sent as `localImage` inputs with this turn, readable by sandboxed tools,
+and deleted when the turn ends. Failures stop the Run before Codex starts with
+`IMAGE_INPUT_INVALID`, `IMAGE_INPUT_BLOCKED`, `IMAGE_INPUT_FETCH_FAILED`,
+`IMAGE_INPUT_TOO_LARGE` or `IMAGE_INPUT_UNSUPPORTED_TYPE`. Claude does not support
+this yet. See [docs/codex-image-input.md](docs/codex-image-input.md).
+
+On hosts whose DNS returns fake-IP addresses (for example a TUN proxy answering with
+`198.18.0.0/15`), every link is blocked. Set
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` (requires image input) to resolve image
+hosts through DNS-over-HTTPS instead, for example `https://223.5.5.5/dns-query` or
+`https://1.1.1.1/dns-query`. Only `https://<public IP>/<path>` on port 443 is accepted, so
+the resolver itself is not looked up through host DNS. Every answer still passes the same
+address checks and connection pinning, there is no fallback to host DNS, and image host
+names are sent to that resolver. Certificates are always verified against the image host
+and no client certificate is presented.
+
+For private deployments whose images live on their own storage, list exact origins in
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES` (JSON array of
+`http(s)://host[:port]`, for example `["https://files.corp","http://10.20.0.5:9000"]`).
+Only those origins may use http, another port or private addresses, and they resolve through
+host DNS even when DoH is set; link-local/metadata, multicast and unspecified addresses stay
+blocked. Other links keep the public rules, or are rejected when
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY=true`.
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE` adds PEM roots (for example an internal CA)
+to image TLS verification. All three require image input.
+
 ### `claude`
 
 Native session isolation is the default, as for Codex:

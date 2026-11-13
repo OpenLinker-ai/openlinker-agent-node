@@ -101,8 +101,16 @@ func StartRPCFixture(scenario string) *RPCFixture {
 			f.reply(message, map[string]any{"thread": map[string]any{"id": FixtureThread}})
 		case "turn/start":
 			var params codexrpc.TurnStartParams
-			if json.Unmarshal(message.Params, &params) != nil || len(params.Input) != 1 || params.Input[0].Text == nil {
+			if json.Unmarshal(message.Params, &params) != nil || len(params.Input) == 0 || params.Input[0].Type != "text" || params.Input[0].Text == nil {
 				os.Exit(2)
+			}
+			// Later inputs may only be local images; record what this turn could read.
+			for _, extra := range params.Input[1:] {
+				if extra.Type != "localImage" || extra.Path == nil || extra.Text != nil || extra.Url != nil {
+					os.Exit(2)
+				}
+				data, err := os.ReadFile(*extra.Path)
+				f.logFile(".images", fmt.Sprintf("%s %d %t\n", *extra.Path, len(data), err == nil), true)
 			}
 			prompt := *params.Input[0].Text
 			f.logFile(".prompt", prompt, false)

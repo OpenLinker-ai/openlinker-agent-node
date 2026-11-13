@@ -25,7 +25,7 @@ func TestCodexHostAuthFactoryStopsDetachedDescendants(t *testing.T) {
 		}
 		defer session.Close()
 		config := ProviderConfig{Provider: "codex", Workspace: c.Workspace, Env: c.Env, sandbox: session}
-		_, _, err = runCodexRPC(ctx, c.Bin, c.Workspace, "read-only", "", "fixture", false, config, nil)
+		_, _, err = runCodexRPC(ctx, c.Bin, c.Workspace, "read-only", "", "fixture", nil, false, config, nil)
 		return err
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentexec "github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters"
+	"github.com/OpenLinker-ai/openlinker-agent-node/pkg/adapters/imageinput"
 	openlinker "github.com/OpenLinker-ai/openlinker-go"
 )
 
@@ -198,9 +199,42 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
-		continueOnMaxMessages, err := strictBoolFromEnv(get, "OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES", false)
+		continueOnMaxMessages, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES", false)
 		if err != nil {
 			return nil, err
+		}
+		imageInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT", false)
+		if err != nil {
+			return nil, err
+		}
+		imageInputDoH := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL"))
+		if imageInputDoH != "" {
+			if !imageInput {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+			}
+			if _, _, err := imageinput.ValidateDoHURL(imageInputDoH); err != nil {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL must be https://<public IP>/<path> on port 443")
+			}
+		}
+		imageTrustedSources, err := parseJSONStringArray(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES"), "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES")
+		if err != nil {
+			return nil, err
+		}
+		imageTrustedOnly, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY", false)
+		if err != nil {
+			return nil, err
+		}
+		imageCAFile := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE"))
+		if !imageInput && (len(imageTrustedSources) != 0 || imageTrustedOnly || imageCAFile != "") {
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES, _TRUSTED_ONLY and _CA_FILE require OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+		}
+		if imageTrustedOnly && len(imageTrustedSources) == 0 {
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES")
+		}
+		for _, source := range imageTrustedSources {
+			if _, err := imageinput.ParseOrigin(source); err != nil {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES entries must be http(s)://host[:port]")
+			}
 		}
 		baseURL := get("OPENLINKER_AGENT_NODE_CODEX_BASE_URL")
 		if baseURL != "" {
@@ -228,6 +262,11 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Approval:             defaultString(get("OPENLINKER_AGENT_NODE_CODEX_APPROVAL"), "never"),
 			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
 			WebSearch:            webSearch,
+			ImageInput:           imageInput,
+			ImageInputDoH:        imageInputDoH,
+			ImageTrustedSources:  imageTrustedSources,
+			ImageTrustedOnly:     imageTrustedOnly,
+			ImageCAFile:          imageCAFile,
 			Timeout:              time.Duration(codexTimeout) * time.Millisecond,
 			MockResponse:         get("OPENLINKER_AGENT_NODE_CODEX_MOCK_RESPONSE"),
 			SessionReuse:         boolOption(get("OPENLINKER_AGENT_NODE_CODEX_SESSION_REUSE"), isolation.Enabled()),
@@ -257,8 +296,8 @@ func nativeWebSearchFromEnv(get EnvLookup, provider string) (bool, error) {
 	}
 }
 
-// strictBoolFromEnv rejects typos without echoing the raw value.
-func strictBoolFromEnv(get EnvLookup, name string, fallback bool) (bool, error) {
+// strictBoolOption rejects typos without echoing the raw value.
+func strictBoolOption(get EnvLookup, name string, fallback bool) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(get(name))) {
 	case "":
 		return fallback, nil

@@ -19,13 +19,14 @@ const codexMessageLimitContinuation = "The previous response stopped because it 
 	"Using only the results already gathered in this conversation, write your final answer now."
 
 // Node supplies its launch/tool policy; the shared leaf owns the entire turn.
-func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
-	threadID, final, _, err := runCodexRPCTurn(ctx, bin, workspace, sandbox, sessionID, prompt, persistent, config, emit)
+func runCodexRPC(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, images []string, persistent bool, config ProviderConfig, emit func(string, any) error) (string, string, error) {
+	threadID, final, _, err := runCodexRPCTurn(ctx, bin, workspace, sandbox, sessionID, prompt, images, persistent, config, emit)
 	return threadID, final, err
 }
 
 // runCodexRPCTurn also reports whether a max_messages continuation turn started.
-func runCodexRPCTurn(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, persistent bool, config ProviderConfig, emit func(string, any) error) (threadID, final string, continued bool, err error) {
+// The continuation turn sends text only; images stay in the thread history.
+func runCodexRPCTurn(ctx context.Context, bin, workspace, sandbox, sessionID, prompt string, images []string, persistent bool, config ProviderConfig, emit func(string, any) error) (threadID, final string, continued bool, err error) {
 	overrides := map[string]json.RawMessage{}
 	var before func(context.Context, *codexrpc.Client) error
 	if config.toolPolicy != nil && runtime.GOOS == "linux" {
@@ -50,7 +51,7 @@ func runCodexRPCTurn(ctx context.Context, bin, workspace, sandbox, sessionID, pr
 			})
 		},
 		UseConfiguredPermissions: config.toolPolicy != nil,
-		Sandbox:                  sandbox, SessionID: sessionID, Prompt: prompt, Persistent: persistent,
+		Sandbox:                  sandbox, SessionID: sessionID, Prompt: prompt, Persistent: persistent, LocalImages: images,
 		Model: config.Model, Approval: config.CodexApproval,
 		Observer: providerstream.NewCodexObserver(emit, nil), Emit: emit,
 		MessageLimitContinuation:   continuation,

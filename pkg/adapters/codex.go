@@ -42,16 +42,30 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	if packageErr != nil {
 		return openlinker.RuntimeResult{}, packageErr
 	}
-	sandbox := strings.TrimSpace(config.Sandbox)
-	if sandbox == "" {
-		sandbox = "read-only"
-	}
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Minute
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// Images are fetched outside the provider sandbox, within the provider
+	// timeout, before the host-auth permit is held. Cleanup is deferred after
+	// the sandbox close, so it runs first.
+	images, imageFailure, imageErr := materializeCodexImages(requestCtx, run, workspace, config)
+	if imageErr != nil {
+		if requestCtx.Err() != nil {
+			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), imageErr, timeout)
+		}
+		return openlinker.RuntimeResult{}, imageErr
+	}
+	if imageFailure != nil {
+		return *imageFailure, nil
+	}
+	defer func() { resultErr = errors.Join(resultErr, images.Cleanup()) }()
+	sandbox := strings.TrimSpace(config.Sandbox)
+	if sandbox == "" {
+		sandbox = "read-only"
+	}
 	releaseAuth, err := acquireHostAuthPermit(requestCtx, config, run.Emit)
 	if err != nil {
 		return openlinker.RuntimeResult{}, err
@@ -83,8 +97,8 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	for attempt := 0; attempt < 2; attempt++ {
 		var err error
 		observed, summary, continued, err = runCodexRPCTurn(requestCtx, bin, workspace, sandbox, sessionID,
-			buildCodexPrompt(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config.WebSearch),
-			config.SessionReuse && sessionKey != "", config, run.Emit)
+			buildCodexPrompt(redactCodexInlineImages(runWithSessionHistory(run, sessionPath, sessionNamespace, workspace, sessionKey, sessionID), config), config.WebSearch)+images.Instructions(),
+			images.Paths(), config.SessionReuse && sessionKey != "", config, run.Emit)
 		if requestCtx.Err() != nil {
 			return openlinker.RuntimeResult{}, codexCanceledResult(requestCtx.Err(), err, timeout)
 		}

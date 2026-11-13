@@ -41,21 +41,21 @@ func runCodexFixture(ctx context.Context, c providertest.CodexConfig, input any,
 
 func TestCodexRPCDrainsShutdownBeforeWaiting(t *testing.T) {
 	providertest.CodexRPCDrainsShutdownBeforeWaiting(t, func(ctx context.Context, bin, dir string) (string, error) {
-		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "test shutdown", false, ProviderConfig{}, nil)
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "test shutdown", nil, false, ProviderConfig{}, nil)
 		return answer, err
 	})
 }
 
 func TestCodexRPCAlreadyCanceledDoesNotLaunch(t *testing.T) {
 	providertest.CodexRPCAlreadyCanceledDoesNotLaunch(t, func(ctx context.Context, bin, dir string) (string, error) {
-		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "canceled", false, ProviderConfig{}, nil)
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "canceled", nil, false, ProviderConfig{}, nil)
 		return answer, err
 	})
 }
 
 func TestCodexRPCRetryDiagnostics(t *testing.T) {
 	providertest.CodexRPCRetryDiagnostics(t, func(ctx context.Context, bin, dir string, emit func(string, any) error) (string, error) {
-		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "retry diagnostics", false, ProviderConfig{}, emit)
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "retry diagnostics", nil, false, ProviderConfig{}, emit)
 		return answer, err
 	})
 }
@@ -80,7 +80,7 @@ func TestCodexRPCResolvesRelativeWorkspaceAndDottedTrustKey(t *testing.T) {
 
 func TestCodexRPCMessageLimitStops(t *testing.T) {
 	providertest.CodexRPCMessageLimitStops(t, func(ctx context.Context, bin, dir string, emit func(string, any) error) (string, error) {
-		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "message limit", false, ProviderConfig{}, emit)
+		_, answer, err := runCodexRPC(ctx, bin, dir, "read-only", "", "message limit", nil, false, ProviderConfig{}, emit)
 		return answer, err
 	}, func(err error) bool { return errors.Is(err, codexturn.ErrResponseMessageLimit) })
 }

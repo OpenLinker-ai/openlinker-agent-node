@@ -18,3 +18,8 @@ if grep -q -- '--- SKIP: TestNativeClaudeMCPAuthenticationInstalledClient' "$nat
   echo 'Claude MCP authentication acceptance must not skip.' >&2
   exit 1
 fi
+grep -q '^--- PASS: TestNativeCodexImageInputInstalledClient ' "$native_test_log"
+if grep -q -- '--- SKIP: TestNativeCodexImageInputInstalledClient' "$native_test_log"; then
+  echo 'Codex image input acceptance must not skip.' >&2
+  exit 1
+fi

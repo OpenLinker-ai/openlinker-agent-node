@@ -4,12 +4,12 @@ go 1.26.4
 
 require (
 	github.com/OpenLinker-ai/openlinker-go v0.2.1-0.20261108071305-2c5fa0b19319
+	golang.org/x/net v0.58.0
 	golang.org/x/sys v0.47.0
 )
 
 require (
 	github.com/gorilla/websocket v1.5.3 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
