@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -285,6 +286,8 @@ func CodexRPCFixtureProcess() {
 		notify("other-thread", FixtureTurn)
 		notify(FixtureThread, "other-turn")
 		f.item("item/completed", map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "partial must not be returned as success"})
+		// Stop latency is measured from here, excluding fixture process launch.
+		f.logFile(".limit-sent", strconv.FormatInt(time.Now().UnixNano(), 10), false)
 		notify(FixtureThread, FixtureTurn)
 	}
 	if strings.HasPrefix(scenario, "cancel") || strings.HasPrefix(scenario, "message-limit") {
@@ -502,7 +505,10 @@ func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, s
 				dir := t.TempDir()
 				bin := filepath.Join(dir, "codex")
 				WriteCodexRPCFixture(t, bin, scenario)
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				// Launching the fixture re-executes the test binary, which is slow
+				// and jittery on shared macOS runners. The request deadline only
+				// bounds the whole run; promptness is measured from the limit.
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				var events []map[string]any
 				var emit func(string, any) error
@@ -516,10 +522,20 @@ func CodexRPCMessageLimitStops(t *testing.T, run func(context.Context, string, s
 						return nil
 					}
 				}
-				start := time.Now()
 				answer, err := run(ctx, bin, dir, emit)
-				if !isLimit(err) || answer != "" || time.Since(start) > 3*time.Second {
-					t.Fatalf("message limit did not stop promptly: answer=%q err=%v", answer, err)
+				returned := time.Now()
+				if !isLimit(err) || answer != "" {
+					t.Fatalf("message limit did not stop: answer=%q err=%v", answer, err)
+				}
+				raw, readErr := os.ReadFile(bin + ".trace.limit-sent")
+				sent, parseErr := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+				if readErr != nil || parseErr != nil {
+					t.Fatal("fixture did not record when it sent the limit", readErr, parseErr)
+				}
+				// Bounded interrupt (1.5s) plus shutdown grace (0.5s) and kill; a
+				// regression waits for the fixture's 30s hang or the deadline.
+				if stop := returned.Sub(time.Unix(0, sent)); stop > 3*time.Second {
+					t.Fatalf("message limit did not stop promptly: %s after the limit", stop)
 				}
 				if eventsEnabled {
 					want := []map[string]any{{"provider": "codex", "status": "provider_failed", "phase": "failed", "provider_error_kind": "incomplete_response", "provider_error_reason": "max_messages"}}
