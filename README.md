@@ -366,13 +366,14 @@ follow the fresh-enrollment version-change procedure above.
 
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **false**, same boolean values)
 lets the model see images linked from the task input. Only top-level string fields
-named `image_url` or ending in `_image_url` are used (at most 4). A value may also be an
+named `image_url` or ending in `_image_url`, and string arrays named `image_urls` or ending in
+`_image_urls`, are used (at most 20 links per Run, counted together with file links). A value may also be an
 inline `data:image/(jpeg|png|webp|gif);base64,...` image (for example a local upload): it is
 decoded without any network access, its signature must match the declared type, and inline
 image data is replaced by a placeholder in the prompt text and conversation history. Node downloads each
 link before starting Codex, outside the sandbox and without credentials or proxies:
 HTTPS on port 443 only, every resolved address and redirect hop (at most 3) must be
-public, at most 20 MiB and 30 seconds, and only JPEG/PNG/WebP/GIF by file signature.
+public, at most 30 MiB and 60 seconds, and only JPEG/PNG/WebP/GIF by file signature.
 Files are written to a private `.openlinker-inputs/<random>/` directory in the
 workspace, sent as `localImage` inputs with this turn, readable by sandboxed tools,
 and deleted when the turn ends. Failures stop the Run before Codex starts with
@@ -380,9 +381,23 @@ and deleted when the turn ends. Failures stop the Run before Codex starts with
 `IMAGE_INPUT_TOO_LARGE` or `IMAGE_INPUT_UNSUPPORTED_TYPE`. Claude does not support
 this yet. See [docs/codex-image-input.md](docs/codex-image-input.md).
 
+`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT` (default **false**, same boolean values, independent
+of image input) delivers files of any type linked from the task input. Top-level string fields
+named `file_url` or ending in `_file_url`, and string arrays named `file_urls` or ending in
+`_file_urls`, are downloaded with the same rules as images (no type check; inline `data:`
+values are rejected), at most 30 MiB each and 20 attachment links per Run in total. Each file
+is written as `file-N<sanitized original extension>` with mode 0600 to the same private
+directory; it is **not** sent as an image. The prompt lists the field, relative path, sanitized
+original name (from `Content-Disposition` or the URL), size and SHA-256, and states that the
+content is untrusted and must not be executed. Whether the model can read PDFs or Office
+documents depends on the tools available in the sandbox; Node installs none. Files are deleted
+when the turn ends and are not available to later turns. Failures stop the Run before Codex
+starts with `FILE_INPUT_INVALID`, `FILE_INPUT_BLOCKED`, `FILE_INPUT_FETCH_FAILED` or
+`FILE_INPUT_TOO_LARGE`. With both switches off, prompts and turns are unchanged.
+
 On hosts whose DNS returns fake-IP addresses (for example a TUN proxy answering with
 `198.18.0.0/15`), every link is blocked. Set
-`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` (requires image input) to resolve image
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL` (requires image or file input) to resolve image and file
 hosts through DNS-over-HTTPS instead, for example `https://223.5.5.5/dns-query` or
 `https://1.1.1.1/dns-query`. Only `https://<public IP>/<path>` on port 443 is accepted, so
 the resolver itself is not looked up through host DNS. Every answer still passes the same
@@ -398,7 +413,7 @@ host DNS even when DoH is set; link-local/metadata, multicast and unspecified ad
 blocked. Other links keep the public rules, or are rejected when
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY=true`.
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE` adds PEM roots (for example an internal CA)
-to image TLS verification. All three require image input.
+to image and file TLS verification. All three require image or file input and apply to both.
 
 ### `claude`
 
