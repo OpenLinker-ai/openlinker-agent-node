@@ -26,14 +26,15 @@ var codexDoHResolver = func(endpoint string) (func(context.Context, string) ([]n
 }
 
 // materializeCodexImages returns a nil-safe set, a classified failure result,
-// or an unclassified error (for example cancellation). With the switch off it
-// never inspects the input.
+// or an unclassified error (for example cancellation). With both image and
+// file input off it never inspects the input; each switch only selects its
+// own fields.
 func materializeCodexImages(ctx context.Context, run RunContext, workspace string, config ProviderConfig) (*imageinput.Set, *openlinker.RuntimeResult, error) {
-	if !config.CodexImageInput {
+	if !config.CodexImageInput && !config.CodexFileInput {
 		return nil, nil, nil
 	}
 	set, err := func() (*imageinput.Set, error) {
-		fields, err := imageinput.Fields(run.Input)
+		fields, err := imageinput.Select(run.Input, config.CodexImageInput, config.CodexFileInput)
 		if err != nil || len(fields) == 0 {
 			return nil, err
 		}
@@ -52,14 +53,15 @@ func materializeCodexImages(ctx context.Context, run RunContext, workspace strin
 	}
 	var classified *imageinput.Error
 	if errors.As(err, &classified) {
-		result := failedResult(classified.Code, boundedText(classified.Error(), 500, "image input failed"))
+		result := failedResult(classified.Code, boundedText(classified.Error(), 500, "attachment input failed"))
 		return nil, &result, nil
 	}
 	return nil, nil, err
 }
 
-// codexImageFetcherFor validates and applies the image-input options. Every
-// option requires image input, so a stray setting cannot go unnoticed.
+// codexImageFetcherFor validates and applies the download options shared by
+// image and file input. Every option requires one of them, so a stray
+// setting cannot go unnoticed.
 // connect=false only validates (provider construction).
 func codexImageFetcherFor(config ProviderConfig, connect bool) (imageinput.Fetcher, error) {
 	fetcher := codexImageFetcher
@@ -68,8 +70,8 @@ func codexImageFetcherFor(config ProviderConfig, connect bool) (imageinput.Fetch
 	if !configured {
 		return fetcher, nil
 	}
-	if !config.CodexImageInput {
-		return fetcher, errors.New("image input DoH, trusted sources and CA file require Codex image input")
+	if !config.CodexImageInput && !config.CodexFileInput {
+		return fetcher, errors.New("image input DoH, trusted sources and CA file require Codex image or file input")
 	}
 	if config.CodexImageInputTrustedOnly && len(config.CodexImageInputTrustedSources) == 0 {
 		return fetcher, errors.New("image input trusted-only mode requires trusted sources")

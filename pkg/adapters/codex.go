@@ -48,7 +48,7 @@ func (provider CodexProvider) Run(ctx context.Context, run RunContext) (resultVa
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// Images are fetched outside the provider sandbox, within the provider
+	// Images and files are fetched outside the provider sandbox, within the provider
 	// timeout, before the host-auth permit is held. Cleanup is deferred after
 	// the sandbox close, so it runs first.
 	images, imageFailure, imageErr := materializeCodexImages(requestCtx, run, workspace, config)

@@ -23,6 +23,7 @@ type CodexAdapter struct {
 	Model                string
 	WebSearch            bool
 	ImageInput           bool
+	FileInput            bool
 	ImageInputDoH        string
 	ImageTrustedSources  []string
 	ImageTrustedOnly     bool
@@ -52,7 +53,7 @@ func (a *CodexAdapter) native() *NativeAdapter {
 			SessionIsolation:    a.SessionIsolation,
 			HostAuthConcurrency: a.HostAuthConcurrency,
 			Sandbox:             a.Sandbox, CodexApproval: a.Approval, Model: a.Model,
-			WebSearch: a.WebSearch, CodexImageInput: a.ImageInput, CodexImageInputDoH: a.ImageInputDoH,
+			WebSearch: a.WebSearch, CodexImageInput: a.ImageInput, CodexFileInput: a.FileInput, CodexImageInputDoH: a.ImageInputDoH,
 			CodexImageInputTrustedSources: a.ImageTrustedSources, CodexImageInputTrustedOnly: a.ImageTrustedOnly,
 			CodexImageInputCAFile: a.ImageCAFile,
 			Timeout:               a.Timeout, SessionReuse: a.SessionReuse, SessionStore: a.SessionStore,
