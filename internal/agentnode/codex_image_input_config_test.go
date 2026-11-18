@@ -7,7 +7,7 @@ import (
 
 func TestCodexImageInputEnvironment(t *testing.T) {
 	for value, want := range map[string]bool{
-		"": false, "false": false, "0": false, "off": false, " NO ": false,
+		"": true, "false": false, "0": false, "off": false, " NO ": false,
 		"true": true, "1": true, "yes": true, "On": true,
 	} {
 		node, err := NewFromEnvMap(Env{
@@ -49,7 +49,7 @@ func TestCodexImageInputDoHEnvironment(t *testing.T) {
 		t.Fatalf("default DoH must be empty: %v", err)
 	}
 	for _, env := range []Env{
-		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://1.1.1.1/dns-query"},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://1.1.1.1/dns-query"},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://dns.google/dns-query"},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://192.168.1.1/dns-query"},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "http://1.1.1.1/dns-query"},
@@ -85,11 +85,11 @@ func TestCodexImageInputTrustedSourcesEnvironment(t *testing.T) {
 		t.Fatalf("config %+v", config.CodexImageInputTrustedSources)
 	}
 	for _, env := range []Env{
-		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["https://files.corp"]`},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["https://files.corp"]`},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY": "true"},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["files.corp"]`},
 		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "true", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `not json`},
-		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE": "/tmp/ca.pem"},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE": "/tmp/ca.pem"},
 	} {
 		if _, err := NewFromEnvMap(with(env)); err == nil {
 			t.Fatalf("accepted %v", env)
@@ -99,13 +99,13 @@ func TestCodexImageInputTrustedSourcesEnvironment(t *testing.T) {
 
 func TestCodexFileInputEnvironment(t *testing.T) {
 	base := func(extra Env) Env {
-		env := Env{"OPENLINKER_AGENT_NODE_ADAPTER": "codex", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off"}
+		env := Env{"OPENLINKER_AGENT_NODE_ADAPTER": "codex", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false"}
 		for k, v := range extra {
 			env[k] = v
 		}
 		return env
 	}
-	for value, want := range map[string]bool{"": false, "off": false, "0": false, "true": true, " YES ": true, "1": true} {
+	for value, want := range map[string]bool{"": true, "off": false, "0": false, "true": true, " YES ": true, "1": true} {
 		node, err := NewFromEnvMap(base(Env{"OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": value}))
 		if err != nil {
 			t.Fatalf("%q: %v", value, err)
@@ -133,11 +133,22 @@ func TestCodexFileInputEnvironment(t *testing.T) {
 		t.Fatalf("options not applied: %+v", config)
 	}
 	for _, env := range []Env{
-		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://223.5.5.5/dns-query"},
-		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["https://storage.internal"]`},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://223.5.5.5/dns-query"},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "false", "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["https://storage.internal"]`},
 	} {
 		if _, err := NewFromEnvMap(base(env)); err == nil {
 			t.Fatalf("accepted %v without image or file input", env)
 		}
+	}
+}
+
+func TestCodexAttachmentInputDefaultsOn(t *testing.T) {
+	node, err := NewFromEnvMap(Env{"OPENLINKER_AGENT_NODE_ADAPTER": "codex", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := node.Adapter.(*CodexAdapter).native().Config
+	if !config.CodexImageInput || !config.CodexFileInput {
+		t.Fatalf("defaults: image=%t file=%t, want both on", config.CodexImageInput, config.CodexFileInput)
 	}
 }

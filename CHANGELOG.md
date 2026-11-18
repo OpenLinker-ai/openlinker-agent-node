@@ -7,6 +7,13 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Codex image and file input are now on by default (`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`
+  and `OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT` default to `true`). A Node that never set them
+  starts downloading `image_url` / `file_url` style input links after upgrading, and a link
+  that cannot be fetched under the safety rules fails the Run before Codex starts instead of
+  reaching the model as text. Set the variable to `false` to keep the previous behavior. The
+  library field defaults (`ProviderConfig.CodexImageInput` / `CodexFileInput`) are unchanged;
+  only the Node environment defaults moved.
 - Add opt-in Codex file input (`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`, default off,
   independent of image input). Top-level `file_url` / `*_file_url` strings and
   `file_urls` / `*_file_urls` arrays are downloaded with the image-input safety rules
