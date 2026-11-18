@@ -42,6 +42,12 @@ type ProviderConfig struct {
 	// CodexImageInput downloads top-level image_url/*_image_url input links
 	// and sends them as Codex localImage inputs. Off by default.
 	CodexImageInput bool
+	// CodexFileInput downloads top-level file_url/*_file_url (and _urls
+	// array) links of any type into the run's private input directory and
+	// lists them in the prompt; they are never sent as images. Off by
+	// default and independent of CodexImageInput. The DoH, trusted-source
+	// and CA options below apply to both.
+	CodexFileInput bool
 	// CodexImageInputDoH optionally resolves image hosts through
 	// https://<public IP>/<path> DNS-over-HTTPS instead of host DNS.
 	CodexImageInputDoH string

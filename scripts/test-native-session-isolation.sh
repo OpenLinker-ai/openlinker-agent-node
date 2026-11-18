@@ -23,3 +23,8 @@ if grep -q -- '--- SKIP: TestNativeCodexImageInputInstalledClient' "$native_test
   echo 'Codex image input acceptance must not skip.' >&2
   exit 1
 fi
+grep -q '^--- PASS: TestNativeCodexFileInputInstalledClient ' "$native_test_log"
+if grep -q -- '--- SKIP: TestNativeCodexFileInputInstalledClient' "$native_test_log"; then
+  echo 'Codex file input acceptance must not skip.' >&2
+  exit 1
+fi

@@ -7,6 +7,19 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Add opt-in Codex file input (`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`, default off,
+  independent of image input). Top-level `file_url` / `*_file_url` strings and
+  `file_urls` / `*_file_urls` arrays are downloaded with the image-input safety rules
+  but without a type check, written as `file-N<sanitized extension>` (mode 0600) to the
+  run's private input directory, listed in the prompt (field, path, sanitized original
+  name, size, SHA-256, marked untrusted and not to be executed) and deleted when the turn
+  ends; they are never sent as images. Image input also accepts `image_urls` /
+  `*_image_urls` arrays. One Run accepts at most 20 attachment links in total; the
+  per-link limit is 30 MiB and the timeout 60 s for images and files. New error codes
+  `FILE_INPUT_INVALID|BLOCKED|FETCH_FAILED|TOO_LARGE`. The DoH, trusted-source and CA
+  options now accept either switch and apply to both. `imageinput` gains `Select`,
+  `Field.Kind`, `Set.Files` and `SanitizeName` (additive). With both switches off,
+  prompts and turns are unchanged.
 - Codex: opt-in `OPENLINKER_AGENT_NODE_CODEX_CONTINUE_ON_MAX_MESSAGES` (default off).
   After a turn stops at the upstream `max_messages` limit and its end is confirmed,
   one fixed follow-up turn runs on the same thread and app-server process asking for

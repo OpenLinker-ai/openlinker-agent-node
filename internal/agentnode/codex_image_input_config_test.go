@@ -96,3 +96,48 @@ func TestCodexImageInputTrustedSourcesEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexFileInputEnvironment(t *testing.T) {
+	base := func(extra Env) Env {
+		env := Env{"OPENLINKER_AGENT_NODE_ADAPTER": "codex", "OPENLINKER_AGENT_NODE_SESSION_ISOLATION": "off"}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+	for value, want := range map[string]bool{"": false, "off": false, "0": false, "true": true, " YES ": true, "1": true} {
+		node, err := NewFromEnvMap(base(Env{"OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": value}))
+		if err != nil {
+			t.Fatalf("%q: %v", value, err)
+		}
+		config := node.Adapter.(*CodexAdapter).native().Config
+		if config.CodexFileInput != want || config.CodexImageInput {
+			t.Fatalf("%q: file=%t image=%t", value, config.CodexFileInput, config.CodexImageInput)
+		}
+	}
+	if _, err := NewFromEnvMap(base(Env{"OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT": "maybe-secret"})); err == nil || strings.Contains(err.Error(), "maybe-secret") {
+		t.Fatalf("invalid value: %v", err)
+	}
+	// The shared download options apply with file input alone.
+	node, err := NewFromEnvMap(base(Env{
+		"OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT":                  "true",
+		"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL":         "https://223.5.5.5/dns-query",
+		"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["http://storage.internal:9000"]`,
+		"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY":    "true",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := node.Adapter.(*CodexAdapter).native().Config
+	if config.CodexImageInputDoH == "" || len(config.CodexImageInputTrustedSources) != 1 || !config.CodexImageInputTrustedOnly {
+		t.Fatalf("options not applied: %+v", config)
+	}
+	for _, env := range []Env{
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL": "https://223.5.5.5/dns-query"},
+		{"OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES": `["https://storage.internal"]`},
+	} {
+		if _, err := NewFromEnvMap(base(env)); err == nil {
+			t.Fatalf("accepted %v without image or file input", env)
+		}
+	}
+}

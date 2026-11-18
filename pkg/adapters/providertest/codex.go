@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,7 +56,11 @@ type RPCFixture struct {
 	mode     string
 	scenario string
 	log      string
+	cwd      string
 }
+
+// inputFilePattern finds workspace-relative input files named in a prompt.
+var inputFilePattern = regexp.MustCompile(`\.openlinker-inputs/[0-9a-f]{24}/file-[0-9]+(\.[a-z0-9]+)?`)
 
 func StartRPCFixture(scenario string) *RPCFixture {
 	f := &RPCFixture{decoder: json.NewDecoder(os.Stdin), encoder: json.NewEncoder(os.Stdout), mode: "new", scenario: scenario, log: os.Getenv("TEST_LOG")}
@@ -87,6 +92,12 @@ func StartRPCFixture(scenario string) *RPCFixture {
 				f.reply(message, map[string]any{"appsNeedingAuth": []any{}})
 			}
 		case "thread/start", "thread/resume":
+			var thread struct {
+				Cwd *string `json:"cwd"`
+			}
+			if json.Unmarshal(message.Params, &thread) == nil && thread.Cwd != nil {
+				f.cwd = *thread.Cwd
+			}
 			if message.Method == "thread/resume" {
 				f.mode = "resume"
 				if scenario == "missing" || scenario == "bad-resume" {
@@ -113,6 +124,16 @@ func StartRPCFixture(scenario string) *RPCFixture {
 				f.logFile(".images", fmt.Sprintf("%s %d %t\n", *extra.Path, len(data), err == nil), true)
 			}
 			prompt := *params.Input[0].Text
+			// Record whether input files named in the prompt are readable now.
+			for _, relative := range inputFilePattern.FindAllString(prompt, -1) {
+				data, err := os.ReadFile(filepath.Join(f.cwd, relative))
+				info, statErr := os.Stat(filepath.Join(f.cwd, relative))
+				mode := ""
+				if statErr == nil {
+					mode = info.Mode().Perm().String()
+				}
+				f.logFile(".files", fmt.Sprintf("%s %d %t %s\n", relative, len(data), err == nil, mode), true)
+			}
 			f.logFile(".prompt", prompt, false)
 			f.logFile("."+f.mode+".prompt", prompt, false)
 			f.event("turn/started", map[string]any{"threadId": FixtureThread, "turn": map[string]any{"id": FixtureTurn, "status": "inProgress", "items": []any{}}})

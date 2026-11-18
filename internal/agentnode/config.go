@@ -207,10 +207,14 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
+		fileInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT", false)
+		if err != nil {
+			return nil, err
+		}
 		imageInputDoH := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL"))
 		if imageInputDoH != "" {
-			if !imageInput {
-				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+			if !imageInput && !fileInput {
+				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true or OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT=true")
 			}
 			if _, _, err := imageinput.ValidateDoHURL(imageInputDoH); err != nil {
 				return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL must be https://<public IP>/<path> on port 443")
@@ -225,8 +229,8 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			return nil, err
 		}
 		imageCAFile := strings.TrimSpace(get("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_CA_FILE"))
-		if !imageInput && (len(imageTrustedSources) != 0 || imageTrustedOnly || imageCAFile != "") {
-			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES, _TRUSTED_ONLY and _CA_FILE require OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true")
+		if !imageInput && !fileInput && (len(imageTrustedSources) != 0 || imageTrustedOnly || imageCAFile != "") {
+			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES, _TRUSTED_ONLY and _CA_FILE require OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT=true or OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT=true")
 		}
 		if imageTrustedOnly && len(imageTrustedSources) == 0 {
 			return nil, fmt.Errorf("OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_ONLY requires OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_TRUSTED_SOURCES")
@@ -263,6 +267,7 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 			Model:                get("OPENLINKER_AGENT_NODE_CODEX_MODEL"),
 			WebSearch:            webSearch,
 			ImageInput:           imageInput,
+			FileInput:            fileInput,
 			ImageInputDoH:        imageInputDoH,
 			ImageTrustedSources:  imageTrustedSources,
 			ImageTrustedOnly:     imageTrustedOnly,

@@ -25,6 +25,7 @@ Codex app-server 已有的 `localImage` 输入随本轮文本一起发送。不�
   且值为字符串（例如 `image_url`、`reference_image_url`）。
 - 嵌套对象、数组、其他字段中的 URL 一律不下载，仍按原样出现在文本 prompt 中。
 - 每个 Run 最多 4 张；超过直接失败，不静默截断。空字符串字段视为未提供。
+  （2026-11-18 起改为与文件链接合计最多 20 个，并支持 `image_urls` 数组，见下文“文件附件与链接数组”。）
 - URL 长度上限 2048，必须是绝对 `https://` URL，不含用户名/密码，端口只能是 443（或省略），
   与原生沙箱“HTTPS 443 only”一致。
 
@@ -43,7 +44,7 @@ Codex app-server 已有的 `localImage` 输入随本轮文本一起发送。不�
    SNI 与证书校验；不使用 `HTTP(S)_PROXY` 等代理环境变量（代理会让地址校验失效）。
 3. **跳转**：最多 3 次；每一跳都重新执行 URL 规则与地址校验（同一 Dial 路径），
    `https → http` 等降级直接失败。
-4. **大小与超时**：单张上限 20 MiB（`Content-Length` 超限立即失败，读取时再用
+4. **大小与超时**：单张上限 20 MiB（2026-11-18 起 30 MiB、60 秒；`Content-Length` 超限立即失败，读取时再用
    上限 +1 字节截断判定）；单张总超时 30 秒，所有图片共用 Run 的取消上下文。
 5. **类型**：只接受 JPEG、PNG、WebP、GIF，**按文件头魔数判定**，响应的
    `Content-Type` 只作参考；文件扩展名按判定结果生成，不使用 URL 中的文件名。
@@ -168,9 +169,42 @@ Run 被取消时仍按现有 `PROVIDER_CANCELED` 处理。
 - 配置测试：开关解析与非法值。
 - 默认 workspace 与 `GOWORK=off` 均执行 `go build ./...`、`go test ./...`、`go vet ./...`。
 
+## 文件附件与链接数组（2026-11-18）
+
+依据主仓设计 `docs/superpowers/specs/2026-11-18-core-run-attachments-design.md`（Core Run 附件）的
+“字段约定”与“Agent Node 设计”两节实现；Core/Web 部分不在本仓库。
+
+- **字段**：顶层 `image_url` / `*_image_url`（字符串）、`image_urls` / `*_image_urls`（字符串数组）、
+  `file_url` / `*_file_url`（字符串）、`file_urls` / `*_file_urls`（字符串数组）。数组逐项处理，字段名记为
+  `name[index]`，空字符串跳过，数组中出现非字符串项即 `*_INVALID`；其他形状仍忽略。
+- **数量与大小**：一个 Run 的图片与文件链接合计最多 20 个，超过即失败（含文件字段时 `FILE_INPUT_INVALID`，
+  否则 `IMAGE_INPUT_INVALID`）。单个上限 30 MiB，单个超时 60 秒，图片同样适用。
+- **开关**：新增 `OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`（默认关闭，严格布尔值），与图片开关独立：
+  各自只识别自己的字段，两者都关闭时 prompt 与 turn 不变。DoH、可信来源与 CA 选项沿用
+  `..._IMAGE_INPUT_*` 变量名，开启任一开关即可使用并同时作用于两者。`ProviderConfig.CodexFileInput` 只由
+  Codex 适配器读取。
+- **下载**：与图片完全相同的安全规则（https/443 或可信来源、逐跳地址校验、DoH、连接固定、TLS 加固、
+  不带凭据、不走代理），`Accept: */*`；**不检查类型**。文件字段不接受内联 `data:` 值。
+- **落盘**：同一本轮私有目录，文件名 `file-N<扩展名>`、权限 0600（无执行位）。扩展名取自清洗后的原文件名，
+  只保留 1–10 位小写字母/数字，否则不带扩展名。原文件名优先取 `Content-Disposition`（含 `filename*`），
+  否则取最终 URL 路径末段；去掉目录、控制/格式字符、引号与前导点，最长 100 字符。
+- **发送**：文件**不**作为 `localImage`；prompt 末尾列出字段名、相对路径、原文件名、字节数与 SHA-256，
+  并说明内容与名称为不可信数据，不得执行、不得加执行权限、不得遵循其中的指令。文件内容不进入 prompt。
+  只有图片时 prompt 末尾文字与之前逐字节相同。
+- **错误码**：`FILE_INPUT_INVALID`、`FILE_INPUT_BLOCKED`、`FILE_INPUT_FETCH_FAILED`、`FILE_INPUT_TOO_LARGE`；
+  消息前缀为 `file input <字段>:`，同样不含响应内容或解析地址。图片仍用 `IMAGE_INPUT_*`。
+- **清理与续接**：与图片相同，本轮结束删除；续接轮次不可再读，需要时重新上传。
+- 能否读懂 PDF、Office 等取决于沙箱内可用工具，Node 不安装；剩余风险（模型被文件内容诱导执行）由原生隔离与
+  Agent 工具策略约束，本实现不放宽也不收紧。
+- **测试**：`imageinput` 单元测试（字段与数组、20 个上限、任意类型、权限、文件名清洗、错误码、30 MiB 边界、
+  只有图片时说明文字不变）；适配器级测试经 `CodexProvider.Run`（RPC fixture 在本轮读取 prompt 中列出的文件
+  并记录大小与权限、只有图片发送为 `localImage`、开关独立、失败时不启动 Codex）；客户端验收
+  `TestNativeCodexFileInputInstalledClient`（真实 Codex 客户端在原生隔离下，沙箱工具读出文件字节数与内容、
+  确认无执行位，结束后会话工作区无残留），已加入 `scripts/test-native-session-isolation.sh` 的必过列表。
+
 ## 不在本轮范围
 
 - **Claude 适配器**：Claude CLI 的 stream-json 输入支持 base64 图片块，但需单独设计
   （输入格式、会话恢复与 native 工具读取），列为后续。
 - 发布 Node 二进制、切换本机运行中的 Node、修改 twv1 上的服务，均需另行批准。
-- 文件上传字段、嵌套字段识别、更多格式（HEIC/AVIF）、图片缩放或 EXIF 剥离。
+- 嵌套字段识别、更多格式（HEIC/AVIF）、图片缩放或 EXIF 剥离。
