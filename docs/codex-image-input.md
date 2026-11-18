@@ -12,10 +12,11 @@ JSON 作为文本 prompt 发送，模型看不到图片像素；原生隔离的�
 Codex app-server 已有的 `localImage` 输入随本轮文本一起发送。不改 SDK、CLI 或 Plugin，
 不新增依赖方向；Core 仍是授权、调度与终态权威。
 
-## 开关（默认关闭）
+## 开关（2026-11-18 起默认开启）
 
 - 环境变量 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`，取值与现有布尔开关一致
-  （`true/1/yes/on`、`false/0/no/off`；未设置为关闭；其他值启动时报错，不回显原值）。
+  （`true/1/yes/on`、`false/0/no/off`；其他值启动时报错，不回显原值）。最初未设置为关闭；2026-11-18 起
+  未设置为开启（文件开关同样），升级后需保持原行为的 Node 须显式设为 `false`。
 - 关闭时完全不识别字段：prompt 文本与 `turn/start` 输入与当前版本逐字节相同。
 - 新增 `ProviderConfig.CodexImageInput bool`，只由 Codex 适配器读取。
 
@@ -179,7 +180,7 @@ Run 被取消时仍按现有 `PROVIDER_CANCELED` 处理。
   `name[index]`，空字符串跳过，数组中出现非字符串项即 `*_INVALID`；其他形状仍忽略。
 - **数量与大小**：一个 Run 的图片与文件链接合计最多 20 个，超过即失败（含文件字段时 `FILE_INPUT_INVALID`，
   否则 `IMAGE_INPUT_INVALID`）。单个上限 30 MiB，单个超时 60 秒，图片同样适用。
-- **开关**：新增 `OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`（默认关闭，严格布尔值），与图片开关独立：
+- **开关**：新增 `OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`（最初默认关闭，2026-11-18 起默认开启；严格布尔值），与图片开关独立：
   各自只识别自己的字段，两者都关闭时 prompt 与 turn 不变。DoH、可信来源与 CA 选项沿用
   `..._IMAGE_INPUT_*` 变量名，开启任一开关即可使用并同时作用于两者。`ProviderConfig.CodexFileInput` 只由
   Codex 适配器读取。

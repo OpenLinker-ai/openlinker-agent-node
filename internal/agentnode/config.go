@@ -203,11 +203,11 @@ func adapterFromEnv(get EnvLookup, mode string) (Adapter, error) {
 		if err != nil {
 			return nil, err
 		}
-		imageInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT", false)
+		imageInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT", true)
 		if err != nil {
 			return nil, err
 		}
-		fileInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT", false)
+		fileInput, err := strictBoolOption(get, "OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT", true)
 		if err != nil {
 			return nil, err
 		}

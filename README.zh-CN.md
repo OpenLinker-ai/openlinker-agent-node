@@ -282,7 +282,7 @@ OPENLINKER_AGENT_NODE_CODEX_WEB_SEARCH=true
 截至 `v0.1.58-rc.3` 的旧发布尚未接通此参数，修改主机 Codex 配置或增加环境变量
 不能修复旧二进制。须使用包含本修复的发布物，并遵循上方版本变更的新身份登记流程。
 
-`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`（默认 **false**，取值规则同上）让模型看到任务输入中
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`（默认 **true**，取值规则同上）让模型看到任务输入中
 链接的图片。只识别顶层名为 `image_url` 或以 `_image_url` 结尾的字符串字段，以及名为 `image_urls` 或以
 `_image_urls` 结尾的字符串数组（每个 Run 与文件链接合计最多 20 个）。字段值也可以是
 内联的 `data:image/(jpeg|png|webp|gif);base64,...`（如本地上传）：本地解码、不访问网络，文件头须与声明类型一致；
@@ -295,7 +295,7 @@ prompt 文本与会话历史中的内联图片数据替换为占位说明。Node
 `IMAGE_INPUT_UNSUPPORTED_TYPE` 结束 Run。Claude 暂不支持。详见
 [docs/codex-image-input.md](docs/codex-image-input.md)。
 
-`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`（默认 **false**，取值规则同上，与图片开关独立）下发任务输入中
+`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT`（默认 **true**，取值规则同上，与图片开关独立）下发任务输入中
 链接的任意类型文件。顶层名为 `file_url` 或以 `_file_url` 结尾的字符串字段，以及名为 `file_urls` 或以
 `_file_urls` 结尾的字符串数组，按与图片相同的规则下载（不检查类型；拒绝内联 `data:` 值），单个不超过
 30 MiB，每个 Run 附件链接合计最多 20 个。文件以 `file-N<清洗后的原扩展名>`、权限 0600 写入同一私有目录，
@@ -304,6 +304,10 @@ prompt 文本与会话历史中的内联图片数据替换为占位说明。Node
 Node 不安装。本轮结束即删除，后续轮次不可再读。失败时在启动 Codex 前以 `FILE_INPUT_INVALID`、
 `FILE_INPUT_BLOCKED`、`FILE_INPUT_FETCH_FAILED` 或 `FILE_INPUT_TOO_LARGE` 结束 Run。两个开关都关闭时，
 prompt 与 turn 不变。
+
+此前的发布两个开关默认关闭，未设置这两个变量的 Node 升级后会开启：输入含上述字段的 Run 会下载链接，
+按上述规则取不到的链接（例如私网主机、http、未配置下方 DoH 的 fake-IP DNS 主机）会在启动 Codex 前让 Run
+失败，而不再作为文本原样传给模型。如需保持原行为，把对应变量设为 `false`。
 
 若主机 DNS 返回 fake-IP（例如 TUN 代理以 `198.18.0.0/15` 应答），所有链接都会被拦截。可设置
 `OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT_DOH_URL`（须开启图片或文件输入），改用 DNS-over-HTTPS 解析

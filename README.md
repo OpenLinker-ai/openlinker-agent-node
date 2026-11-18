@@ -364,7 +364,7 @@ search on; set `false` first to keep it off. Releases through
 the variable cannot repair those binaries. Use a release containing this fix and
 follow the fresh-enrollment version-change procedure above.
 
-`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **false**, same boolean values)
+`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT` (default **true**, same boolean values)
 lets the model see images linked from the task input. Only top-level string fields
 named `image_url` or ending in `_image_url`, and string arrays named `image_urls` or ending in
 `_image_urls`, are used (at most 20 links per Run, counted together with file links). A value may also be an
@@ -381,7 +381,7 @@ and deleted when the turn ends. Failures stop the Run before Codex starts with
 `IMAGE_INPUT_TOO_LARGE` or `IMAGE_INPUT_UNSUPPORTED_TYPE`. Claude does not support
 this yet. See [docs/codex-image-input.md](docs/codex-image-input.md).
 
-`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT` (default **false**, same boolean values, independent
+`OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT` (default **true**, same boolean values, independent
 of image input) delivers files of any type linked from the task input. Top-level string fields
 named `file_url` or ending in `_file_url`, and string arrays named `file_urls` or ending in
 `_file_urls`, are downloaded with the same rules as images (no type check; inline `data:`
@@ -394,6 +394,13 @@ documents depends on the tools available in the sandbox; Node installs none. Fil
 when the turn ends and are not available to later turns. Failures stop the Run before Codex
 starts with `FILE_INPUT_INVALID`, `FILE_INPUT_BLOCKED`, `FILE_INPUT_FETCH_FAILED` or
 `FILE_INPUT_TOO_LARGE`. With both switches off, prompts and turns are unchanged.
+
+Both switches were off by default before this release, so upgrading a Node that never set
+them turns them on: a Run whose input has one of these fields now has the links downloaded,
+and a link that cannot be fetched under the rules above (for example a private host, plain
+http, or a host behind fake-IP DNS without the DoH option below) fails the Run before Codex
+starts instead of being passed through as text. Set either variable to `false` to keep the
+previous behavior.
 
 On hosts whose DNS returns fake-IP addresses (for example a TUN proxy answering with
 `198.18.0.0/15`), every link is blocked. Set
