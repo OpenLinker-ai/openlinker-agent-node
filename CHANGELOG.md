@@ -7,6 +7,17 @@ runtime protocol, adapter interfaces, and CLI behavior are declared stable.
 
 ## Unreleased
 
+- Claude: a Claude Code CLI that is not signed in or whose login expired no longer
+  holds a Run until the Node timeout (30 minutes by default). The Run fails with
+  `PROVIDER_AUTH_FAILED` and the CLI's own message (for example "Failed to
+  authenticate: OAuth session expired and could not be refreshed") as soon as the
+  stream reports `authentication_failed`, an auth error result, two consecutive
+  `api_retry` events for `authentication_failed`, or an auth message on stderr. The
+  Node stops a CLI that stays alive 5 s after reporting an error, and fails with
+  `PROVIDER_UNRESPONSIVE` when the CLI writes nothing to stdout for 2 minutes after
+  starting. Other error results now include the CLI's result text instead of
+  "no diagnostic output". Session reuse, isolation defaults, identity and session
+  paths are unchanged; an auth failure does not clear the saved session mapping.
 - Codex image and file input are now on by default (`OPENLINKER_AGENT_NODE_CODEX_IMAGE_INPUT`
   and `OPENLINKER_AGENT_NODE_CODEX_FILE_INPUT` default to `true`). A Node that never set them
   starts downloading `image_url` / `file_url` style input links after upgrading, and a link

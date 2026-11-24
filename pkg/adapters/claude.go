@@ -18,6 +18,11 @@ import (
 
 type ClaudeProvider struct{ Config ProviderConfig }
 
+var (
+	claudeStartupOutputDeadline = 2 * time.Minute
+	claudeTerminalErrorGrace    = 5 * time.Second
+)
+
 type claudeResponse struct {
 	Type      string   `json:"type"`
 	Subtype   string   `json:"subtype"`
@@ -94,11 +99,12 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 	var successfulResumeSessionID string
 	for attempt := 0; attempt < 2; attempt++ {
 		args := claudeArguments(config, permission, sessionID)
+		attemptCtx, stopAttempt := context.WithCancel(requestCtx)
 		var command *exec.Cmd
 		if config.sandbox != nil {
-			command = nativeHostCommand(requestCtx, config, bin, args)
+			command = nativeHostCommand(attemptCtx, config, bin, args)
 		} else {
-			command = exec.CommandContext(requestCtx, bin, args...) // #nosec G204 -- operator-configured binary, no shell.
+			command = exec.CommandContext(attemptCtx, bin, args...) // #nosec G204 -- operator-configured binary, no shell.
 		}
 		configureProviderProcess(command)
 		command.Dir = workspace
@@ -120,16 +126,29 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 			),
 		)
 		observer := providerstream.NewClaudeObserver(run.Emit, nil)
-		stdout := newClaudeResultStream(cancel, observer)
+		stdout := newClaudeResultStream(stopAttempt, observer)
 		stderr := &outputTail{}
 		command.Stdout, command.Stderr = stdout, stderr
+		stdout.watchStartup(claudeStartupOutputDeadline)
 		err := command.Run()
+		stdout.stop()
+		stopAttempt()
 		var parseErr error
 		response, parseErr = stdout.Result()
 		if parseErr != nil && stdout.err != nil {
 			return openlinker.RuntimeResult{}, parseErr
 		}
-		if ctxErr := requestCtx.Err(); ctxErr != nil {
+		if stdout.authFailure != "" && ctx.Err() == nil {
+			return claudeAuthFailedResult(stdout.authFailure), nil
+		}
+		if stdout.silentStartup() && requestCtx.Err() == nil {
+			if claudeAuthFailureText(stderr.String()) {
+				return claudeAuthFailedResult(stderr.String()), nil
+			}
+			return failedResult("PROVIDER_UNRESPONSIVE", fmt.Sprintf("Claude Code produced no output within %s; check the Claude CLI login and network on the Node host.", claudeStartupOutputDeadline)), nil
+		}
+		stoppedAfterFailure := stdout.found && response.failureMessage() != "" && requestCtx.Err() == nil
+		if ctxErr := requestCtx.Err(); ctxErr != nil && !stoppedAfterFailure {
 			if errors.Is(ctxErr, context.DeadlineExceeded) {
 				return openlinker.RuntimeResult{}, fmt.Errorf("Claude timed out after %s", timeout)
 			}
@@ -150,7 +169,11 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 				recovered = true
 				continue
 			}
-			return openlinker.RuntimeResult{}, fmt.Errorf("Claude failed: %w: %s", err, boundedText(stderr.String(), 500, "no diagnostic output"))
+			diagnostic := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(response.failureMessage()), strings.TrimSpace(stderr.String())}, "\n"))
+			if claudeAuthFailureText(diagnostic) {
+				return claudeAuthFailedResult(diagnostic), nil
+			}
+			return openlinker.RuntimeResult{}, fmt.Errorf("Claude failed: %w: %s", err, boundedText(diagnostic, 500, "no diagnostic output"))
 		}
 		// Bind evidence to this successful invocation, never a failed resume
 		// discarded by the missing-session retry or the subsequently saved map.
@@ -199,6 +222,14 @@ func (provider ClaudeProvider) Run(ctx context.Context, run RunContext) (resultV
 		Status: "success", Output: result,
 		Events: []openlinker.RuntimeEvent{{EventType: "run.message.delta", Payload: map[string]any{"text": summary}}},
 	}, nil
+}
+
+func claudeAuthFailedResult(reported string) openlinker.RuntimeResult {
+	message := "Claude Code on this Node host is not signed in or its login has expired; sign in to the Claude CLI on the host again, then retry."
+	if reported = strings.TrimSpace(reported); reported != "" {
+		message += " Claude reported: " + reported
+	}
+	return failedResult("PROVIDER_AUTH_FAILED", boundedText(message, 500, "Claude authentication failed"))
 }
 
 func claudeArguments(config ProviderConfig, permission, sessionID string) []string {
